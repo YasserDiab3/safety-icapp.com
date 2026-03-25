@@ -426,10 +426,13 @@
                     }
                     document.body.classList.add('app-active');
                 } catch (e) { /* ignore */ }
-                if (window.UI && window.UI._hseUiShell) {
-                    console.warn(
-                        '[HSE] واجهة احتياطية (ui-shell): جاري تفعيل التنقل الأساسي. للواجهة الكاملة تحقق من تحميل app-ui.js (Network).'
-                    );
+                if (window.UI && window.UI._hseUiShell && !window.__hseUiShellNoticeOnce) {
+                    window.__hseUiShellNoticeOnce = true;
+                    try {
+                        console.info(
+                            '[HSE] وضع واجهة احتياطية (ui-shell). للواجهة الكاملة: Network → app-ui.js (200). أخطاء runtime.lastError من إضافات المتصفح وليست من التطبيق.'
+                        );
+                    } catch (e) { /* ignore */ }
                 }
                 setTimeout(function () {
                     try {
