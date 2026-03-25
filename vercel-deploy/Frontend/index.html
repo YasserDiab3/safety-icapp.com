@@ -12195,8 +12195,13 @@
         <!-- Main services loader (ensures all services are available and adds helper functions) -->
         <script src="js/modules/app-services.js" defer></script>
 
-        <!-- 3. UI (UI rendering and DOM manipulation) -->
-        <script src="js/modules/app-ui.js?v=2" defer></script>
+        <!-- 3. UI: طبقة خفيفة ثم الواجهة الكاملة (إذا فشل app-ui لا يبقى انتظار UI لانهائياً) -->
+        <script src="js/modules/ui-shell.js" defer></script>
+        <script
+            src="js/modules/app-ui.js?v=3"
+            defer
+            onerror="console.error('[HSE] فشل تحميل app-ui.js — تحقق من Network أو امسح كاش المتصفح.');"
+        ></script>
 
         <!-- 4. Modules (Auth, Dashboard, Users, etc.) -->
         <!-- CRITICAL: Auth is defined here and must be loaded before login-init-fixed.js -->
