@@ -23,6 +23,131 @@
     /* will-change: transform; */
 }
 
+.sidebar.collapsed {
+    width: 84px;
+    min-width: 84px;
+}
+
+.sidebar.collapsed .navigation {
+    align-items: center;
+}
+
+/* تحسين شكل القائمة الجانبية عند الطي: إظهار الأيقونات فقط بشكل منسق */
+.sidebar.collapsed .user-profile {
+    padding: 0.75rem 0.5rem;
+    text-align: center;
+}
+
+.sidebar.collapsed .user-info {
+    display: none !important;
+}
+
+.sidebar.collapsed .user-avatar {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto;
+    font-size: 1.25rem;
+}
+
+.sidebar.collapsed .nav-item {
+    justify-content: center;
+    padding: 0.75rem 0.5rem;
+    min-height: 44px;
+}
+
+.sidebar.collapsed .nav-item span {
+    display: none !important;
+}
+
+.sidebar.collapsed .nav-item i {
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.sidebar.collapsed .logout-btn span {
+    display: none !important;
+}
+
+.sidebar.collapsed .logout-btn {
+    justify-content: center;
+    padding: 0.75rem 0.5rem;
+}
+
+.sidebar.collapsed .logout-btn i {
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.sidebar.collapsed .language-switcher .language-toggle-btn > span:first-of-type {
+    display: none !important;
+}
+
+.sidebar.collapsed .language-switcher {
+    justify-content: center;
+    padding: 0.5rem;
+}
+
+.sidebar.collapsed .language-switcher .language-toggle-btn {
+    padding: 0.5rem;
+    justify-content: center;
+}
+
+/* ضمان قابلية النقر على زر اللغة وزر الإشعارات في القائمة الجانبية */
+.sidebar .language-switcher,
+.sidebar #sidebar-notifications-container,
+.sidebar .language-toggle-btn,
+.sidebar #notifications-btn {
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 10;
+}
+
+/* عند طي القائمة: إظهار زر الجرس ثم زر متصل تحته، وعدم إخفاء الحاوية فوق زر اللغة */
+.sidebar.collapsed .sidebar-actions-row,
+.sidebar.collapsed [style*="z-index: 1002"] {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    margin: 0.5rem 0 !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+.sidebar.collapsed #sync-btn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 50%;
+}
+
+.sidebar.collapsed #sync-btn .sync-label-text {
+    display: none;
+}
+
+.sidebar-collapse-toggle {
+    margin: 0.5rem 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.12);
+    color: white;
+    cursor: pointer;
+    transition: background 0.3s ease;
+}
+
+.sidebar-collapse-toggle:hover,
+.sidebar-collapse-toggle:focus-visible {
+    background: rgba(255, 255, 255, 0.24);
+}
+
 /* User Profile */
 .user-profile {
     padding: 2rem 1.5rem;
@@ -33,10 +158,6 @@
 .user-avatar {
     width: 80px;
     height: 80px;
-    max-width: 80px;
-    max-height: 80px;
-    min-width: 80px;
-    min-height: 80px;
     border-radius: 50%;
     background: linear-gradient(135deg, #004C8C 0%, #003865 100%);
     border: 3px solid #FFC72C;
@@ -47,18 +168,6 @@
     font-size: 2rem;
     box-shadow: 0 4px 15px rgba(255, 199, 44, 0.3);
     transition: transform 0.3s ease;
-    flex-shrink: 0;
-}
-.user-avatar img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: 50%;
-}
-.user-avatar-clickable {
-    cursor: pointer;
 }
 
 .user-avatar:hover {

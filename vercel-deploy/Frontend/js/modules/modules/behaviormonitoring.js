@@ -1,4 +1,4 @@
-﻿/**
+/**
  * BehaviorMonitoring Module
  * ØªÙ… Ø§Ø³ØªØ®Ø±Ø§Ø¬Ù‡ Ù…Ù† app-modules.js
  */
@@ -118,6 +118,20 @@ const BehaviorMonitoring = {
         }
     },
 
+    refreshSiteDropdowns() {
+        try {
+            var sites = this.getSiteOptions();
+            if (!sites || !sites.length) return;
+            var esc = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML : function(s) { return String(s == null ? '' : s); };
+            document.querySelectorAll('select[id$="-factory"]').forEach(function(el) {
+                if (el.tagName !== 'SELECT') return;
+                var v = el.value;
+                el.innerHTML = '<option value="">اختر المصنع</option>' + sites.map(function(s) { return '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>'; }).join('');
+                if (v) el.value = v;
+            });
+        } catch (e) { if (typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('⚠️ BehaviorMonitoring.refreshSiteDropdowns:', e); }
+    },
+
     resolveSiteName(siteIdOrName) {
         const v = (siteIdOrName || '').toString();
         if (!v) return '';
@@ -136,6 +150,14 @@ const BehaviorMonitoring = {
     },
 
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         // التحقق من وجود التبعيات المطلوبة
         if (typeof Utils === 'undefined') {
             console.error('Utils غير متوفر!');
@@ -302,7 +324,7 @@ const BehaviorMonitoring = {
             // معالجة نتائج البيانات
             if (behaviorResult && behaviorResult.success && Array.isArray(behaviorResult.data)) {
                 AppState.appData.behaviorMonitoring = behaviorResult.data;
-                Utils.safeLog(`✅ تم تحميل ${behaviorResult.data.length} سجل من قاعدة البيانات`);
+                Utils.safeLog(`✅ تم تحميل ${behaviorResult.data.length} سجل من Google Sheets`);
                 
                 // تحديث التبويب الحالي بعد تحميل البيانات
                 this.refreshCurrentTab();
@@ -314,7 +336,7 @@ const BehaviorMonitoring = {
             }
         } catch (error) {
             const errorMsg = error.message || error.toString() || '';
-            Utils.safeError('❌ خطأ في تحميل بيانات مراقبة السلوك من قاعدة البيانات:', error);
+            Utils.safeError('❌ خطأ في تحميل بيانات مراقبة السلوك من Google Sheets:', error);
             
             // عرض رسالة خطأ واضحة للمستخدم
             if (errorMsg.includes('انتهت مهلة الاتصال') || errorMsg.includes('timeout')) {
@@ -1145,12 +1167,8 @@ const BehaviorMonitoring = {
     },
 
     async showForm(data = null) {
-        try {
-            if (typeof Permissions !== 'undefined' && typeof Permissions.ensureFormSettingsState === 'function') {
-                await Permissions.ensureFormSettingsState();
-            }
-        } catch (e) {
-            // متابعة عرض النموذج حتى مع فشل التحميل
+        if (typeof Permissions !== 'undefined' && Permissions.ensureFormSettingsState) {
+            try { await Permissions.ensureFormSettingsState(); } catch (e) { /* ignore */ }
         }
         const modal = document.createElement('div');
         modal.className = 'modal-overlay';
@@ -1282,7 +1300,7 @@ const BehaviorMonitoring = {
                 Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
             }
 
-            // حفظ تلقائي في قاعدة البيانات
+            // حفظ تلقائي في Google Sheets
             await GoogleIntegration.autoSave('BehaviorMonitoring', AppState.appData.behaviorMonitoring);
 
             Loading.hide();

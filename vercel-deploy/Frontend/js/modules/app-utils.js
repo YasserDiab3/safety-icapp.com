@@ -1,4 +1,4 @@
-﻿/* ========================================
+/* ========================================
    نظام السلامة المهنية - أمريكانا HSE
    app-utils.js - الدوال المساعدة والثوابت
    ======================================== */
@@ -2732,8 +2732,8 @@ const AppState = {
         userEmail: null // البريد الإلكتروني للمستخدم الحالي
     },
     useSupabaseBackend: true,
-    supabaseUrl: 'https://rtxleteymcqmtzrozckh.supabase.co',
-    supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ0eGxldGV5bWNxbXR6cm96Y2toIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2ODk1MTMsImV4cCI6MjA4NzI2NTUxM30.f5WdaRZXCTpRF65HWA2bZk7sXYxNKVhUtunuuGRX4rs',
+    supabaseUrl: 'https://fcdsiwjtrjrbtznnmhmx.supabase.co',
+    supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZjZHNpd2p0cmpyYnR6bm5taG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NzE2MzIsImV4cCI6MjA5MDA0NzYzMn0.LHn09oWlW4JZCvk3yWO3Bd5qfphL6t0KSW8JLBfx0GQ',
     /** مفتاح سري للـ API: يُملأ من js/config.js (__CONFIG__.HSE_API_SECRET) أو يُعيّن هنا */
     hseApiSecret: (typeof window !== 'undefined' && window.__CONFIG__ && window.__CONFIG__.HSE_API_SECRET) ? String(window.__CONFIG__.HSE_API_SECRET).trim() : '',
     googleConfig: {

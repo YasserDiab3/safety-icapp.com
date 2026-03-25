@@ -1,4 +1,4 @@
-﻿/**
+/**
  * App Services - Main Loader/Index File
  * 
  * This file serves as the main entry point for all service modules.
@@ -15,7 +15,7 @@
  * - services/user-activity-log.js - User activity logging
  * - services/cloud-storage-integration.js - Cloud storage (OneDrive, Google Drive, SharePoint)
  * - services/workflow.js - Workflow engine
- * - services/google-integration.js - Backend (Script/Sheets) integration
+ * - services/google-integration.js - Google Apps Script and Sheets integration
  */
 
 // All services are already loaded via script tags and exposed to window
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined') {
         window.GoogleIntegration.syncSpecificSheets = async function(sheetNames = [], options = {}) {
             const { silent = false, showLoader = false, notifyOnSuccess = !silent, notifyOnError = !silent } = options;
             if (!AppState.googleConfig.appsScript.enabled || !AppState.googleConfig.appsScript.scriptUrl) {
-                if (!silent) Utils.safeLog('قاعدة البيانات غير مفعّل');
+                if (!silent) Utils.safeLog('Google Sheets غير مفعّل');
                 return false;
             }
             if (!Array.isArray(sheetNames) || sheetNames.length === 0) {
@@ -49,7 +49,41 @@ if (typeof window !== 'undefined') {
             try {
                 if (!silent) Utils.safeLog(`جاري مزامنة ${sheetNames.length} أوراق...`);
                 if (showLoader && typeof Loading !== 'undefined') Loading.show();
-                const sheetMapping = { 'users': 'Users', 'incidents': 'Incidents', 'training': 'Training', 'employees': 'Employees' };
+                // Ensure all sheet names are correctly mapped to their Google Sheet equivalents.
+                // This mapping should be comprehensive or a more dynamic approach should be used.
+                const sheetMapping = {
+                    'users': 'Users',
+                    'incidents': 'Incidents',
+                    'training': 'Training',
+                    'employees': 'Employees',
+                    'violations': 'Violations', // Added missing mapping
+                    'usertasks': 'UserTasks', // Added missing mapping
+                    'contractors': 'Contractors', // Added missing mapping
+                    'fireequipment': 'FireEquipment', // Added missing mapping
+                    'periodicinspections': 'PeriodicInspections', // Added missing mapping
+                    'ppe': 'PPE', // Added missing mapping
+                    'nearmiss': 'NearMiss', // Added missing mapping
+                    'ptw': 'PTW', // Added missing mapping
+                    'clinic': 'Clinic', // Added missing mapping
+                    'behavior-monitoring': 'BehaviorMonitoring', // Added missing mapping
+                    'chemical-safety': 'ChemicalSafety', // Added missing mapping
+                    'daily-observations': 'DailyObservations', // Added missing mapping
+                    'iso': 'ISO', // Added missing mapping
+                    'emergency': 'Emergency', // Added missing mapping
+                    'risk-assessment': 'RiskAssessment', // Added missing mapping
+                    'sop-jha': 'SOPJHA', // Added missing mapping
+                    'legal-documents': 'LegalDocuments', // Added missing mapping
+                    'sustainability': 'Sustainability', // Added missing mapping
+                    'safety-budget': 'SafetyBudget', // Added missing mapping
+                    'safety-performance-kpis': 'SafetyPerformanceKPIs', // Added missing mapping
+                    'safety-health-management': 'SafetyHealthManagement', // Added missing mapping
+                    'action-tracking': 'ActionTracking', // Added missing mapping
+                    'ai-assistant': 'AIAssistant', // Added missing mapping
+                    'apptester': 'AppTester', // Added missing mapping
+                    'settings': 'Settings', // Added missing mapping
+                    'blacklist_register': 'Blacklist_Register' // Added missing mapping
+                    // Add other sheet mappings as needed
+                };
                 const mappedSheets = sheetNames.map(name => sheetMapping[name.toLowerCase()] || name);
                 const syncPromises = mappedSheets.map(async (sheetName) => {
                     try {
@@ -85,4 +119,3 @@ if (typeof window !== 'undefined') {
         };
     }
 }
-

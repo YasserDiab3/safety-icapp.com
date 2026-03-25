@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Application Tester Module
  * وحدة اختبار التطبيق - فحص شامل للموديولات واكتشاف المشاكل
  * 
@@ -34,6 +34,14 @@ const AppTester = {
      * تحميل الوحدة
      */
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         const section = document.getElementById('apptester-section');
         if (!section) return;
 
@@ -686,7 +694,7 @@ const AppTester = {
                 return result;
             }
 
-            // التحقق من إعدادات الخادم
+            // التحقق من إعدادات Google Apps Script
             const isEnabled = AppState?.googleConfig?.appsScript?.enabled;
             const scriptUrl = AppState?.googleConfig?.appsScript?.scriptUrl;
 
@@ -695,7 +703,7 @@ const AppTester = {
                     name: 'الربط مع الخلفية',
                     passed: true,
                     severity: null,
-                    message: 'الاتصال بالخادم غير مفعّل أو الرابط غير محدد - تم تخطي الاختبار (سيتم استخدام البيانات المحلية)',
+                    message: 'Google Apps Script غير مفعّل أو رابط الخادم غير محدد - تم تخطي الاختبار (سيتم استخدام البيانات المحلية)',
                     recommendation: null
                 };
                 this._backendTestCache = { timestamp: Date.now(), result };
@@ -708,7 +716,7 @@ const AppTester = {
                     name: 'الربط مع الخلفية',
                     passed: true,
                     severity: null,
-                    message: 'رابط الخادم غير صحيح - تم تخطي الاختبار (سيتم استخدام البيانات المحلية)',
+                    message: 'رابط Google Apps Script غير صحيح - تم تخطي الاختبار (سيتم استخدام البيانات المحلية)',
                     recommendation: null
                 };
                 this._backendTestCache = { timestamp: Date.now(), result };
@@ -774,7 +782,7 @@ const AppTester = {
                         duration: duration,
                         severity: 'medium',
                         message: errorMsg,
-                        recommendation: 'تحقق من إعدادات الاتصال بالخادم واتصال الإنترنت.'
+                        recommendation: 'تحقق من:\n1. إعدادات Google Integration\n2. اتصال الإنترنت\n3. أن Google Apps Script منشور ومفعّل'
                     };
                     this._backendTestCache = { timestamp: Date.now(), result };
                     return result;
@@ -787,8 +795,8 @@ const AppTester = {
                 // تحسين رسائل الخطأ حسب نوع الخطأ
                 const errorMsg = testError.message || testError.toString() || '';
                 
-                if (errorMsg.includes('الاتصال بالخادم غير مفعل') || errorMsg.includes('غير مفعّل')) {
-                    errorMessage = 'الاتصال بالخادم غير مفعّل - سيتم استخدام البيانات المحلية';
+                if (errorMsg.includes('Google Apps Script غير مفعل') || errorMsg.includes('غير مفعّل')) {
+                    errorMessage = 'Google Apps Script غير مفعّل - سيتم استخدام البيانات المحلية';
                 } else if (errorMsg.includes('Circuit Breaker مفتوح') || errorMsg.includes('Circuit Breaker')) {
                     errorMessage = `Circuit Breaker مفتوح - سيتم استخدام البيانات المحلية (إعادة المحاولة بعد 30 ثانية)`;
                 } else if (errorMsg.includes('Timeout') || errorMsg.includes('انتهت مهلة')) {
@@ -796,7 +804,7 @@ const AppTester = {
                 } else if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError') || errorMsg.includes('CORS')) {
                     errorMessage = 'تعذر الاتصال بالخلفية (Network/CORS) - سيتم استخدام البيانات المحلية';
                 } else if (errorMsg.includes('URL غير معرف') || errorMsg.includes('غير صحيح')) {
-                    errorMessage = 'رابط الخادم غير صحيح - سيتم استخدام البيانات المحلية';
+                    errorMessage = 'رابط Google Apps Script غير صحيح - سيتم استخدام البيانات المحلية';
                 } else {
                     errorMessage = `تعذر الاتصال بالخلفية: ${errorMsg}`;
                 }
@@ -1886,5 +1894,4 @@ const AppTester = {
         }
     }
 })();
-
 

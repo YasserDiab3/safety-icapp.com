@@ -1,4 +1,4 @@
-﻿/**
+/**
  * فحص توافق التطبيق للنشر على Cloudflare Pages و Netlify
  * Deployment Compatibility Checker
  */
@@ -112,30 +112,30 @@
         },
         
         /**
-         * فحص تكامل الخادم (Script)
+         * فحص Google Apps Script Integration
          */
         checkGoogleAppsScript() {
-            console.log('🔗 فحص إعدادات الخادم:');
+            console.log('🔗 فحص Google Apps Script:');
             
             // محاولة الوصول إلى AppState إذا كان متاحاً
             if (typeof AppState !== 'undefined' && AppState.googleConfig) {
                 const config = AppState.googleConfig.appsScript;
                 if (config && config.enabled && config.scriptUrl) {
                     const url = config.scriptUrl;
-                    console.log('  ✅ الخادم مفعّل');
+                    console.log('  ✅ Google Apps Script مفعّل');
                     console.log('  URL:', url);
                     
                     if (url.endsWith('/exec')) {
                         console.log('  ✅ URL صحيح (ينتهي بـ /exec)');
                     } else if (url.endsWith('/dev')) {
                         console.warn('  ⚠️ URL ينتهي بـ /dev - يجب أن يكون /exec');
-                        this.results.netlify.issues.push('رابط الخادم ينتهي بـ /dev');
-                        this.results.cloudflare.issues.push('رابط الخادم ينتهي بـ /dev');
+                        this.results.netlify.issues.push('Google Apps Script URL ينتهي بـ /dev');
+                        this.results.cloudflare.issues.push('Google Apps Script URL ينتهي بـ /dev');
                     } else {
                         console.warn('  ⚠️ URL قد يكون غير صحيح');
                     }
                 } else {
-                    console.warn('  ⚠️ الخادم غير مفعّل أو الرابط غير محدد');
+                    console.warn('  ⚠️ Google Apps Script غير مفعّل أو URL غير محدد');
                 }
             } else {
                 console.log('  ℹ️ AppState غير متاح بعد - سيتم فحصه بعد تحميل التطبيق');
@@ -163,7 +163,7 @@
             this.checkSPARouting();
             console.log('');
             
-            // انتظار تحميل التطبيق قبل فحص الخادم
+            // انتظار تحميل التطبيق قبل فحص Google Apps Script
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', () => {
                     setTimeout(() => this.checkGoogleAppsScript(), 2000);
@@ -198,4 +198,3 @@
     window.DeploymentChecker = DeploymentChecker;
     
 })();
-

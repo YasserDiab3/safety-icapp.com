@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ISO Module
  * ØªÙ… Ø§Ø³ØªØ®Ø±Ø§Ø¬Ù‡ Ù…Ù† app-modules.js
  */
@@ -7,6 +7,14 @@ const ISO = {
     currentTab: 'overview',
 
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         const section = document.getElementById('iso-section');
         if (!section) return;
 
@@ -96,7 +104,17 @@ const ISO = {
                 try {
                     const contentArea = document.getElementById('iso-content');
                     if (!contentArea) return;
-                    
+
+                    // تبويب مركز التكويد: عرض الهيكل فوراً ثم جلب البيانات في الخلفية (بدون إظهار رسالة مهلة مزعجة)
+                    if (this.currentTab === 'coding-center') {
+                        contentArea.innerHTML = await this.renderCodingCenter({ skipFetch: true });
+                        this.renderCodingCenter({ silentTimeout: true }).then(html => {
+                            const area = document.getElementById('iso-content');
+                            if (area && this.currentTab === 'coding-center') area.innerHTML = html;
+                        }).catch(() => {});
+                        return;
+                    }
+
                     const content = await this.renderContent().catch(error => {
                         Utils.safeWarn('⚠️ خطأ في تحميل المحتوى:', error);
                         return `
@@ -114,7 +132,7 @@ const ISO = {
                             </div>
                         `;
                     });
-                    
+
                     contentArea.innerHTML = content;
                 } catch (error) {
                     Utils.safeWarn('⚠️ خطأ في تحميل المحتوى:', error);
@@ -569,7 +587,7 @@ const ISO = {
             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
         }
 
-            // حفظ تلقائي في قاعدة البيانات
+            // حفظ تلقائي في Google Sheets
             await GoogleIntegration.autoSave('ISODocuments', AppState.appData.isoDocuments);
 
             Loading.hide();
@@ -710,7 +728,7 @@ const ISO = {
             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
         }
 
-            // حفظ تلقائي في قاعدة البيانات
+            // حفظ تلقائي في Google Sheets
             await GoogleIntegration.autoSave('ISOProcedures', AppState.appData.isoProcedures);
 
             Loading.hide();
@@ -906,9 +924,9 @@ const ISO = {
             // 4. تحديث القائمة فوراً
             this.load();
             
-            // 5. معالجة المهام الخلفية (قاعدة البيانات) في الخلفية
+            // 5. معالجة المهام الخلفية (Google Sheets) في الخلفية
             GoogleIntegration.autoSave('ISOForms', AppState.appData.isoForms).catch(error => {
-                Utils.safeError('خطأ في حفظ قاعدة البيانات:', error);
+                Utils.safeError('خطأ في حفظ Google Sheets:', error);
             });
         } catch (error) {
             Notification.error('حدث خطأ: ' + error.message);
@@ -922,8 +940,8 @@ const ISO = {
     },
 
     async viewDocument(id) {
-        const document = AppState.appData.isoDocuments.find(d => d.id === id);
-        if (!document) {
+        const doc = AppState.appData.isoDocuments.find(d => d.id === id);
+        if (!doc) {
             Notification.error('الوثيقة غير موجودة');
             return;
         }
@@ -940,17 +958,17 @@ const ISO = {
                 </div>
                 <div class="modal-body">
                     <div class="space-y-3">
-                        <div><strong>كود ISO:</strong> ${Utils.escapeHTML(document.isoCode || '')}</div>
-                        <div><strong>اسم الوثيقة:</strong> ${Utils.escapeHTML(document.name || '')}</div>
-                        <div><strong>النوع:</strong> ${Utils.escapeHTML(document.type || '')}</div>
-                        <div><strong>الإصدار:</strong> ${Utils.escapeHTML(document.version || '')}</div>
-                        <div><strong>القسم:</strong> ${Utils.escapeHTML(document.department || '')}</div>
-                        <div><strong>تاريخ الإنشاء:</strong> ${Utils.formatDate(document.createdAt)}</div>
+                        <div><strong>كود ISO:</strong> ${Utils.escapeHTML(doc.isoCode || '')}</div>
+                        <div><strong>اسم الوثيقة:</strong> ${Utils.escapeHTML(doc.name || '')}</div>
+                        <div><strong>النوع:</strong> ${Utils.escapeHTML(doc.type || '')}</div>
+                        <div><strong>الإصدار:</strong> ${Utils.escapeHTML(doc.version || '')}</div>
+                        <div><strong>القسم:</strong> ${Utils.escapeHTML(doc.department || '')}</div>
+                        <div><strong>تاريخ الإنشاء:</strong> ${Utils.formatDate(doc.createdAt)}</div>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn-secondary" onclick="this.closest('.modal-overlay').remove()">إغلاق</button>
-                    <button type="button" onclick="ISO.showDocumentForm(${JSON.stringify(document).replace(/"/g, '&quot;')}); this.closest('.modal-overlay').remove();" class="btn-primary">تعديل</button>
+                    <button type="button" onclick="ISO.showDocumentForm(${JSON.stringify(doc).replace(/"/g, '&quot;')}); this.closest('.modal-overlay').remove();" class="btn-primary">تعديل</button>
                 </div>
             </div>
         `;
@@ -1362,7 +1380,7 @@ const ISO = {
                         await GoogleIntegration.autoSave('HSEObjectives', AppState.appData.hseObjectives);
                     }
                 } else {
-                    // إذا لم يكن الخادم مفعّلاً، نستخدم autoSave فقط
+                    // إذا لم يكن Google Apps Script مفعّل، نستخدم autoSave فقط
                     await GoogleIntegration.autoSave('HSEObjectives', AppState.appData.hseObjectives);
                 }
             }
@@ -1490,7 +1508,7 @@ const ISO = {
                         await GoogleIntegration.autoSave('EnvironmentalAspects', AppState.appData.environmentalAspects);
                     }
                 } else {
-                    // إذا لم يكن الخادم مفعّلاً، نستخدم autoSave فقط
+                    // إذا لم يكن Google Apps Script مفعّل، نستخدم autoSave فقط
                     await GoogleIntegration.autoSave('EnvironmentalAspects', AppState.appData.environmentalAspects);
                 }
             }
@@ -1635,7 +1653,7 @@ const ISO = {
                         await GoogleIntegration.autoSave('HSEAudits', AppState.appData.hseAudits);
                     }
                 } else {
-                    // إذا لم يكن الخادم مفعّلاً، نستخدم autoSave فقط
+                    // إذا لم يكن Google Apps Script مفعّل، نستخدم autoSave فقط
                     await GoogleIntegration.autoSave('HSEAudits', AppState.appData.hseAudits);
                 }
             }
@@ -1795,7 +1813,7 @@ const ISO = {
                         await GoogleIntegration.autoSave('HSENonConformities', AppState.appData.hseNonConformities);
                     }
                 } else {
-                    // إذا لم يكن الخادم مفعّلاً، نستخدم autoSave فقط
+                    // إذا لم يكن Google Apps Script مفعّل، نستخدم autoSave فقط
                     await GoogleIntegration.autoSave('HSENonConformities', AppState.appData.hseNonConformities);
                 }
             }
@@ -1959,7 +1977,7 @@ const ISO = {
                         await GoogleIntegration.autoSave('HSECorrectiveActions', AppState.appData.hseCorrectiveActions);
                     }
                 } else {
-                    // إذا لم يكن الخادم مفعّلاً، نستخدم autoSave فقط
+                    // إذا لم يكن Google Apps Script مفعّل، نستخدم autoSave فقط
                     await GoogleIntegration.autoSave('HSECorrectiveActions', AppState.appData.hseCorrectiveActions);
                 }
             }
@@ -2010,7 +2028,10 @@ const ISO = {
     },
 
     // ===== مركز التكويد والإصدار (Document Coding & Issuing Center) =====
-    async renderCodingCenter() {
+    async renderCodingCenter(opts = {}) {
+        const skipFetch = opts && opts.skipFetch === true;
+        const showLoadingIndicator = skipFetch;
+
         // التحقق من الصلاحيات - فقط المدير يمكنه الوصول
         const currentUser = AppState.currentUser;
         if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'مدير')) {
@@ -2027,56 +2048,109 @@ const ISO = {
             `;
         }
 
-        // جلب البيانات من قاعدة البيانات
         let documentCodes = [];
         let documentVersions = [];
+        let timedOut = false;
+        const silentTimeout = opts && opts.silentTimeout === true;
 
-        try {
-            Loading.show();
-            const codesResult = await GoogleIntegration.fetchData('getDocumentCodes', {});
-            if (codesResult.success && codesResult.data) {
-                documentCodes = codesResult.data;
+        if (!skipFetch) {
+            const LOAD_TIMEOUT_MS = 60000;
+            try {
+                Loading.show();
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('TIMEOUT')), LOAD_TIMEOUT_MS)
+                );
+                const fetchPromise = Promise.all([
+                    GoogleIntegration.fetchData('getDocumentCodes', {}).catch(() => ({ success: false, data: [] })),
+                    GoogleIntegration.fetchData('getDocumentVersions', { documentCodeId: null }).catch(() => ({ success: false, data: [] }))
+                ]);
+                const [codesResult, versionsResult] = await Promise.race([fetchPromise, timeoutPromise]);
+                if (codesResult && codesResult.success && codesResult.data) {
+                    documentCodes = codesResult.data;
+                }
+                if (versionsResult && versionsResult.success && versionsResult.data) {
+                    documentVersions = versionsResult.data;
+                }
+            } catch (error) {
+                if (error && error.message === 'TIMEOUT') {
+                    timedOut = true;
+                    Utils.safeError('مركز التكويد والإصدار: انتهت مهلة التحميل. جرب تحديث الصفحة.');
+                    if (!silentTimeout && typeof Notification !== 'undefined') {
+                        Notification.warning('انتهت مهلة تحميل البيانات. يمكنك تحديث الصفحة أو المحاولة لاحقاً.');
+                    }
+                } else {
+                    Utils.safeError('Error loading coding center data:', error);
+                }
+            } finally {
+                Loading.hide();
             }
-
-            const versionsResult = await GoogleIntegration.fetchData('getDocumentVersions', { documentCodeId: null });
-            if (versionsResult.success && versionsResult.data) {
-                documentVersions = versionsResult.data;
-            }
-            Loading.hide();
-        } catch (error) {
-            Loading.hide();
-            Utils.safeError('Error loading coding center data:', error);
         }
 
-        return `
+        const html = `
             <div class="space-y-6">
-                <!-- إحصائيات سريعة -->
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
-                        <div class="text-3xl font-bold text-blue-600 mb-2">${documentCodes.length}</div>
-                        <div class="text-sm text-gray-700 font-semibold">أكواد المستندات</div>
+                ${timedOut ? `
+                <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 flex items-center gap-2">
+                    <i class="fas fa-clock text-amber-600"></i>
+                    <span class="text-sm text-amber-800">لم يتم تحميل البيانات في الوقت المحدد. اضغط <strong>إعادة تحميل</strong> للمحاولة مرة أخرى.</span>
+                </div>
+                ` : ''}
+                ${showLoadingIndicator ? `
+                <div class="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 flex items-center gap-2">
+                    <i class="fas fa-spinner fa-spin text-blue-600"></i>
+                    <span class="text-sm text-blue-800">جاري تحميل البيانات...</span>
+                </div>
+                ` : ''}
+                <!-- إحصائيات سريعة + زر إعادة التحميل -->
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1">
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+                            <div class="text-3xl font-bold text-blue-600 mb-2">${documentCodes.length}</div>
+                            <div class="text-sm text-gray-700 font-semibold">أكواد المستندات</div>
+                        </div>
+                        <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+                            <div class="text-3xl font-bold text-green-600 mb-2">${documentVersions.length}</div>
+                            <div class="text-sm text-gray-700 font-semibold">إصدارات المستندات</div>
+                        </div>
+                        <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 text-center">
+                            <div class="text-3xl font-bold text-purple-600 mb-2">${documentVersions.filter(v => v.isActive === true || v.isActive === 'true').length}</div>
+                            <div class="text-sm text-gray-700 font-semibold">إصدارات نشطة</div>
+                        </div>
                     </div>
-                    <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
-                        <div class="text-3xl font-bold text-green-600 mb-2">${documentVersions.length}</div>
-                        <div class="text-sm text-gray-700 font-semibold">إصدارات المستندات</div>
-                    </div>
-                    <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 text-center">
-                        <div class="text-3xl font-bold text-purple-600 mb-2">${documentVersions.filter(v => v.isActive === true || v.isActive === 'true').length}</div>
-                        <div class="text-sm text-gray-700 font-semibold">إصدارات نشطة</div>
-                    </div>
+                    <button type="button" onclick="ISO.reloadCodingCenter()" class="btn-secondary flex items-center gap-2 shrink-0" title="إعادة تحميل البيانات">
+                        <i class="fas fa-sync-alt"></i>
+                        <span>إعادة تحميل</span>
+                    </button>
                 </div>
 
                 <!-- قسم إدارة التكويد -->
                 <div class="content-card">
                     <div class="card-header">
-                        <div class="flex items-center justify-between">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
                             <h2 class="card-title">
                                 <i class="fas fa-code ml-2"></i>
                                 مركز التكويد (Document Coding Center)
                             </h2>
-                            <button class="btn-primary" onclick="ISO.showDocumentCodeForm()">
-                                <i class="fas fa-plus ml-2"></i>إضافة كود جديد
-                            </button>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button type="button" class="btn-secondary flex items-center gap-1" onclick="ISO.importCodingCenterFromExcel()" title="استيراد أكواد المستندات من ملف Excel أو CSV">
+                                    <i class="fas fa-file-excel"></i>
+                                    <span>استيراد Excel</span>
+                                </button>
+                                <button type="button" class="btn-secondary flex items-center gap-1" onclick="ISO.importCodingCenterFromPDF()" title="استيراد من PDF (غير مدعوم للجداول - استخدم Excel)">
+                                    <i class="fas fa-file-pdf"></i>
+                                    <span>استيراد PDF</span>
+                                </button>
+                                <button type="button" class="btn-secondary flex items-center gap-1" onclick="ISO.exportCodingCenterToExcel()" title="تصدير البيانات إلى Excel">
+                                    <i class="fas fa-file-export"></i>
+                                    <span>تصدير Excel</span>
+                                </button>
+                                <button type="button" class="btn-secondary flex items-center gap-1" onclick="ISO.exportCodingCenterToPDF()" title="تصدير البيانات إلى PDF">
+                                    <i class="fas fa-file-pdf"></i>
+                                    <span>تصدير PDF</span>
+                                </button>
+                                <button class="btn-primary" onclick="ISO.showDocumentCodeForm()">
+                                    <i class="fas fa-plus ml-2"></i>إضافة كود جديد
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div class="card-body">
@@ -2204,6 +2278,325 @@ const ISO = {
                 </div>
             </div>
         `;
+        if (opts && opts.returnStatus) return { html, timedOut };
+        return html;
+    },
+
+    /**
+     * إعادة تحميل محتوى مركز التكويد والإصدار فقط (بدون إعادة تحميل كامل الموديول)
+     */
+    async reloadCodingCenter() {
+        const contentArea = document.getElementById('iso-content');
+        if (!contentArea) return;
+        try {
+            Loading.show();
+            this.currentTab = 'coding-center';
+            const result = await this.renderCodingCenter({ returnStatus: true });
+            const content = result && typeof result === 'object' && result.html !== undefined ? result.html : result;
+            contentArea.innerHTML = content;
+            const timedOut = result && typeof result === 'object' && result.timedOut === true;
+            if (!timedOut && typeof Notification !== 'undefined') Notification.success('تم تحديث البيانات');
+        } catch (error) {
+            Utils.safeError('Error reloading coding center:', error);
+            if (typeof Notification !== 'undefined') Notification.error('فشل إعادة التحميل: ' + (error && error.message ? error.message : ''));
+        } finally {
+            Loading.hide();
+        }
+    },
+
+    /**
+     * تصدير بيانات مركز التكويد إلى Excel
+     */
+    async exportCodingCenterToExcel() {
+        try {
+            if (typeof XLSX === 'undefined') {
+                if (typeof Notification !== 'undefined') Notification.error('مكتبة Excel غير متاحة. يرجى تحديث الصفحة والمحاولة مرة أخرى.');
+                return;
+            }
+            Loading.show();
+            const [codesRes, versionsRes] = await Promise.all([
+                GoogleIntegration.fetchData('getDocumentCodes', {}).catch(() => ({ success: false, data: [] })),
+                GoogleIntegration.fetchData('getDocumentVersions', { documentCodeId: null }).catch(() => ({ success: false, data: [] }))
+            ]);
+            const documentCodes = (codesRes && codesRes.success && codesRes.data) ? codesRes.data : [];
+            const documentVersions = (versionsRes && versionsRes.success && versionsRes.data) ? versionsRes.data : [];
+            if (documentCodes.length === 0 && documentVersions.length === 0) {
+                if (typeof Notification !== 'undefined') Notification.warning('لا توجد بيانات للتصدير');
+                Loading.hide();
+                return;
+            }
+            const wb = XLSX.utils.book_new();
+            if (documentCodes.length > 0) {
+                const codesHeaders = ['الكود', 'اسم المستند', 'نوع المستند', 'القسم', 'الحالة', 'الوصف', 'تاريخ الإنشاء', 'تاريخ التحديث', 'أنشئ بواسطة'];
+                const codesRows = documentCodes.map(c => [
+                    c.code || '',
+                    c.documentName || '',
+                    c.documentType || '',
+                    c.department || '',
+                    c.status || '',
+                    c.description || '',
+                    c.createdAt ? (typeof c.createdAt === 'string' ? c.createdAt : new Date(c.createdAt).toISOString()) : '',
+                    c.updatedAt ? (typeof c.updatedAt === 'string' ? c.updatedAt : new Date(c.updatedAt).toISOString()) : '',
+                    c.createdBy || ''
+                ]);
+                const wsCodes = XLSX.utils.aoa_to_sheet([codesHeaders, ...codesRows]);
+                XLSX.utils.book_append_sheet(wb, wsCodes, 'أكواد المستندات');
+            }
+            if (documentVersions.length > 0) {
+                const verHeaders = ['كود المستند', 'رقم الإصدار', 'تاريخ الإصدار', 'نشط', 'الحالة', 'ملاحظات'];
+                const codeIdToCode = {};
+                documentCodes.forEach(c => { codeIdToCode[c.id] = c.code; });
+                const verRows = documentVersions.map(v => [
+                    codeIdToCode[v.documentCodeId] || v.documentCodeId || '',
+                    v.versionNumber || '',
+                    v.issueDate ? (typeof v.issueDate === 'string' ? v.issueDate : new Date(v.issueDate).toISOString().slice(0, 10)) : '',
+                    v.isActive === true || v.isActive === 'true' ? 'نعم' : 'لا',
+                    v.status || '',
+                    v.notes || ''
+                ]);
+                const wsVer = XLSX.utils.aoa_to_sheet([verHeaders, ...verRows]);
+                XLSX.utils.book_append_sheet(wb, wsVer, 'إصدارات المستندات');
+            }
+            const fileName = 'مركز_التكويد_والإصدار_' + new Date().toISOString().slice(0, 10) + '.xlsx';
+            XLSX.writeFile(wb, fileName);
+            if (typeof Notification !== 'undefined') Notification.success('تم تصدير البيانات إلى Excel بنجاح');
+        } catch (err) {
+            Utils.safeError('تصدير مركز التكويد إلى Excel:', err);
+            if (typeof Notification !== 'undefined') Notification.error('فشل التصدير: ' + (err.message || err));
+        } finally {
+            Loading.hide();
+        }
+    },
+
+    /**
+     * تصدير بيانات مركز التكويد إلى PDF
+     */
+    async exportCodingCenterToPDF() {
+        try {
+            Loading.show();
+            const [codesRes, versionsRes] = await Promise.all([
+                GoogleIntegration.fetchData('getDocumentCodes', {}).catch(() => ({ success: false, data: [] })),
+                GoogleIntegration.fetchData('getDocumentVersions', { documentCodeId: null }).catch(() => ({ success: false, data: [] }))
+            ]);
+            const documentCodes = (codesRes && codesRes.success && codesRes.data) ? codesRes.data : [];
+            const documentVersions = (versionsRes && versionsRes.success && versionsRes.data) ? versionsRes.data : [];
+            if (documentCodes.length === 0 && documentVersions.length === 0) {
+                if (typeof Notification !== 'undefined') Notification.warning('لا توجد بيانات للتصدير');
+                Loading.hide();
+                return;
+            }
+            if (typeof window.jsPDF === 'undefined') {
+                if (typeof Notification !== 'undefined') Notification.error('مكتبة PDF غير متاحة. يرجى تحديث الصفحة والمحاولة مرة أخرى.');
+                Loading.hide();
+                return;
+            }
+            const { jsPDF } = window.jsPDF;
+            const doc = new jsPDF('l', 'mm', 'a4');
+            const pageW = doc.internal.pageSize.getWidth();
+            const pageH = doc.internal.pageSize.getHeight();
+            const exportDate = new Date().toLocaleDateString('ar-EG', { dateStyle: 'medium' });
+            doc.setFontSize(14);
+            doc.setFont(undefined, 'bold');
+            doc.text('مركز التكويد والإصدار - تصدير البيانات', pageW / 2, 14, { align: 'center' });
+            doc.setFont(undefined, 'normal');
+            doc.setFontSize(9);
+            doc.text('تاريخ التصدير: ' + exportDate, pageW / 2, 21, { align: 'center' });
+            let startY = 28;
+            if (documentCodes.length > 0) {
+                doc.setFontSize(10);
+                doc.setFont(undefined, 'bold');
+                doc.text('أكواد المستندات', 14, startY);
+                doc.setFont(undefined, 'normal');
+                startY += 6;
+                const codeHeaders = ['الكود', 'اسم المستند', 'نوع المستند', 'القسم', 'الحالة'];
+                const codeRows = documentCodes.map(c => [
+                    String(c.code || ''),
+                    String(c.documentName || '').substring(0, 25),
+                    String(c.documentType || ''),
+                    String(c.department || ''),
+                    String(c.status || '')
+                ]);
+                if (typeof doc.autoTable !== 'undefined') {
+                    doc.autoTable({
+                        head: [codeHeaders],
+                        body: codeRows,
+                        startY: startY,
+                        styles: { fontSize: 7, cellPadding: 2 },
+                        headStyles: { fillColor: [37, 99, 235], textColor: 255 },
+                        margin: { left: 8, right: 8 }
+                    });
+                    startY = doc.lastAutoTable.finalY + 10;
+                } else {
+                    startY += 20;
+                }
+            }
+            if (documentVersions.length > 0 && startY < pageH - 40) {
+                doc.setFontSize(10);
+                doc.setFont(undefined, 'bold');
+                doc.text('إصدارات المستندات', 14, startY);
+                doc.setFont(undefined, 'normal');
+                startY += 6;
+                const codeIdToCode = {};
+                documentCodes.forEach(c => { codeIdToCode[c.id] = c.code; });
+                const verHeaders = ['كود المستند', 'رقم الإصدار', 'تاريخ الإصدار', 'نشط', 'الحالة'];
+                const verRows = documentVersions.slice(0, 30).map(v => [
+                    String(codeIdToCode[v.documentCodeId] || ''),
+                    String(v.versionNumber || ''),
+                    String(v.issueDate || '').slice(0, 10),
+                    v.isActive === true || v.isActive === 'true' ? 'نعم' : 'لا',
+                    String(v.status || '')
+                ]);
+                if (typeof doc.autoTable !== 'undefined') {
+                    doc.autoTable({
+                        head: [verHeaders],
+                        body: verRows,
+                        startY: startY,
+                        styles: { fontSize: 7, cellPadding: 2 },
+                        headStyles: { fillColor: [34, 197, 94], textColor: 255 },
+                        margin: { left: 8, right: 8 }
+                    });
+                }
+            }
+            doc.setFontSize(8);
+            doc.setTextColor(128, 128, 128);
+            doc.text('— مركز التكويد والإصدار — ' + exportDate, pageW / 2, pageH - 10, { align: 'center' });
+            doc.save('مركز_التكويد_والإصدار_' + new Date().toISOString().slice(0, 10) + '.pdf');
+            if (typeof Notification !== 'undefined') Notification.success('تم تصدير البيانات إلى PDF بنجاح');
+        } catch (err) {
+            Utils.safeError('تصدير مركز التكويد إلى PDF:', err);
+            if (typeof Notification !== 'undefined') Notification.error('فشل التصدير: ' + (err.message || err));
+        } finally {
+            Loading.hide();
+        }
+    },
+
+    /**
+     * استيراد أكواد المستندات من ملف Excel أو CSV
+     */
+    importCodingCenterFromExcel() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.xlsx,.xls,.csv';
+        input.style.display = 'none';
+        input.onchange = async (e) => {
+            const file = e.target && e.target.files && e.target.files[0];
+            if (!file) return;
+            const fileName = (file.name || '').toLowerCase();
+            try {
+                Loading.show();
+                let rows = [];
+                if (fileName.endsWith('.csv')) {
+                    const text = await new Promise((res, rej) => {
+                        const r = new FileReader();
+                        r.onload = () => res(r.result);
+                        r.onerror = rej;
+                        r.readAsText(file, 'UTF-8');
+                    });
+                    const lines = text.split(/\r?\n/).filter(l => l.trim());
+                    const delimiter = text.indexOf('\t') >= 0 ? '\t' : (text.indexOf(';') >= 0 ? ';' : ',');
+                    const headers = lines[0] ? lines[0].split(delimiter).map(h => h.trim()) : [];
+                    const codeIdx = headers.findIndex(h => /كود|code/i.test(h));
+                    const nameIdx = headers.findIndex(h => /اسم|name|document/i.test(h));
+                    const typeIdx = headers.findIndex(h => /نوع|type/i.test(h));
+                    const deptIdx = headers.findIndex(h => /قسم|department/i.test(h));
+                    const statusIdx = headers.findIndex(h => /حالة|status/i.test(h));
+                    const descIdx = headers.findIndex(h => /وصف|description/i.test(h));
+                    for (let i = 1; i < lines.length; i++) {
+                        const cells = lines[i].split(delimiter);
+                        const code = (codeIdx >= 0 ? cells[codeIdx] : cells[0]) || '';
+                        const documentName = (nameIdx >= 0 ? cells[nameIdx] : cells[1]) || '';
+                        if (!String(code).trim()) continue;
+                        rows.push({
+                            code: String(code).trim(),
+                            documentName: String(documentName).trim() || String(code).trim(),
+                            documentType: typeIdx >= 0 ? (cells[typeIdx] || '').trim() : 'وثيقة',
+                            department: deptIdx >= 0 ? (cells[deptIdx] || '').trim() : '',
+                            status: statusIdx >= 0 ? (cells[statusIdx] || '').trim() : 'نشط',
+                            description: descIdx >= 0 ? (cells[descIdx] || '').trim() : ''
+                        });
+                    }
+                } else {
+                    if (typeof XLSX === 'undefined') {
+                        if (typeof Notification !== 'undefined') Notification.error('مكتبة Excel غير متاحة. يرجى تحديث الصفحة والمحاولة مرة أخرى.');
+                        Loading.hide();
+                        return;
+                    }
+                    const ab = await new Promise((res, rej) => {
+                        const r = new FileReader();
+                        r.onload = () => res(r.result);
+                        r.onerror = rej;
+                        r.readAsArrayBuffer(file);
+                    });
+                    const wb = XLSX.read(ab, { type: 'array' });
+                    const firstSheet = wb.SheetNames[0] ? wb.Sheets[wb.SheetNames[0]] : null;
+                    if (!firstSheet) { Loading.hide(); return; }
+                    const aoa = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+                    if (!aoa || aoa.length < 2) { Loading.hide(); if (Notification) Notification.warning('الملف لا يحتوي على صفوف بيانات.'); return; }
+                    const headers = (aoa[0] || []).map(h => String(h).trim());
+                    const codeIdx = headers.findIndex(h => /كود|code/i.test(h));
+                    const nameIdx = headers.findIndex(h => /اسم|name|document/i.test(h));
+                    const typeIdx = headers.findIndex(h => /نوع|type/i.test(h));
+                    const deptIdx = headers.findIndex(h => /قسم|department/i.test(h));
+                    const statusIdx = headers.findIndex(h => /حالة|status/i.test(h));
+                    const descIdx = headers.findIndex(h => /وصف|description/i.test(h));
+                    for (let i = 1; i < aoa.length; i++) {
+                        const cells = aoa[i] || [];
+                        const code = (codeIdx >= 0 ? cells[codeIdx] : cells[0]);
+                        const documentName = (nameIdx >= 0 ? cells[nameIdx] : cells[1]);
+                        const codeStr = (code != null && code !== undefined) ? String(code).trim() : '';
+                        if (!codeStr) continue;
+                        rows.push({
+                            code: codeStr,
+                            documentName: (documentName != null && documentName !== undefined) ? String(documentName).trim() : codeStr,
+                            documentType: typeIdx >= 0 ? String(cells[typeIdx] || '').trim() : 'وثيقة',
+                            department: deptIdx >= 0 ? String(cells[deptIdx] || '').trim() : '',
+                            status: statusIdx >= 0 ? String(cells[statusIdx] || '').trim() : 'نشط',
+                            description: descIdx >= 0 ? String(cells[descIdx] || '').trim() : ''
+                        });
+                    }
+                }
+                if (rows.length === 0) {
+                    if (typeof Notification !== 'undefined') Notification.warning('لم يتم العثور على صفوف صالحة (يجب وجود عمود الكود).');
+                    Loading.hide();
+                    return;
+                }
+                let added = 0, failed = 0;
+                for (const row of rows) {
+                    try {
+                        const result = await GoogleIntegration.fetchData('addDocumentCode', {
+                            code: row.code,
+                            documentName: row.documentName,
+                            documentType: row.documentType,
+                            department: row.department,
+                            status: row.status,
+                            description: row.description
+                        });
+                        if (result && result.success) added++;
+                        else failed++;
+                    } catch (_) { failed++; }
+                }
+                if (typeof Notification !== 'undefined') Notification.success('تم استيراد ' + added + ' كوداً. فشل: ' + failed + ' (قد يكون بسبب تكرار الكود).');
+                this.reloadCodingCenter();
+            } catch (err) {
+                Utils.safeError('استيراد مركز التكويد من Excel:', err);
+                if (typeof Notification !== 'undefined') Notification.error('فشل الاستيراد: ' + (err.message || err));
+            } finally {
+                Loading.hide();
+            }
+            input.value = '';
+        };
+        document.body.appendChild(input);
+        input.click();
+        setTimeout(() => input.remove(), 500);
+    },
+
+    /**
+     * استيراد من PDF (الجداول غير مدعومة - يظهر رسالة توجيهية)
+     */
+    importCodingCenterFromPDF() {
+        if (typeof Notification !== 'undefined') {
+            Notification.warning('استيراد البيانات المنظمة من ملف PDF غير متاح حالياً. يرجى استخدام ملف Excel أو CSV لاستيراد أكواد المستندات.');
+        }
     },
 
     async showDocumentCodeForm(data = null) {
@@ -2292,10 +2685,21 @@ const ISO = {
             return;
         }
 
+        const code = codeEl.value.trim();
+        const documentName = nameEl.value.trim();
+        if (!code) {
+            Notification.error('حقل الكود مطلوب.');
+            return;
+        }
+        if (!documentName) {
+            Notification.error('حقل اسم المستند / الإجراء مطلوب.');
+            return;
+        }
+
         const formData = {
             id: editId || Utils.generateId('DOC_CODE'),
-            code: codeEl.value.trim(),
-            documentName: nameEl.value.trim(),
+            code: code,
+            documentName: documentName,
             documentType: typeEl.value,
             department: departmentEl.value.trim(),
             status: statusEl.value,
@@ -2315,10 +2719,21 @@ const ISO = {
                 modal.remove();
                 this.load();
             } else {
-                Notification.error(result.message || 'حدث خطأ أثناء الحفظ');
+                const msg = result.message || 'حدث خطأ أثناء الحفظ';
+                Notification.error(result.errorCode === 'DUPLICATE_CODE' ? 'كود المستند موجود مسبقاً. يرجى اختيار كود فريد (مثل: DOC-001، FORM-002).' : msg);
             }
         } catch (error) {
-            Notification.error('حدث خطأ: ' + error.message);
+            const msg = error && error.message ? String(error.message) : '';
+            if (msg.indexOf('غير معترف به') !== -1 || msg.indexOf('ACTION_NOT_RECOGNIZED') !== -1) {
+                Notification.error(
+                    'الخادم لا يتعرّف على عملية إضافة كود المستند. ' +
+                    'تأكد من: 1) تحديث ملفات Code.gs و ISO.gs و Headers.gs و Config.gs في مشروع Google Apps Script. ' +
+                    '2) نشر نسخة جديدة (Deploy → Manage deployments → Edit → New version → Deploy). ' +
+                    '3) استخدام الرابط الذي ينتهي بـ /exec في الإعدادات.'
+                );
+            } else {
+                Notification.error('حدث خطأ: ' + msg);
+            }
         } finally {
             Loading.hide();
         }
@@ -2346,7 +2761,9 @@ const ISO = {
     },
 
     async deleteDocumentCode(id) {
-        if (!confirm('هل أنت متأكد من حذف هذا الكود؟ سيتم حذف جميع الإصدارات المرتبطة به.')) {
+        const item = await this.getDocumentCodeById(id);
+        const label = item ? (item.code || item.documentName || id) : id;
+        if (!confirm('هل أنت متأكد من حذف الكود "' + label + '"؟ سيتم حذف جميع الإصدارات المرتبطة به.')) {
             return;
         }
 

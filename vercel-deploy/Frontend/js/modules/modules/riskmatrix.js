@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Risk Matrix Component - Compact & Professional
  * مصفوفة تقييم المخاطر - مدمجة واحترافية
  */
@@ -432,4 +432,3 @@ ${this.getRiskExplanationText(score, levelLabel, likelihoodLabel, consequenceLab
         }
     }
 })();
-

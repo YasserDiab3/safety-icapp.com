@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Approval Circuits Service
  * Handles approval workflow circuits and user management
  */
@@ -326,5 +326,4 @@ const ApprovalCircuits = {
 if (typeof window !== 'undefined') {
     window.ApprovalCircuits = ApprovalCircuits;
 }
-
 

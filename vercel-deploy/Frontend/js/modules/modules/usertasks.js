@@ -1,4 +1,4 @@
-﻿/**
+/**
  * UserTasks Module
  * ØªÙ… Ø§Ø³ØªØ®Ø±Ø§Ø¬Ù‡ Ù…Ù† app-modules.js
  */
@@ -35,6 +35,14 @@ const UserTasks = {
      * تحميل الموديول
      */
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         const section = document.getElementById('user-tasks-section');
         if (!section) {
             if (typeof Utils !== 'undefined' && Utils.safeError) {
@@ -236,14 +244,14 @@ const UserTasks = {
      * تفعيل المزامنة التلقائية
      */
     startAutoSync() {
-        // التحقق من تكوين الخادم قبل بدء المزامنة
+        // التحقق من تكوين Google Apps Script قبل بدء المزامنة
         if (typeof AppState !== 'undefined') {
             const isGoogleConfigured = AppState.googleConfig?.appsScript?.enabled &&
                 AppState.googleConfig?.appsScript?.scriptUrl &&
                 AppState.googleConfig.appsScript.scriptUrl.trim() !== '';
 
             if (!isGoogleConfigured) {
-                Utils.safeLog('ℹ️ لن يتم تفعيل المزامنة التلقائية: الخادم غير مفعل أو غير مُكوَّن');
+                Utils.safeLog('ℹ️ لن يتم تفعيل المزامنة التلقائية: Google Apps Script غير مفعل أو غير مُكوَّن');
                 return;
             }
         }
@@ -275,26 +283,26 @@ const UserTasks = {
     },
 
     /**
-     * مزامنة المهام من قاعدة البيانات
+     * مزامنة المهام من Google Sheets
      */
     async syncTasks() {
         try {
-            // التحقق الشامل من توفر الخادم
+            // التحقق الشامل من توفر Google Apps Script
             if (typeof AppState === 'undefined') {
                 return;
             }
 
-            // فحص شامل لإعدادات الخادم
+            // فحص شامل لإعدادات Google Apps Script
             const isGoogleConfigured = AppState.googleConfig?.appsScript?.enabled &&
                 AppState.googleConfig?.appsScript?.scriptUrl &&
                 AppState.googleConfig.appsScript.scriptUrl.trim() !== '';
 
             if (!isGoogleConfigured) {
-                // الخادم غير مفعل أو غير مُكوَّن بشكل صحيح
+                // Google Apps Script غير مفعل أو غير مُكوَّن بشكل صحيح
                 // إيقاف المزامنة التلقائية لتجنب الأخطاء المتكررة
                 if (this.autoSyncTimer) {
                     this.stopAutoSync();
-                    Utils.safeLog('⚠️ تم إيقاف المزامنة التلقائية: الخادم غير مفعل أو غير مُكوَّن');
+                    Utils.safeLog('⚠️ تم إيقاف المزامنة التلقائية: Google Apps Script غير مفعل أو غير مُكوَّن');
                 }
                 return;
             }
@@ -329,12 +337,12 @@ const UserTasks = {
                     });
                 }
             } catch (requestError) {
-                // تجاهل أخطاء Circuit Breaker والخادم غير المفعل
+                // تجاهل أخطاء Circuit Breaker و Google Apps Script غير المفعل
                 const errorMsg = String(requestError?.message || '').toLowerCase();
 
                 // فحص أخطاء الاتصال والتكوين
                 if (errorMsg.includes('circuit breaker') ||
-                    errorMsg.includes('الاتصال بالخادم غير مفعل') ||
+                    errorMsg.includes('google apps script غير مفعل') ||
                     errorMsg.includes('غير مفعل') ||
                     errorMsg.includes('انتهت مهلة الاتصال') ||
                     errorMsg.includes('timeout') ||
@@ -867,7 +875,7 @@ const UserTasks = {
                     'badge-secondary';
 
             return `
-                        <div class="content-card ${isOverdue ? 'border-red-300 bg-red-50' : ''}" data-task-id="${task.id}" data-search="${(task.title || task.taskTitle || '').toLowerCase()} ${(task.description || task.taskDescription || '').toLowerCase()}">
+                        <div class="content-card ${isOverdue ? 'border-red-300 bg-red-50' : ''}" data-task-id="${Utils.escapeHTML(task.id)}" data-search="${Utils.escapeHTML((task.title || task.taskTitle || '').toLowerCase())} ${Utils.escapeHTML((task.description || task.taskDescription || '').toLowerCase())}">
                             <div class="flex items-start justify-between gap-4">
                                 <div class="flex-1">
                                     <div class="flex items-center gap-2 mb-2">
@@ -1134,11 +1142,11 @@ const UserTasks = {
                         Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
                     }
 
-                    // محاولة الحفظ في قاعدة البيانات
+                    // محاولة الحفظ في Google Sheets
                     try {
                         await GoogleIntegration.autoSave?.('UserTasks', AppState.appData.userTasks);
                     } catch (error) {
-                        Utils.safeWarn('⚠️ خطأ في حفظ التحديث في قاعدة البيانات:', error);
+                        Utils.safeWarn('⚠️ خطأ في حفظ التحديث في Google Sheets:', error);
                     }
 
                     Notification.success('تم تحديث حالة المهمة بنجاح');
@@ -1347,7 +1355,7 @@ const UserTasks = {
                 return;
             }
 
-            // محاولة الحصول من قاعدة البيانات
+            // محاولة الحصول من Google Sheets
             if (AppState.googleConfig.appsScript.enabled) {
                 try {
                     // استخدام readFromSheets بدلاً من getUsers
@@ -1363,7 +1371,7 @@ const UserTasks = {
                         return;
                     }
                 } catch (error) {
-                    Utils.safeWarn('⚠️ خطأ في تحميل المستخدمين من قاعدة البيانات:', error);
+                    Utils.safeWarn('⚠️ خطأ في تحميل المستخدمين من Google Sheets:', error);
                 }
             }
 
@@ -1738,12 +1746,12 @@ const UserTasks = {
                 throw new Error('نظام إدارة البيانات غير جاهز');
             }
 
-            // حفظ في قاعدة البيانات إذا كان مفعلاً
+            // حفظ في Google Sheets إذا كان مفعلاً
             if (AppState.googleConfig && AppState.googleConfig.appsScript && AppState.googleConfig.appsScript.enabled) {
                 try {
                     await GoogleIntegration.autoSave?.('UserTasks', AppState.appData.userTasks);
                 } catch (error) {
-                    Utils.safeWarn('⚠️ خطأ في حفظ المهام في قاعدة البيانات:', error);
+                    Utils.safeWarn('⚠️ خطأ في حفظ المهام في Google Sheets:', error);
                 }
             }
 
@@ -1924,12 +1932,12 @@ const UserTasks = {
                     Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
                 }
 
-                // حذف من قاعدة البيانات إذا كان مفعلاً
+                // حذف من Google Sheets إذا كان مفعلاً
                 if (AppState.googleConfig.appsScript.enabled) {
                     try {
                         await GoogleIntegration.autoSave?.('UserTasks', AppState.appData.userTasks);
                     } catch (error) {
-                        Utils.safeWarn('⚠️ خطأ في حذف المهمة من قاعدة البيانات:', error);
+                        Utils.safeWarn('⚠️ خطأ في حذف المهمة من Google Sheets:', error);
                     }
                 }
 

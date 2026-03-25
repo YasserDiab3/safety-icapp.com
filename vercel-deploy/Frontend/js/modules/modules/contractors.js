@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Contractors Module
  * تم استخراجه من app-modules.js
  */
@@ -518,11 +518,6 @@ const Contractors = {
                 sendBtn.addEventListener('click', () => this.showApprovalRequestForm());
             }
 
-            // ✅ إصلاح: استعادة التبويب المرئي بعد الرسم لتفادي العودة لتبويب "إرسال طلب اعتماد"
-            if (this.currentTab && this.currentTab !== 'approval-request') {
-                this.switchTab(this.currentTab);
-            }
-
             // ✅ التحميل اكتمل بنجاح
             this._isLoading = false;
 
@@ -636,17 +631,20 @@ const Contractors = {
     /**
      * ✅ التأكد من تحميل بيانات التقييمات عند فتح التبويب (مزامنة من Backend إن كانت القائمة فارغة)
      */
+    _isSyncingEvaluations: false,
     ensureEvaluationsDataLoaded() {
         const evaluations = AppState.appData.contractorEvaluations;
         const hasData = Array.isArray(evaluations) && evaluations.length > 0;
-        if (hasData) return;
+        if (hasData || this._isSyncingEvaluations) return;
 
         const canSync = typeof GoogleIntegration !== 'undefined' &&
             typeof GoogleIntegration.syncData === 'function' &&
-            (AppState.useSupabaseBackend === true || (AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl));
+            AppState.googleConfig?.appsScript?.enabled &&
+            AppState.googleConfig?.appsScript?.scriptUrl;
 
         if (!canSync) return;
 
+        this._isSyncingEvaluations = true;
         GoogleIntegration.syncData({
             sheets: ['ContractorEvaluations'],
             silent: true,
@@ -658,35 +656,9 @@ const Contractors = {
             if (Array.isArray(after) && after.length > 0) {
                 this.refreshEvaluationsList(this.currentEvaluationFilter || '');
             }
-        }).catch(() => {});
-    },
-
-    /**
-     * ✅ التأكد من تحميل بيانات المقاولين والمعتمدين للاستخدام في الموديولات (العيادة، التدريب، إلخ)
-     * يُستدعى قبل تعبئة قوائم المقاولين في النماذج لضمان استدعاء صحيح وبدون أخطاء.
-     * @returns {Promise<void>}
-     */
-    ensureContractorsAndApprovedForModules() {
-        const approved = AppState.appData.approvedContractors;
-        const contractors = AppState.appData.contractors;
-        const hasApproved = Array.isArray(approved) && approved.length > 0;
-        const hasContractors = Array.isArray(contractors) && contractors.length > 0;
-        if (hasApproved || hasContractors) return Promise.resolve();
-
-        const canSync = typeof GoogleIntegration !== 'undefined' &&
-            typeof GoogleIntegration.syncData === 'function' &&
-            (AppState.useSupabaseBackend === true || (AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl));
-        if (!canSync) return Promise.resolve();
-
-        return GoogleIntegration.syncData({
-            sheets: ['ApprovedContractors', 'Contractors'],
-            silent: true,
-            showLoader: false,
-            notifyOnSuccess: false,
-            notifyOnError: false
-        }).then(() => {
-            this.ensureApprovedSetup();
-        }).catch(() => {});
+        }).catch(() => {}).finally(() => {
+            this._isSyncingEvaluations = false;
+        });
     },
 
     /**
@@ -935,6 +907,10 @@ const Contractors = {
         if (['approved', 'معتمد', 'accept', 'accepted', 'active', 'valid', 'pass'].includes(normalized)) {
             return 'approved';
         }
+        // Explicitly handle empty string if it should not default to 'under_review' but be an error or specific state
+        if (normalized === '') {
+            return 'under_review'; // Or a specific 'unknown' status
+        }
         if (['rejected', 'مرفوض', 'رفض', 'cancelled', 'canceled', 'denied', 'invalid', 'expired'].includes(normalized)) {
             return 'rejected';
         }
@@ -1108,7 +1084,7 @@ const Contractors = {
             const code = record.code || record.isoCode || '(بدون كود)';
             const status = (record.status || '').toString();
             
-            const isActive = this.isApprovalActive(record, true);
+            const isActive = this.isApprovalActive(record, false); // Should not include expired for a true 'active' check
             const isExpired = this.isApprovalExpired(record);
             
             const appearsInForms = forForms.some(c => 
@@ -1266,8 +1242,11 @@ const Contractors = {
             if (contractorCode && contractorCode.match(/^APP-(\d+)$/)) {
                 const match = contractorCode.match(/^APP-(\d+)$/);
                 if (match) {
-                    contractorCode = `CON-${match[1]}`;
-                    mutated = true;
+                    const newCode = `CON-${match[1]}`;
+                    if (newCode !== contractorCode) {
+                        contractorCode = newCode;
+                        mutated = true;
+                    }
                 }
             }
 
@@ -2192,10 +2171,13 @@ const Contractors = {
             const incomingHasRealName = incomingName && incomingName !== 'غير معروف';
             
             // تفضيل الاسم الحقيقي
-            if (incomingHasRealName && !currentHasRealName) {
+            // Prioritize incoming name if it's a 'real' name, otherwise keep current, or use incoming if current is not real
+            if (incomingHasRealName) {
                 merged.name = incoming.name;
             } else if (currentHasRealName) {
                 merged.name = current.name;
+            } else if (incoming.name) { // Fallback if current has no real name
+                merged.name = incoming.name;
             }
 
             // تفضيل وجود code / license
@@ -2791,9 +2773,9 @@ const Contractors = {
         // التأكد من قراءة البيانات الكاملة من AppState قبل التعديل
         let collection = AppState.appData.approvedContractors || [];
 
-        // إذا كانت البيانات غير موجودة أو غير صحيحة، نحاول قراءتها من قاعدة البيانات
+        // إذا كانت البيانات غير موجودة أو غير صحيحة، نحاول قراءتها من Google Sheets
         if (!Array.isArray(collection) || collection.length === 0) {
-            // محاولة قراءة البيانات من قاعدة البيانات إذا كانت متاحة
+            // محاولة قراءة البيانات من Google Sheets إذا كانت متاحة
             try {
                 if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.syncData) {
                     // سنقوم بمزامنة البيانات في الخلفية ولكن لا ننتظرها
@@ -2832,22 +2814,8 @@ const Contractors = {
         } else {
             // توليد كود تلقائي للكيانات الجديدة إذا لم يكن موجوداً
             if (!record.isoCode && !record.code) {
-                let maxNumber = 0;
-                collection.forEach(entity => {
-                    const code = entity.isoCode || entity.code;
-                    if (code) {
-                        const match = code.match(/APP-(\d+)/);
-                        if (match) {
-                            const num = parseInt(match[1], 10);
-                            if (num > maxNumber) {
-                                maxNumber = num;
-                            }
-                        }
-                    }
-                });
-
-                const newNumber = maxNumber + 1;
-                record.isoCode = `APP-${String(newNumber).padStart(3, '0')}`;
+                // Use the centralized code generation function to ensure consistency
+                record.isoCode = this.generateContractorCode();
                 record.code = record.isoCode;
             }
 
@@ -3217,8 +3185,7 @@ const Contractors = {
         const evaluationsMap = new Map();
         
         allRecords.forEach(record => {
-            // ✅ إصلاح: التجميع حسب evaluationId عند وجوده لضمان تجميع كل صفوف التقييم الواحد
-            const evalId = record.evaluationId || record.id;
+            const evalId = record.id || record.evaluationId;
             if (!evalId) return;
             
             // تصفية حسب contractorId إذا كان محدداً
@@ -3241,7 +3208,8 @@ const Contractors = {
                 if (typeof totalItems === 'string') totalItems = parseInt(totalItems) || 0;
                 
                 // ✅ إصلاح: إذا لم يوجد finalScore ولكن يوجد compliantCount و totalItems، احسب النسبة
-                if (finalScore === null && compliantCount > 0 && totalItems > 0) {
+                // Ensure finalScore is calculated only if not explicitly provided and valid
+                if ((finalScore === null || isNaN(finalScore)) && compliantCount > 0 && totalItems > 0) {
                     finalScore = Math.round((compliantCount / totalItems) * 100);
                 }
                 
@@ -3277,6 +3245,8 @@ const Contractors = {
                     status: record.status,
                     notes: record.notes
                 });
+                // Recalculate compliantCount and totalItems based on aggregated items if needed
+                // This might be better handled after all items are collected for an evaluation
             }
         });
         
@@ -3332,7 +3302,7 @@ const Contractors = {
                                             <i class="fas fa-eye"></i>
                                         </button>
                                         ${Permissions.isAdmin() ? `
-                                        <button class="btn-icon btn-icon-primary" title="تعديل التقييم" onclick="Contractors.showEvaluationForm('${record.contractorId}', ${JSON.stringify(record).replace(/"/g, '&quot;')})">
+                                        <button class="btn-icon btn-icon-primary" title="تعديل التقييم" onclick="Contractors.showEvaluationForm('${record.contractorId}', '${record.id}')">
                                             <i class="fas fa-edit"></i>
                                         </button>
                                         <button class="btn-icon btn-icon-danger" title="حذف التقييم" onclick="Contractors.requestDeleteEvaluation('${record.id}')">
@@ -4479,7 +4449,7 @@ const Contractors = {
                     // إضافة تقييم جديد - إرسال طلب اعتماد
                     // ✅ إزالة توليد ID من Frontend - Backend سيتولى توليده بشكل تسلسلي (CAR_1, CAR_2, ...)
                     const approvalRequest = {
-                        // id سيتم توليده في Backend باستخدام generateSequentialId('CAR', ...)
+                        id: Utils.generateId('TEMP_CAR'), // Assign a temporary ID for local state consistency
                         requestType: 'evaluation',
                         contractorId: record.contractorId,
                         contractorName: record.contractorName,
@@ -4493,7 +4463,7 @@ const Contractors = {
                     this.ensureApprovalRequestsSetup();
                     
                     // ✅ إصلاح: استخدام addContractorApprovalRequest مباشرة بدلاً من autoSave
-                    // ✅ هذا يضمن عدم حذف الطلبات الموجودة في قاعدة البيانات
+                    // ✅ هذا يضمن عدم حذف الطلبات الموجودة في Google Sheets
                     try {
                         const backendResult = await GoogleIntegration.sendRequest({
                             action: 'addContractorApprovalRequest',
@@ -4511,7 +4481,7 @@ const Contractors = {
                                 Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
                             }
                             
-                            Utils.safeLog('✅ تم حفظ طلب اعتماد التقييم في قاعدة البيانات بنجاح');
+                            Utils.safeLog('✅ تم حفظ طلب اعتماد التقييم في Google Sheets بنجاح');
                         } else {
                             // إذا فشل الحفظ في Backend، نضيف محلياً فقط
                             AppState.appData.contractorApprovalRequests.push(approvalRequest);
@@ -4523,7 +4493,7 @@ const Contractors = {
                                 Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
                             }
                             
-                            Utils.safeWarn('⚠️ فشل حفظ طلب اعتماد التقييم في قاعدة البيانات، تم الحفظ محلياً فقط');
+                            Utils.safeWarn('⚠️ فشل حفظ طلب اعتماد التقييم في Google Sheets، تم الحفظ محلياً فقط');
                         }
                     } catch (error) {
                         // في حالة الخطأ، نضيف محلياً فقط
@@ -4536,7 +4506,7 @@ const Contractors = {
                             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
                         }
                         
-                        Utils.safeWarn('⚠️ خطأ في حفظ طلب اعتماد التقييم في قاعدة البيانات:', error);
+                        Utils.safeWarn('⚠️ خطأ في حفظ طلب اعتماد التقييم في Google Sheets:', error);
                     }
 
                     Notification.success('تم إرسال طلب اعتماد التقييم بنجاح. سيتم مراجعته من قبل مدير النظام.');
@@ -4570,7 +4540,6 @@ const Contractors = {
         const evaluationId = record.id;
         const evaluationBaseData = {
             id: evaluationId,
-            evaluationId: evaluationId,
             contractorId: record.contractorId,
             contractorName: record.contractorName,
             evaluationDate: record.evaluationDate,
@@ -4589,10 +4558,13 @@ const Contractors = {
             updatedBy: record.updatedBy || AppState.currentUser?.id || ''
         };
 
-        // ✅ حذف البنود القديمة للتقييم إذا كان تعديل (مطابقة id أو evaluationId)
+        // Create a new array to avoid direct mutation issues
+        let currentEvaluations = AppState.appData.contractorEvaluations || [];
+
+        // ✅ حذف البنود القديمة للتقييم إذا كان تعديل
         if (existing) {
-            AppState.appData.contractorEvaluations = AppState.appData.contractorEvaluations.filter(
-                item => (item.evaluationId || item.id) !== evaluationId
+            currentEvaluations = currentEvaluations.filter(
+                item => item.evaluationId !== evaluationId
             );
         }
 
@@ -4772,8 +4744,10 @@ const Contractors = {
                 if (relatedEvaluation && relatedEvaluation.contractorId) {
                     contractorId = relatedEvaluation.contractorId;
                 } else {
-                    Notification.error('لم يتم العثور على تقييمات مرتبطة بهذه الجهة');
-                    return;
+                    // If no contractorId is found even through related evaluations, use the approvedEntityId as a fallback
+                    // This ensures that evaluations can still be linked even if the contractor record is missing or inconsistent.
+                    contractorId = approvedEntityId;
+                    // Notification.warning('لم يتم العثور على تقييمات مرتبطة بهذه الجهة بشكل مباشر، سيتم البحث باستخدام معرف الجهة المعتمدة.');
                 }
             }
         }
@@ -5548,7 +5522,7 @@ const Contractors = {
                     } else {
                         Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
                     }
-                    // حفظ تلقائي في قاعدة البيانات
+                    // حفظ تلقائي في Google Sheets
                     await GoogleIntegration.autoSave('Contractors', AppState.appData.contractors);
 
                     // تحديث حالة الاعتماد بعد الحفظ
@@ -5590,7 +5564,7 @@ const Contractors = {
                     this.ensureApprovalRequestsSetup();
                     
                     // ✅ إصلاح: استخدام addContractorApprovalRequest مباشرة بدلاً من autoSave
-                    // ✅ هذا يضمن عدم حذف الطلبات الموجودة في قاعدة البيانات
+                    // ✅ هذا يضمن عدم حذف الطلبات الموجودة في Google Sheets
                     try {
                         const backendResult = await GoogleIntegration.sendRequest({
                             action: 'addContractorApprovalRequest',
@@ -5608,7 +5582,7 @@ const Contractors = {
                                 Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
                             }
                             
-                            Utils.safeLog('✅ تم حفظ طلب اعتماد المقاول في قاعدة البيانات بنجاح');
+                            Utils.safeLog('✅ تم حفظ طلب اعتماد المقاول في Google Sheets بنجاح');
                         } else {
                             // إذا فشل الحفظ في Backend، نضيف محلياً فقط
                             AppState.appData.contractorApprovalRequests.push(approvalRequest);
@@ -5620,7 +5594,7 @@ const Contractors = {
                                 Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
                             }
                             
-                            Utils.safeWarn('⚠️ فشل حفظ طلب اعتماد المقاول في قاعدة البيانات، تم الحفظ محلياً فقط');
+                            Utils.safeWarn('⚠️ فشل حفظ طلب اعتماد المقاول في Google Sheets، تم الحفظ محلياً فقط');
                         }
                     } catch (error) {
                         // في حالة الخطأ، نضيف محلياً فقط
@@ -5633,7 +5607,7 @@ const Contractors = {
                             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
                         }
                         
-                        Utils.safeWarn('⚠️ خطأ في حفظ طلب اعتماد المقاول في قاعدة البيانات:', error);
+                        Utils.safeWarn('⚠️ خطأ في حفظ طلب اعتماد المقاول في Google Sheets:', error);
                     }
 
                     Loading.hide();
@@ -7042,14 +7016,45 @@ const Contractors = {
         if (!list) return;
 
         // جمع جميع الاشتراطات من جميع الفئات
-        const allItems = [];
+        const requirements = [];
         list.querySelectorAll('.requirement-category-group').forEach(group => {
+            const categoryId = group.getAttribute('data-category');
+            let categoryOrder = 1;
             group.querySelectorAll('.requirement-item').forEach(item => {
-                allItems.push(item);
+                const reqId = item.getAttribute('data-requirement-id');
+                const labelInput = item.querySelector('[data-field="label"]');
+                const typeSelect = item.querySelector('[data-field="type"]');
+                const requiredCheckbox = item.querySelector('[data-field="required"]');
+                const categorySelect = item.querySelector('[data-field="category"]');
+                const prioritySelect = item.querySelector('[data-field="priority"]');
+                const hasExpiryCheckbox = item.querySelector('[data-field="hasExpiry"]');
+                const expiryMonthsInput = item.querySelector('[data-field="expiryMonths"]');
+                const descriptionTextarea = item.querySelector('[data-field="description"]');
+
+                const requirement = {
+                    id: reqId,
+                    label: labelInput?.value.trim() || '',
+                    type: typeSelect?.value || 'document',
+                    required: requiredCheckbox?.checked || false,
+                    order: categoryOrder++, // Order within its category
+                    category: categorySelect?.value || categoryId || 'other',
+                    priority: prioritySelect?.value || 'medium',
+                    hasExpiry: hasExpiryCheckbox?.checked || false,
+                    expiryMonths: hasExpiryCheckbox?.checked ? parseInt(expiryMonthsInput?.value || 12) : null,
+                    description: descriptionTextarea?.value.trim() || '',
+                    applicableTypes: ['contractor', 'supplier']
+                };
+                requirements.push(requirement);
             });
         });
 
-        const requirements = allItems.map((item, index) => {
+        // Re-sort all requirements by their new category and order for global persistence
+        requirements.sort((a, b) => {
+            const categoryA = REQUIREMENT_CATEGORIES[a.category]?.order || 99;
+            const categoryB = REQUIREMENT_CATEGORIES[b.category]?.order || 99;
+            if (categoryA !== categoryB) return categoryA - categoryB;
+            return a.order - b.order;
+        });
             const reqId = item.getAttribute('data-requirement-id');
             const labelInput = item.querySelector('[data-field="label"]');
             const typeSelect = item.querySelector('[data-field="type"]');
@@ -7117,8 +7122,14 @@ const Contractors = {
         const list = document.getElementById('requirements-list');
         if (!list) return;
 
-        const items = Array.from(list.children);
-        const index = items.findIndex(item => item.getAttribute('data-requirement-id') === reqId);
+        const itemToMove = list.querySelector(`[data-requirement-id="${reqId}"]`);
+        if (!itemToMove) return;
+
+        const parentContainer = itemToMove.parentElement;
+        if (!parentContainer) return;
+
+        const items = Array.from(parentContainer.children);
+        const index = items.indexOf(itemToMove);
 
         if (index > 0) {
             const item = items[index];
@@ -7335,12 +7346,10 @@ const Contractors = {
                                 <span class="text-sm text-gray-700">إضافة تاريخ انتهاء لجميع الاشتراطات</span>
                             </label>
                         </div>
-                        ${document.getElementById('bulk-has-expiry') ? '' : `
-                            <div id="bulk-expiry-months-container" style="display: none;">
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">عدد أشهر الصلاحية:</label>
-                                <input type="number" id="bulk-expiry-months" class="form-input" value="12" min="1" max="60">
-                            </div>
-                        `}
+                        <div id="bulk-expiry-months-container" style="display: none;">
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">عدد أشهر الصلاحية:</label>
+                            <input type="number" id="bulk-expiry-months" class="form-input" value="12" min="1" max="60">
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -7488,7 +7497,7 @@ const Contractors = {
             window.DataManager.save();
         }
 
-        // حفظ في قاعدة البيانات
+        // حفظ في Google Sheets
         try {
             const result = await GoogleIntegration.callBackend('addContractorDeletionRequest', deletionRequest);
             if (result && result.success) {
@@ -8335,16 +8344,7 @@ const Contractors = {
             
             // ✅ تحديد actualTempId للاستخدام في جميع أنحاء الدالة
             // ✅ التحقق من أن tempIdToReplace يطابق tempId الذي تم تمريره
-            let actualTempId;
-            if (tempIdToReplace && tempIdToReplace === tempId) {
-                actualTempId = tempId;
-            } else if (tempIdToReplace) {
-                Utils.safeWarn('⚠️ تحذير: tempIdToReplace (' + tempIdToReplace + ') لا يطابق tempId (' + tempId + ') - سيتم استخدام tempIdToReplace');
-                actualTempId = tempIdToReplace;
-            } else {
-                Utils.safeWarn('⚠️ تحذير: tempIdToReplace غير موجود - سيتم استخدام tempId الممرر');
-                actualTempId = tempId;
-            }
+            const actualTempId = tempId; // tempIdToReplace is always tempId at this point
             
             // ✅ حذف tempId قبل الإرسال لضمان توليد ID جديد من Backend
             delete requestData.id; // ✅ حذف tempId قبل الإرسال لضمان توليد ID جديد من Backend
@@ -8359,12 +8359,22 @@ const Contractors = {
                 });
 
                 if (backendResult && backendResult.success) {
-                // ✅ بعد نجاح الحفظ في Backend، استخدام البيانات من Backend مع ID المُرجَع (CAR_ أو UUID)
+                // ✅ بعد نجاح الحفظ في Backend، استخدام البيانات من Backend مع ID المولد
                 const savedRequest = backendResult.data || requestData;
-                if (!savedRequest.id || String(savedRequest.id).startsWith('TEMP_')) {
+                    
+                // ✅ التحقق من أن Backend قام بتوليد ID جديد (CAR_1, CAR_2, ...)
+                if (!savedRequest.id || savedRequest.id.startsWith('TEMP_')) {
+                    Utils.safeError('❌ خطأ: Backend لم يولد ID جديد. savedRequest.id=' + (savedRequest.id || 'undefined'));
+                    // محاولة توليد ID يدوياً كحل بديل (لا ينبغي أن يحدث)
                     savedRequest.id = 'CAR_' + Date.now();
                 }
-                // ✅ actualTempId تم تعريفه سابقاً في بداية الدالة
+                
+                // ✅ التحقق من أن ID الجديد يبدأ بـ "CAR_"
+                if (!savedRequest.id || !savedRequest.id.startsWith('CAR_')) {
+                    Utils.safeWarn('⚠️ تحذير: ID المُولد لا يبدأ بـ CAR_. ID=' + (savedRequest.id || 'undefined'));
+                    }
+                    
+                // ✅ actualTempId تم تعريفه سابقاً في بداية الدالة (السطر 7639)
                 // ✅ استخدامه للبحث عن الطلب المؤقت واستبداله
                 
                 Utils.safeLog('✅ تم استبدال tempId=' + actualTempId + ' بالـ ID الفعلي=' + savedRequest.id);
@@ -8405,7 +8415,9 @@ const Contractors = {
                 } else {
                     // ✅ إذا لم يوجد الطلب المؤقت، إضافته مباشرة
                     Utils.safeWarn('⚠️ تحذير: لم يتم العثور على الطلب المؤقت في AppState. tempId=' + actualTempId);
-                    if (!savedRequest.id || String(savedRequest.id).startsWith('TEMP_')) {
+                    // ✅ التأكد من وجود ID صحيح
+                    if (!savedRequest.id || savedRequest.id.startsWith('TEMP_')) {
+                        Utils.safeError('❌ خطأ: savedRequest.id غير صحيح. savedRequest.id=' + (savedRequest.id || 'undefined'));
                         savedRequest.id = 'CAR_' + Date.now();
                     }
                     savedRequest._isPendingSync = false;
@@ -8521,7 +8533,7 @@ const Contractors = {
             });
 
             if (admins.length === 0) {
-                // إذا لم نجد مدراء محلياً، نحاول قراءتهم من قاعدة البيانات
+                // إذا لم نجد مدراء محلياً، نحاول قراءتهم من Google Sheets
                 try {
                     const usersResult = await GoogleIntegration.sendRequest({
                         action: 'readFromSheet',
@@ -8536,7 +8548,7 @@ const Contractors = {
                         }));
                     }
                 } catch (error) {
-                    Utils.safeWarn('فشل قراءة المستخدمين من قاعدة البيانات:', error);
+                    Utils.safeWarn('فشل قراءة المستخدمين من Google Sheets:', error);
                 }
             }
 
@@ -8648,14 +8660,13 @@ const Contractors = {
             evaluationData = request.evaluationData;
             
             // ✅ تحليل evaluationData إذا كان نصاً (JSON string) - معالجة التشفير المزدوج
-            let parseAttempts = 0;
-            while (evaluationData && typeof evaluationData === 'string' && parseAttempts < 3) {
+            // Parse evaluationData only if it's a string
+            if (evaluationData && typeof evaluationData === 'string') {
                 try {
                     evaluationData = JSON.parse(evaluationData);
-                    parseAttempts++;
                 } catch (error) {
-                    Utils.safeWarn('⚠️ فشل تحليل evaluationData من النص (محاولة ' + parseAttempts + '):', error);
-                    break;
+                    Utils.safeWarn('⚠️ فشل تحليل evaluationData من النص:', error);
+                    evaluationData = null; // Set to null or default object if parsing fails
                 }
             }
             
@@ -8693,15 +8704,13 @@ const Contractors = {
             }
             
             // ✅ تحليل items إذا كانت نصاً - معالجة التشفير المزدوج
-            let itemsParseAttempts = 0;
-            while (evaluationData?.items && typeof evaluationData.items === 'string' && itemsParseAttempts < 3) {
+            // Parse evaluationData.items only if it's a string
+            if (evaluationData?.items && typeof evaluationData.items === 'string') {
                 try {
                     evaluationData.items = JSON.parse(evaluationData.items);
-                    itemsParseAttempts++;
                 } catch (error) {
                     Utils.safeWarn('⚠️ فشل تحليل بنود التقييم من النص:', error);
-                    evaluationData.items = [];
-                    break;
+                    evaluationData.items = []; // Set to empty array if parsing fails
                 }
             }
             
@@ -9385,9 +9394,9 @@ const Contractors = {
                 }
             } else {
                 Utils.safeWarn('⚠️ Warning: backendResult.approvedEntity is null or undefined - approved entity was not returned from Backend');
-                // عند طلب مقاول/مورد: الـ API يجب أن يعيد approvedEntity (تم إصلاحه في hse-api). إن لم يُرجع، المزامنة التالية ستعيد تحميل القائمة.
+                // ✅ إذا كان الطلب من نوع contractor أو supplier، يجب أن يكون approvedEntity موجوداً
                 if (request.requestType === 'contractor' || request.requestType === 'supplier') {
-                    Utils.safeWarn('⚠️ approvedEntity was not returned; sync below will refresh ApprovedContractors list.');
+                    Utils.safeError('❌ Error: approvedEntity should not be null for contractor/supplier requests');
                 }
             }
 
@@ -9584,7 +9593,7 @@ const Contractors = {
             }
 
             // ✅ إصلاح: استخدام rejectContractorApprovalRequest في Backend مباشرة
-            // ✅ هذا يضمن عدم حذف الطلبات الموجودة في قاعدة البيانات
+            // ✅ هذا يضمن عدم حذف الطلبات الموجودة في Google Sheets
             const backendResult = await GoogleIntegration.sendRequest({
                 action: 'rejectContractorApprovalRequest',
                 data: {
@@ -9609,7 +9618,7 @@ const Contractors = {
                 }
 
                 Loading.hide();
-                Utils.safeLog('✅ تم رفض طلب الاعتماد في قاعدة البيانات بنجاح');
+                Utils.safeLog('✅ تم رفض طلب الاعتماد في Google Sheets بنجاح');
             } else {
                 // إذا فشل الحفظ في Backend، نحدث محلياً فقط
                 request.status = 'rejected';
@@ -9625,7 +9634,7 @@ const Contractors = {
                 }
 
                 Loading.hide();
-                Utils.safeWarn('⚠️ فشل رفض طلب الاعتماد في قاعدة البيانات، تم التحديث محلياً فقط');
+                Utils.safeWarn('⚠️ فشل رفض طلب الاعتماد في Google Sheets، تم التحديث محلياً فقط');
                 Notification.warning('تم تحديث الطلب محلياً. سيتم المزامنة لاحقاً.');
             }
 
@@ -9722,13 +9731,36 @@ const Contractors = {
     },
 
     calculateContractorAnalytics(contractors, approvedContractors, evaluations, violations) {
-        // إجمالي المقاولين
-        const totalContractors = contractors.length;
-        
-        // المقاولين المعتمدين (من قائمة المعتمدين)
+        // قائمة موحدة للمقاولين المسجلين (من contractors و approvedContractors) بدون تكرار حسب id/contractorId/اسم
+        const seenIds = new Set();
+        const mergedContractors = [];
+        const addUnique = (list) => {
+            if (!Array.isArray(list)) return;
+            list.forEach((c, idx) => {
+                if (!c || typeof c !== 'object') return;
+                    // Use a more robust unique identifier, e.g., a combination of ID and a normalized name/code if ID is missing
+                    const uniqueKey = c.id || c.contractorId || c.code || c.isoCode || `${(c.companyName || c.name || '').toString().trim()}-${c.entityType || 'unknown'}`; // Add entityType for better uniqueness
+                    if (!uniqueKey || seenIds.has(uniqueKey)) return;
+                seenIds.add(id);
+                mergedContractors.push({
+                    ...c,
+                    _endDate: c.endDate || c.expiryDate,
+                    _status: (c.status || '').toString().trim()
+                });
+            });
+        };
+        addUnique(contractors);
+        addUnique(approvedContractors);
+
+        // إجمالي المقاولين المسجلين = عدد السجلات الفريدة في القائمتين
+        const totalContractors = mergedContractors.length;
+
+        // المقاولين المعتمدين: كل سجل في قائمة المعتمدين يُحسب معتمداً ما لم تكن حالته صريحة غير معتمدة
         const totalApproved = approvedContractors.filter(ac => {
-            const status = (ac.status || '').toLowerCase();
-            return status === 'approved' || status === 'معتمد' || status === 'نشط';
+            const status = (ac.status || '').toString().trim();
+            const s = status.toLowerCase();
+            if (!status) return true; // وجود السجل في قائمة المعتمدين = معتمد
+            return s === 'approved' || s === 'معتمد' || s === 'نشط' || s === 'active';
         }).length;
 
         // إجمالي التقييمات
@@ -9736,8 +9768,8 @@ const Contractors = {
 
         // إجمالي المخالفات (جميع المخالفات المتعلقة بالمقاولين)
         const totalViolations = violations.filter(v => {
-            return v.contractorName || 
-                   v.contractorId || 
+            return v.contractorName ||
+                   v.contractorId ||
                    (v.personType && (v.personType === 'contractor' || v.personType === 'مقاول'));
         }).length;
 
@@ -9747,27 +9779,28 @@ const Contractors = {
             const validScores = evaluations
                 .map(e => parseFloat(e.finalScore) || parseFloat(e.score) || 0)
                 .filter(score => !isNaN(score) && score >= 0 && score <= 100);
-            
+
             if (validScores.length > 0) {
                 const sum = validScores.reduce((acc, score) => acc + score, 0);
                 avgScore = sum / validScores.length;
             }
         }
 
-        // المقاولين النشطين (من قائمة المقاولين)
-        const activeContractors = contractors.filter(c => {
-            const status = (c.status || '').toString().trim();
-            return status === 'نشط' || status === 'active' || status === 'معتمد';
+        // المقاولين النشطين (من القائمة الموحدة)
+        const activeContractors = mergedContractors.filter(c => {
+            const s = (c._status || (c.status || '').toString()).toLowerCase();
+            return s === 'نشط' || s === 'active' || s === 'معتمد' || s === 'approved';
         }).length;
 
-        // المقاولين المنتهية عقودهم
+        // المقاولين المنتهية عقودهم (من القائمة الموحدة، endDate أو expiryDate)
         const now = new Date();
         now.setHours(0, 0, 0, 0);
-        
-        const expiredContractors = contractors.filter(c => {
-            if (!c.endDate) return false;
+
+        const expiredContractors = mergedContractors.filter(c => {
+            const endDateVal = c._endDate || c.endDate || c.expiryDate;
+            if (!endDateVal) return false;
             try {
-                const endDate = new Date(c.endDate);
+                const endDate = new Date(endDateVal);
                 endDate.setHours(0, 0, 0, 0);
                 return endDate < now;
             } catch (e) {
@@ -9777,10 +9810,11 @@ const Contractors = {
 
         // المقاولين قريبين من الانتهاء (خلال 30 يوم)
         const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-        const expiringSoon = contractors.filter(c => {
-            if (!c.endDate) return false;
+        const expiringSoon = mergedContractors.filter(c => {
+            const endDateVal = c._endDate || c.endDate || c.expiryDate;
+            if (!endDateVal) return false;
             try {
-                const endDate = new Date(c.endDate);
+                const endDate = new Date(endDateVal);
                 endDate.setHours(0, 0, 0, 0);
                 return endDate >= now && endDate <= thirtyDaysFromNow;
             } catch (e) {
@@ -10591,6 +10625,11 @@ const Contractors = {
         };
 
         return `
+            <style>
+                .contractor-analytics-view-btn { color: #111; }
+                [data-theme="dark"] .contractor-analytics-view-btn { background: #4b5563 !important; color: #f3f4f6 !important; }
+                [data-theme="dark"] .contractor-analytics-view-btn:hover { background: #6b7280 !important; }
+            </style>
             <div class="content-card border-2 border-gray-200 rounded-xl shadow-lg overflow-hidden">
                 <div class="card-header bg-gradient-to-r from-indigo-50 via-purple-50 to-indigo-50 border-b-2 border-indigo-200">
                     <div class="flex items-center justify-between p-4">
@@ -10611,7 +10650,8 @@ const Contractors = {
                     <div class="overflow-x-auto" style="max-height: 70vh; overflow-y: auto; min-width: 100%;">
                         <table class="data-table w-full" style="border-collapse: collapse; table-layout: fixed; min-width: 900px;">
                             <colgroup>
-                                <col style="width: 18%;">
+                                <col style="width: 4%;">
+                                <col style="width: 16%;">
                                 <col style="width: 14%;">
                                 <col style="width: 10%;">
                                 <col style="width: 8%;">
@@ -10619,11 +10659,12 @@ const Contractors = {
                                 <col style="width: 8%;">
                                 <col style="width: 6%;">
                                 <col style="width: 10%;">
-                                <col style="width: 16%;">
+                                <col style="width: 14%;">
                             </colgroup>
                             <thead style="position: sticky; top: 0; z-index: 10; background: #e0e7ff; box-shadow: 0 2px 0 0 #c7d2fe;">
                                 <tr>
-                                    <th class="px-4 py-3 text-right font-bold text-indigo-900 border-b-2 border-indigo-200" style="background: #e0e7ff; white-space: nowrap;">اسم المقاول</th>
+                                    <th class="px-2 py-3 text-center font-bold text-indigo-900 border-b-2 border-indigo-200" style="background: #e0e7ff; white-space: nowrap;" scope="col">#</th>
+                                    <th id="header-اسم-المقاول" class="px-4 py-3 text-right font-bold text-indigo-900 border-b-2 border-indigo-200" style="background: #e0e7ff; white-space: nowrap;" scope="col">اسم المقاول</th>
                                     <th class="px-4 py-3 text-center font-bold text-indigo-900 border-b-2 border-indigo-200" style="background: #e0e7ff; white-space: nowrap;">نوع الخدمة</th>
                                     <th class="px-4 py-3 text-center font-bold text-indigo-900 border-b-2 border-indigo-200" style="background: #e0e7ff; white-space: nowrap;">حالة العقد</th>
                                     <th class="px-4 py-3 text-center font-bold text-indigo-900 border-b-2 border-indigo-200" style="background: #e0e7ff; white-space: nowrap;">التقييمات</th>
@@ -10638,19 +10679,17 @@ const Contractors = {
                                 ${contractorsWithStats.map((contractor, index) => {
                                     return `
                                     <tr class="hover:bg-indigo-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}">
-                                        <td class="px-4 py-3 text-right align-middle" style="overflow: hidden; text-overflow: ellipsis;">
-                                            <div class="flex items-center justify-end">
-                                                <div class="flex-shrink-0 w-8 h-8 bg-indigo-100 rounded-md flex items-center justify-center ml-3">
-                                                    <span class="text-indigo-600 font-bold text-sm">${index + 1}</span>
-                                                </div>
-                                                <div style="min-width: 0;">
-                                                    <strong class="text-gray-800 font-semibold block truncate">${Utils.escapeHTML(contractor.name || contractor.companyName || '')}</strong>
-                                                    <span class="text-xs text-gray-500">
-                                                        <span class="badge badge-${(contractor.status || '').toString().trim() === 'نشط' ? 'success' : 'danger'} text-xs">
-                                                            ${contractor.status || '-'}
-                                                        </span>
+                                        <td class="px-2 py-3 text-center align-middle">
+                                            <span class="inline-flex w-8 h-8 items-center justify-center rounded-full bg-gray-200 text-gray-700 font-bold text-sm">${index + 1}</span>
+                                        </td>
+                                        <td class="px-4 py-3 text-right align-middle" style="overflow: hidden; text-overflow: ellipsis;" headers="header-اسم-المقاول">
+                                            <div style="min-width: 0;">
+                                                <strong class="text-gray-800 font-semibold block truncate text-right">${Utils.escapeHTML(contractor.name || contractor.companyName || '')}</strong>
+                                                <span class="text-xs text-gray-500 mt-1 block text-right">
+                                                    <span class="badge badge-${['نشط', 'approved', 'معتمد', 'active'].includes((contractor.status || '').toString().trim().toLowerCase()) ? 'success' : 'danger'} text-xs">
+                                                        ${contractor.status || '-'}
                                                     </span>
-                                                </div>
+                                                </span>
                                             </div>
                                         </td>
                                         <td class="px-4 py-3 text-center align-middle" style="overflow: hidden; text-overflow: ellipsis;">
@@ -10696,10 +10735,10 @@ const Contractors = {
                                         </td>
                                         <td class="px-4 py-3 text-center align-middle">
                                             <button onclick="Contractors.viewContractorAnalytics('${contractor.id}')" 
-                                                    class="inline-flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium text-sm" 
+                                                    class="contractor-analytics-view-btn inline-flex items-center gap-2 px-4 py-2 rounded-lg transition-colors font-medium text-sm bg-gray-200 hover:bg-gray-300 text-gray-900 dark:bg-gray-600 dark:hover:bg-gray-500 dark:text-gray-100" 
                                                     title="عرض التفاصيل">
-                                                <i class="fas fa-eye ml-2"></i>
-                                                عرض
+                                                <i class="fas fa-eye"></i>
+                                                <span>عرض</span>
                                             </button>
                                         </td>
                                     </tr>
@@ -10766,19 +10805,29 @@ const Contractors = {
         const namesSet = new Set();
         if (contractorName) { namesSet.add(contractorName); namesSet.add(contractorName.toLowerCase()); }
         if (contractor.companyName) { namesSet.add(String(contractor.companyName).trim()); namesSet.add(String(contractor.companyName).trim().toLowerCase()); }
+        // مطابقة اسمية صارمة: تطابق تام أو أن أحد الاسمين يبدأ بالآخر فقط (لتجنب ربط مخالفات لشخص آخر مثل "محمد تمري" مع مقاول "تمري")
+        const nameMatchesContractorStrict = (vName) => {
+            if (!vName || typeof vName !== 'string') return false;
+            const v = vName.replace(/\s+/g, ' ').trim().toLowerCase();
+            const cn = (contractorName || '').toLowerCase();
+            const comp = (String(contractor.companyName || '').trim()).toLowerCase();
+            if (!v) return false;
+            if (v === cn || v === comp) return true;
+            if (cn && (v === cn || v.startsWith(cn) || cn.startsWith(v))) return true;
+            if (comp && (v === comp || v.startsWith(comp) || comp.startsWith(v))) return true;
+            return false;
+        };
         const matchesContractor = (record) => {
             if (!record) return false;
             const rId = normalize(record.contractorId) || normalize(record.contractorCode) || normalize(record.code);
             if (rId && idsSet.has(rId)) return true;
             if (record.contractorId != null && record.contractorId !== '' && idsSet.has(normalize(record.contractorId))) return true;
             if (record.contractorCode != null && record.contractorCode !== '' && idsSet.has(normalize(record.contractorCode))) return true;
-            const rName = String(record.contractorName || record.companyName || record.company || record.contractorCompany || record.name || record.externalName || record.contractorWorkerName || '').replace(/\s+/g, ' ').trim();
+            if (rId && nameMatchesContractorStrict(rId)) return true;
+            const rName = String(record.contractorName || record.companyName || record.company || record.contractorCompany || record.name || record.externalName || record.contractorWorkerName || record.contractorWorker || '').replace(/\s+/g, ' ').trim();
             if (!rName) return false;
             if (namesSet.has(rName) || namesSet.has(rName.toLowerCase())) return true;
-            if (contractorName && contractorName.toLowerCase() === rName.toLowerCase()) return true;
-            if (contractorName && rName.toLowerCase().includes(contractorName.toLowerCase())) return true;
-            if (contractorName && contractorName.toLowerCase().includes(rName.toLowerCase())) return true;
-            return false;
+            return nameMatchesContractorStrict(rName);
         };
         const matchesPtwContractor = (p) => {
             if (!p) return false;
@@ -10804,12 +10853,16 @@ const Contractors = {
         });
         const violations = (AppState.appData.violations || []).filter(v => {
             if (!v) return false;
+            const vPersonType = (v.personType || '').toString().trim().toLowerCase();
+            if (vPersonType === 'employee' || vPersonType === 'موظف') return false;
+            const isContractorType = vPersonType === 'contractor' || vPersonType === 'مقاول';
             if (v.contractorId != null && v.contractorId !== '' && idsSet.has(normalize(v.contractorId))) return true;
             if (v.contractorId === contractorId || v.contractorId === contractor.contractorId) return true;
-            if (v.personType === 'contractor' || v.contractorName) {
+            if (!isContractorType && !v.contractorName && (v.contractorId == null || v.contractorId === '')) return false;
+            if (isContractorType || v.contractorName || (v.contractorId != null && v.contractorId !== '')) {
                 if (matchesContractor(v)) return true;
-                const vName = String(v.contractorName || '').replace(/\s+/g, ' ').trim();
-                return contractorName && vName && (vName.toLowerCase() === contractorName.toLowerCase() || vName.toLowerCase().includes(contractorName.toLowerCase()) || contractorName.toLowerCase().includes(vName.toLowerCase()));
+                const vName = String(v.contractorName || v.contractorId || '').replace(/\s+/g, ' ').trim();
+                if (vName && nameMatchesContractorStrict(vName)) return true;
             }
             return false;
         });

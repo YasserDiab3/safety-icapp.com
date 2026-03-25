@@ -19,6 +19,14 @@ const IssueTracking = {
      * تحميل الموديول
      */
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         const section = document.getElementById('issue-tracking-section');
         if (!section) {
             Utils.safeError('قسم issue-tracking-section غير موجود!');
@@ -225,7 +233,7 @@ const IssueTracking = {
             
             // التحقق من تفعيل Google Integration
             if (!AppState.googleConfig?.appsScript?.enabled || !AppState.googleConfig?.appsScript?.scriptUrl) {
-                this.showEmptyState('يجب تفعيل الاتصال بقاعدة البيانات أولاً');
+                this.showEmptyState('يجب تفعيل Google Integration أولاً');
                 return;
             }
 
@@ -902,5 +910,4 @@ const IssueTracking = {
         }
     }
 })();
-
 

@@ -1,6 +1,14 @@
-﻿// ===== SOP-JHA Module (تعليمات السلامة SOP-JHA) =====
+// ===== SOP-JHA Module (تعليمات السلامة SOP-JHA) =====
 const SOPJHA = {
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         try {
             const section = document.getElementById('sop-jha-section');
             if (!section) {
@@ -192,10 +200,10 @@ const SOPJHA = {
             AppState.appData.sopJHA = [];
         }
 
-        // عرض البيانات المحلية أولاً (بدون انتظار قاعدة البيانات)
+        // عرض البيانات المحلية أولاً (بدون انتظار Google Sheets)
         const items = AppState.appData.sopJHA || [];
 
-        // تحميل البيانات من قاعدة البيانات بشكل غير متزامن (بعد عرض الواجهة)
+        // تحميل البيانات من Google Sheets بشكل غير متزامن (بعد عرض الواجهة)
         if (items.length === 0 && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.readFromSheets) {
             // تحميل البيانات في الخلفية بدون انتظار
             GoogleIntegration.readFromSheets('SOPJHA').then(data => {
@@ -205,7 +213,7 @@ const SOPJHA = {
                     this.loadSOPJHAList();
                 }
             }).catch(error => {
-                Utils.safeWarn('⚠️ خطأ في تحميل بيانات SOPJHA من قاعدة البيانات:', error);
+                Utils.safeWarn('⚠️ خطأ في تحميل بيانات SOPJHA من Google Sheets:', error);
             });
         }
 
@@ -475,10 +483,10 @@ const SOPJHA = {
             // 4. تحديث القائمة فوراً
             this.load();
             
-            // 5. معالجة المهام الخلفية (قاعدة البيانات) في الخلفية
+            // 5. معالجة المهام الخلفية (Google Sheets) في الخلفية
             if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                 GoogleIntegration.autoSave('SOPJHA', AppState.appData.sopJHA).catch(error => {
-                    Utils.safeError('خطأ في حفظ قاعدة البيانات:', error);
+                    Utils.safeError('خطأ في حفظ Google Sheets:', error);
                 });
             }
         } catch (error) {
@@ -581,7 +589,7 @@ const SOPJHA = {
                 Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
             }
             
-            // حفظ في قاعدة البيانات
+            // حفظ في Google Sheets
             if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                 await GoogleIntegration.autoSave('SOPJHA', AppState.appData.sopJHA);
             }
@@ -697,5 +705,4 @@ const SOPJHA = {
         }
     }
 })();
-
 

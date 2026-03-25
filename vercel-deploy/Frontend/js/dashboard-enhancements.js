@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ========================================
  * تحسينات JavaScript للوحة التحكم
  * Enhanced Dashboard Interactions
@@ -56,19 +56,13 @@
         waitForCSSAndInit();
     }
 
-    /** أقسام لوحة التحكم التي لا نطبق عليها تأثيرات (تفادي وميض الكروت — مطابق لسلوك Google Script) */
-    function isNoFlickerSection(el) {
-        if (!el || !el.closest) return false;
-        if (el.closest('.safety-metrics-section') || el.closest('.reports-statistics-section')) return true;
-        if (el.closest('#dashboard-section')) return true;
-        return false;
-    }
-
     function initDashboardEnhancements() {
-        // تفعيل التأثيرات التفاعلية (مع استثناء أقسام KPIs الرئيسية لتفادي الوميض)
+        // تفعيل التأثيرات التفاعلية
         enhanceKPICards();
         enhanceContentCards();
-        // addParallaxEffect(); معطّل سابقاً
+        // Disabled addParallaxEffect() to prevent scroll-linked positioning warnings
+        // This causes performance issues with asynchronous panning in Firefox
+        // addParallaxEffect();
         addCountUpAnimation();
         addProgressIndicators();
         addHoverSoundEffects();
@@ -77,14 +71,12 @@
     }
 
     /**
-     * تحسين بطاقات KPI بتأثيرات تفاعلية (ما عدا أقسام مؤشرات السلامة والتقارير — لا وميض)
+     * تحسين بطاقات KPI بتأثيرات تفاعلية
      */
     function enhanceKPICards() {
         const kpiCards = document.querySelectorAll('.kpi-card');
 
         kpiCards.forEach((card, index) => {
-            if (isNoFlickerSection(card)) return;
-
             // إضافة تأثير الظهور التدريجي
             card.style.opacity = '0';
             card.style.transform = 'translateY(30px)';
@@ -157,15 +149,17 @@
     }
 
     /**
-     * تحسين بطاقات المحتوى (استثناء أقسام مؤشرات السلامة والتقارير — لا وميض)
+     * تحسين بطاقات المحتوى
+     * لا يُطبَّق على قسم التقارير والإحصائيات أو مؤشرات السلامة (منع وميض).
      */
     function enhanceContentCards() {
         const contentCards = document.querySelectorAll('.content-card');
+        const noEnhanceClasses = ['reports-statistics-section', 'safety-metrics-section'];
 
         contentCards.forEach((card, index) => {
-            if (card.classList.contains('safety-metrics-section') || card.classList.contains('reports-statistics-section')) return;
+            const skip = noEnhanceClasses.some(c => card.classList.contains(c));
+            if (skip) return;
 
-            // تأثير الظهور التدريجي
             card.style.opacity = '0';
             card.style.transform = 'translateY(30px)';
 
@@ -175,7 +169,6 @@
                 card.style.transform = 'translateY(0)';
             }, (index + 5) * 100);
 
-            // تأثير الإضاءة عند المرور
             card.addEventListener('mouseenter', function () {
                 this.style.boxShadow = '0 20px 60px rgba(102, 126, 234, 0.2), 0 5px 20px rgba(102, 126, 234, 0.15)';
             });
@@ -206,7 +199,7 @@
     }
 
     /**
-     * إضافة تأثير العد التصاعدي للأرقام (لا يُطبَّق على أقسام مؤشرات السلامة والتقارير — تفادي وميض)
+     * إضافة تأثير العد التصاعدي للأرقام
      */
     function addCountUpAnimation() {
         const kpiValues = document.querySelectorAll('.kpi-value');
@@ -218,7 +211,6 @@
 
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
-                if (isNoFlickerSection(entry.target)) return;
                 if (entry.isIntersecting && !entry.target.dataset.animated) {
                     animateValue(entry.target);
                     entry.target.dataset.animated = 'true';
@@ -226,9 +218,7 @@
             });
         }, observerOptions);
 
-        kpiValues.forEach(value => {
-            if (!isNoFlickerSection(value)) observer.observe(value);
-        });
+        kpiValues.forEach(value => observer.observe(value));
     }
 
     /**
@@ -263,14 +253,12 @@
     }
 
     /**
-     * إضافة مؤشرات التقدم للبطاقات (لا تُطبَّق على أقسام مؤشرات السلامة والتقارير — تفادي وميض)
+     * إضافة مؤشرات التقدم للبطاقات
      */
     function addProgressIndicators() {
         const kpiCards = document.querySelectorAll('.kpi-card');
 
         kpiCards.forEach(card => {
-            if (isNoFlickerSection(card)) return;
-
             // إضافة شريط تقدم في الأسفل
             const progressBar = document.createElement('div');
             progressBar.style.position = 'absolute';
@@ -317,13 +305,12 @@
     }
 
     /**
-     * إضافة تأثير القلب للبطاقات عند النقر المزدوج (لا يُطبَّق على أقسام مؤشرات السلامة والتقارير)
+     * إضافة تأثير القلب للبطاقات عند النقر المزدوج
      */
     function addCardFlipEffect() {
         const kpiCards = document.querySelectorAll('.kpi-card');
 
         kpiCards.forEach(card => {
-            if (isNoFlickerSection(card)) return;
             card.addEventListener('dblclick', function () {
                 this.style.transform = 'rotateY(180deg)';
 
@@ -335,16 +322,18 @@
     }
 
     /**
-     * إضافة تأثير التوهج للعناصر المهمة (لا يُطبَّق على أقسام مؤشرات السلامة والتقارير — تفادي وميض)
+     * إضافة تأثير التوهج للعناصر المهمة
+     * لا يُطبَّق على كروت التقارير والإحصائيات أو مؤشرات السلامة (منع وميض).
      */
     function addGlowEffect() {
         const importantElements = document.querySelectorAll('.kpi-danger, .kpi-warning');
+        const noGlowContainers = document.querySelectorAll('.reports-statistics-section, .safety-metrics-section');
 
         importantElements.forEach(element => {
-            if (isNoFlickerSection(element)) return;
+            const insideNoGlow = Array.from(noGlowContainers).some(container => container.contains(element));
+            if (insideNoGlow) return;
             setInterval(() => {
                 element.style.boxShadow = '0 0 30px rgba(245, 87, 108, 0.5)';
-
                 setTimeout(() => {
                     element.style.boxShadow = '';
                 }, 1000);
@@ -549,4 +538,3 @@
 
     log('✨ Dashboard enhancements loaded successfully!');
 })();
-

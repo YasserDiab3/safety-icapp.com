@@ -1,4 +1,4 @@
-﻿/* ========================================
+/* ========================================
    قمع شامل ونهائي لأخطاء uploadmanager.js:518
    ملاحظة: هذا الملف احتياطي - الحماية الأساسية inline في index.html
    V5: يتضمن تحويل Google Drive URLs إلى صيغة thumbnail الآمنة
@@ -20,13 +20,13 @@
             // تحويل /uc?export=view URLs إلى /thumbnail
             var driveUcMatch = url.match(/drive\.google\.com\/uc\?.*id=([a-zA-Z0-9_-]+)/i);
             if (driveUcMatch && driveUcMatch[1]) {
-                return 'https://drive.google.com/thumbnail?id=' + driveUcMatch[1] + '&sz=w1000';
+                return 'https://drive.google.com/thumbnail?id=' + driveUcMatch[1] + '&sz=w400';
             }
             
             // تحويل /file/d/ URLs
             var driveFileMatch = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/i);
             if (driveFileMatch && driveFileMatch[1]) {
-                return 'https://drive.google.com/thumbnail?id=' + driveFileMatch[1] + '&sz=w1000';
+                return 'https://drive.google.com/thumbnail?id=' + driveFileMatch[1] + '&sz=w400';
             }
             
             return url;
@@ -92,6 +92,25 @@
         
         return false;
     };
+
+    // ✅ ضوضاء غير حرجة في الإنتاج (شبكة/خدمات خارجية)
+    const isNonCriticalNoise = function(text) {
+        if (!text) return false;
+        const t = String(text).toLowerCase();
+        // Vercel Live feedback (قد يرجع 503 مؤقتاً)
+        if (t.includes('vercel.live/_next-live/feedback/feedback.js') && (t.includes('503') || t.includes('service unavailable') || t.includes('err_aborted'))) {
+            return true;
+        }
+        // Google Drive thumbnails (قد يرجع 503 مؤقتاً)
+        if (t.includes('drive.google.com/thumbnail') && (t.includes('503') || t.includes('service unavailable'))) {
+            return true;
+        }
+        // رسالة عدم الاتصال بالخادم (تظهر كتحذير متكرر)
+        if (t.includes('التطبيق يعمل بدون نشر') || t.includes('no server connection') || t.includes('running without backend')) {
+            return true;
+        }
+        return false;
+    };
     
     // ✅ قمع window.onerror - الأولوية القصوى
     const originalOnError = window.onerror;
@@ -145,6 +164,10 @@
     if (typeof console !== 'undefined' && console.error) {
         const originalError = console.error;
         console.error = function(...args) {
+            try {
+                const noiseText = args.map(a => (a && a.stack) ? (a.message + ' ' + a.stack) : String(a || '')).join(' ');
+                if (isNonCriticalNoise(noiseText)) return;
+            } catch (e) { /* ignore */ }
             for (var i = 0; i < args.length; i++) {
                 var arg = args[i];
                 var firstStr = (arg && typeof arg === 'object')
@@ -193,7 +216,7 @@
         console.warn = function(...args) {
             try {
                 const allText = args.map(arg => String(arg || '')).join(' ');
-                if (isUploadManagerError(allText)) {
+                if (isUploadManagerError(allText) || isNonCriticalNoise(allText)) {
                     return;
                 }
             } catch (e) {
@@ -285,6 +308,5 @@
         }, true);
     }
     
-    // رسالة التحميل معطّلة لتجنب ازدحام الكونسول في الإنتاج
+    console.log('✅ uploadmanager error suppressor loaded successfully');
 })();
-

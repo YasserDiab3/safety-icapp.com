@@ -1,4 +1,4 @@
-﻿/**
+/**
  * LegalDocuments Module
  * ØªÙ… Ø§Ø³ØªØ®Ø±Ø§Ø¬Ù‡ Ù…Ù† app-modules.js
  */
@@ -9,6 +9,14 @@ const LegalDocuments = {
     },
 
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         const section = document.getElementById('legal-documents-section');
         if (!section) return;
 

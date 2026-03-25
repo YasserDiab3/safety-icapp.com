@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CSS Minification Script
  * يضغط ملفات CSS للإنتاج
  */
@@ -60,4 +60,3 @@ if (fs.existsSync(mainCSS)) {
 }
 
 console.log('\n✅ CSS minification completed!');
-

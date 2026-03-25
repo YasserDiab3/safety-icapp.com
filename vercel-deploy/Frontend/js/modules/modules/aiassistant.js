@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AIAssistant Module
  * ØªÙ… Ø§Ø³ØªØ®Ø±Ø§Ø¬Ù‡ Ù…Ù† app-modules.js
  */
@@ -49,7 +49,9 @@ Object.assign(window.AIAssistant, {
                     const trainings = AppState.appData.training || [];
                     const completed = trainings.filter(t => t.status === 'مكتمل').length;
                     const upcoming = trainings.filter(t => t.status === 'مخطط').length;
-                    const totalParticipants = trainings.reduce((sum, t) => sum + (t.participants?.length || t.participantsCount || 0), 0);
+                    const totalParticipants = typeof Training !== 'undefined' && Training.getParticipantsCount
+                        ? trainings.reduce((sum, t) => sum + Training.getParticipantsCount(t), 0)
+                        : trainings.reduce((sum, t) => sum + (t.participants?.length || t.participantsCount || 0), 0);
 
                     analysis = `تم تحليل ${trainings.length} برنامج تدريبي.`;
                     analysis += `\n- البرامج المكتملة: ${completed}`;
@@ -115,6 +117,21 @@ Object.assign(window.AIAssistant, {
 
             Loading.hide();
 
+            // محاولة تحسين التحليل بـ Gemini
+            let geminiEnhancement = '';
+            try {
+                if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.sendToAppsScript) {
+                    const geminiQ = `قدم تحليلاً ذكياً لـ ${dataType === 'incidents' ? 'الحوادث' : dataType === 'training' ? 'التدريب' : dataType === 'risk' ? 'المخاطر' : 'جميع البيانات'} بناءً على: ${analysis}`;
+                    const geminiRes = await GoogleIntegration.sendToAppsScript('processAIQuestion', {
+                        question: geminiQ,
+                        context: { userId: AppState.currentUser?.id, userName: AppState.currentUser?.name, userRole: AppState.currentUser?.role }
+                    });
+                    if (geminiRes && geminiRes.success && geminiRes.text) {
+                        geminiEnhancement = geminiRes.text;
+                    }
+                }
+            } catch (e) { /* Fallback to static analysis */ }
+
             // عرض النتائج
             const modal = document.createElement('div');
             modal.className = 'modal-overlay';
@@ -131,8 +148,19 @@ Object.assign(window.AIAssistant, {
                     </div>
                     <div class="modal-body">
                         <div class="space-y-4">
+                            ${geminiEnhancement ? `
+                                <div class="content-card" style="border-right: 3px solid #3b82f6;">
+                                    <h3 class="card-title" style="color:#1d4ed8;">
+                                        <i class="fas fa-robot ml-2"></i>
+                                        تحليل Gemini الذكي
+                                    </h3>
+                                    <div class="card-body">
+                                        <pre class="whitespace-pre-wrap text-sm text-gray-700">${Utils.escapeHTML(geminiEnhancement)}</pre>
+                                    </div>
+                                </div>
+                            ` : ''}
                             <div class="content-card">
-                                <h3 class="card-title">التحليل</h3>
+                                <h3 class="card-title">البيانات الإحصائية</h3>
                                 <div class="card-body">
                                     <pre class="whitespace-pre-wrap text-sm">${Utils.escapeHTML(analysis)}</pre>
                                 </div>
@@ -178,7 +206,66 @@ Object.assign(window.AIAssistant, {
         }
     },
 
+    /**
+     * إرسال سؤال مباشر لـ Gemini من لوحة الإدارة
+     */
+    async askGeminiDirect() {
+        const input = document.getElementById('admin-ai-question-input');
+        const answerBox = document.getElementById('admin-ai-answer');
+        const answerText = document.getElementById('admin-ai-answer-text');
+        const loadingBox = document.getElementById('admin-ai-loading');
+        if (!input || !input.value.trim()) return;
+
+        const question = input.value.trim();
+
+        // إظهار مؤشر التحميل
+        if (answerBox) answerBox.classList.add('hidden');
+        if (loadingBox) loadingBox.classList.remove('hidden');
+
+        try {
+            if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.sendToAppsScript) {
+                const response = await GoogleIntegration.sendToAppsScript('processAIQuestion', {
+                    question: question,
+                    context: {
+                        userId: AppState.currentUser?.id || null,
+                        userName: AppState.currentUser?.name || null,
+                        userRole: AppState.currentUser?.role || null
+                    }
+                });
+                if (loadingBox) loadingBox.classList.add('hidden');
+                if (response && response.success && response.text) {
+                    if (answerText) answerText.textContent = response.text;
+                    if (answerBox) answerBox.classList.remove('hidden');
+                } else {
+                    if (answerText) answerText.textContent = 'لم يتمكن المساعد من الإجابة. يرجى المحاولة مرة أخرى.';
+                    if (answerBox) answerBox.classList.remove('hidden');
+                }
+            } else {
+                // استخدام AIAssistant المحلي كـ Fallback
+                const localResponse = await AIAssistant.ask(question);
+                if (loadingBox) loadingBox.classList.add('hidden');
+                if (localResponse && localResponse.success) {
+                    if (answerText) answerText.textContent = localResponse.text || localResponse.message;
+                    if (answerBox) answerBox.classList.remove('hidden');
+                }
+            }
+        } catch (error) {
+            if (loadingBox) loadingBox.classList.add('hidden');
+            if (answerText) answerText.textContent = 'حدث خطأ في الاتصال. يرجى المحاولة لاحقاً.';
+            if (answerBox) answerBox.classList.remove('hidden');
+            Utils.safeError('خطأ في askGeminiDirect:', error);
+        }
+    },
+
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         // التحقق من وجود التبعيات المطلوبة
         if (typeof Utils === 'undefined') {
             console.error('Utils غير متوفر!');
@@ -254,6 +341,10 @@ Object.assign(window.AIAssistant, {
                         <p class="section-subtitle">${aiSubtitle}</p>
                     </div>
                     <div class="flex items-center gap-3">
+                        <span style="display:inline-flex;align-items:center;gap:6px;background:#f0fdf4;border:1px solid #86efac;border-radius:9999px;padding:4px 14px;font-size:0.8rem;color:#16a34a;font-weight:600;">
+                            <i class="fas fa-circle" style="font-size:0.5rem;color:#22c55e;"></i>
+                            Gemini 1.5 Flash متصل
+                        </span>
                         <button onclick="AIAssistant.showSettings()" class="btn-secondary">
                             <i class="fas fa-cog ml-2"></i>
                             الإعدادات
@@ -339,11 +430,58 @@ Object.assign(window.AIAssistant, {
                 </div>
             ` : ''}
             
+            <!-- مربع السؤال المباشر لـ Gemini -->
+            <div class="content-card mt-6" style="border: 2px solid #3b82f6; border-radius: 12px;">
+                <div class="card-body">
+                    <div class="flex items-center gap-2 mb-3">
+                        <i class="fas fa-robot" style="color:#3b82f6;font-size:1.2rem;"></i>
+                        <h2 class="text-lg font-bold" style="color:#1e40af;">اسأل Gemini مباشرة</h2>
+                        <span style="background:#dbeafe;color:#1d4ed8;border-radius:9999px;padding:2px 10px;font-size:0.75rem;font-weight:600;">AI</span>
+                    </div>
+                    <p class="text-gray-500 text-sm mb-3">اطرح أي سؤال عن بيانات السلامة — Gemini سيجيبك بناءً على بيانات النظام الفعلية</p>
+                    <div class="flex gap-2">
+                        <input type="text" id="admin-ai-question-input"
+                            class="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+                            placeholder="مثال: ما هي أكثر أسباب الحوادث تكراراً؟ أو كيف نحسن معدل إتمام التدريب؟"
+                            onkeydown="if(event.key==='Enter') AIAssistant.askGeminiDirect()">
+                        <button onclick="AIAssistant.askGeminiDirect()" class="btn-primary" style="white-space:nowrap;">
+                            <i class="fas fa-paper-plane ml-1"></i>
+                            إرسال
+                        </button>
+                    </div>
+                    <div id="admin-ai-answer" class="mt-3 hidden">
+                        <div style="background:#f8fafc;border-right:3px solid #3b82f6;border-radius:6px;padding:12px 16px;">
+                            <div class="flex items-center gap-2 mb-2">
+                                <i class="fas fa-robot" style="color:#3b82f6;font-size:0.85rem;"></i>
+                                <span class="text-xs font-semibold" style="color:#3b82f6;">Gemini</span>
+                            </div>
+                            <p id="admin-ai-answer-text" class="text-sm text-gray-700 whitespace-pre-wrap"></p>
+                        </div>
+                    </div>
+                    <div id="admin-ai-loading" class="mt-3 hidden text-center py-3">
+                        <i class="fas fa-spinner fa-spin" style="color:#3b82f6;"></i>
+                        <span class="text-sm text-gray-500 mr-2">Gemini يفكر...</span>
+                    </div>
+                    <!-- أسئلة مقترحة -->
+                    <div class="flex flex-wrap gap-2 mt-3">
+                        <span class="text-xs text-gray-400 ml-1">اقتراحات:</span>
+                        ${[
+                            'ما مستوى المخاطر الحالي؟',
+                            'تحليل الحوادث هذا الشهر',
+                            'ما التوصيات لتحسين السلامة؟',
+                            'الإجراءات المتأخرة'
+                        ].map(q => `<button onclick="document.getElementById('admin-ai-question-input').value='${q}';AIAssistant.askGeminiDirect()"
+                            style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:9999px;padding:3px 12px;font-size:0.75rem;cursor:pointer;">${q}</button>`).join('')}
+                    </div>
+                </div>
+            </div>
+
             <!-- أدوات التحليل -->
             <div class="mt-6">
                 <h2 class="text-xl font-bold mb-4">
                     <i class="fas fa-brain ml-2"></i>
                     أدوات التحليل الذكي
+                    <span style="background:#dbeafe;color:#1d4ed8;border-radius:9999px;padding:2px 10px;font-size:0.8rem;font-weight:600;margin-right:8px;">مدعوم بـ Gemini</span>
                 </h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="content-card">

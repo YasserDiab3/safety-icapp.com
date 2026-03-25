@@ -12,6 +12,14 @@ const Violations = {
     },
 
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         // التحقق من المتطلبات الأساسية
         if (typeof Utils === 'undefined') {
             console.error('❌ Utils غير متوفر - يرجى تحديث الصفحة');
@@ -204,15 +212,12 @@ const Violations = {
                             </tr>
                         </thead>
                         <tbody>
-                            ${violations.map((violation, index) => {
-                                const isC = !!(violation.contractorName || violation.personType === 'contractor');
-                                const displayName = isC ? (violation.contractorWorker || violation.contractorName || '-') : (violation.employeeName || '-');
-                                return `
+                            ${violations.map((violation, index) => `
                                 <tr style="background: ${index % 2 === 0 ? '#ffffff' : '#fef2f2'}; transition: all 0.2s ease;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='${index % 2 === 0 ? '#ffffff' : '#fef2f2'}'">
                                     <td style="padding: 14px 12px; text-align: center; border-bottom: 1px solid #fecaca; font-weight: 500;">
                                         <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
                                             <i class="fas ${violation.employeeName ? 'fa-user-tie' : 'fa-hard-hat'}" style="color: ${violation.employeeName ? '#3b82f6' : '#f59e0b'};"></i>
-                                            ${Utils.escapeHTML(displayName)}
+                                            ${Utils.escapeHTML(violation.employeeName || violation.contractorName || '-')}
                                         </div>
                                     </td>
                                     <td style="padding: 14px 12px; text-align: center; border-bottom: 1px solid #fecaca;">
@@ -251,8 +256,7 @@ const Violations = {
                                         </div>
                                     </td>
                                 </tr>
-                            `;
-                            }).join('')}
+                            `).join('')}
                         </tbody>
                     </table>
                 </div>
@@ -560,7 +564,7 @@ const Violations = {
                 // عرض الواجهة مباشرة مع البيانات المحلية (إن وجدت)
                 contentContainer.innerHTML = this.renderBlacklistTab();
                 this.setupBlacklistEventListeners();
-                // تحميل البيانات من قاعدة البيانات في الخلفية وتحديث الواجهة
+                // تحميل البيانات من Google Sheets في الخلفية وتحديث الواجهة
                 this.loadBlacklistDataAsync().then(() => {
                     // تحديث الواجهة بعد تحميل البيانات
                     this.refreshBlacklistDisplay();
@@ -647,7 +651,7 @@ const Violations = {
                                     <button onclick="Violations.viewViolation('${violation.id}')" class="btn-icon btn-icon-primary" title="عرض">
                                         <i class="fas fa-eye"></i>
                                     </button>
-                                    <button onclick="Violations.showViolationForm(${JSON.stringify(violation).replace(/"/g, '&quot;')})" class="btn-icon btn-icon-warning" title="تعديل">
+                                    <button onclick="Violations.showViolationForm('${violation.id}')" class="btn-icon btn-icon-warning" title="تعديل">"/g, '&quot;')})" class="btn-icon btn-icon-warning" title="تعديل">
                                         <i class="fas fa-edit"></i>
                                     </button>
                                     <button onclick="Violations.deleteViolation('${violation.id}')" class="btn-icon btn-icon-danger" title="حذف">
@@ -673,10 +677,7 @@ const Violations = {
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>اسم المخالف</th>
-                        <th>المقاول</th>
-                        <th>الوظيفة</th>
-                        <th>الإدارة</th>
+                        <th>اسم المقاول</th>
                         <th>نوع المخالفة</th>
                         <th>التاريخ</th>
                         <th>الشدة</th>
@@ -688,10 +689,7 @@ const Violations = {
                 <tbody>
                     ${violations.map(violation => `
                         <tr>
-                            <td>${Utils.escapeHTML(violation.contractorWorker || violation.contractorName || '')}</td>
                             <td>${Utils.escapeHTML(violation.contractorName || '')}</td>
-                            <td>${Utils.escapeHTML(violation.contractorPosition || '-')}</td>
-                            <td>${Utils.escapeHTML(violation.contractorDepartment || '-')}</td>
                             <td>${Utils.escapeHTML(violation.violationType || '')}</td>
                             <td>${violation.violationDate ? Utils.formatDate(violation.violationDate) : '-'}</td>
                             <td>
@@ -1301,14 +1299,6 @@ const Violations = {
             violationData = violationDataOrId;
         }
         const isEdit = !!violationData;
-
-        // التأكد من تحميل إعدادات النماذج (المواقع) وبيانات المقاولين قبل عرض النموذج
-        if (typeof Permissions !== 'undefined' && typeof Permissions.ensureFormSettingsState === 'function') {
-            await Permissions.ensureFormSettingsState();
-        }
-        if (typeof Contractors !== 'undefined' && typeof Contractors.ensureContractorsAndApprovedForModules === 'function') {
-            await Contractors.ensureContractorsAndApprovedForModules();
-        }
 
         // التحقق من وجود ViolationTypesManager
         let violationTypes = [];
@@ -2079,6 +2069,8 @@ const Violations = {
 
                 const formData = {
                     id: violationData?.id || Utils.generateId('VIOLATION'),
+                    // Assuming generateISOCode is a separate, correctly implemented function for ISO code generation.
+                    // If Utils.generateId is meant for this, ensure its parameters and logic are appropriate for ISO codes.
                     isoCode: generateISOCode('VIOL', AppState.appData.violations || []),
                     personType: personType,
                     employeeId: personType === 'employee' ? Utils.generateId('EMP') : '',
@@ -2143,10 +2135,10 @@ const Violations = {
                     Violations.load();
                 }
                 
-                // 5. معالجة المهام الخلفية (قاعدة البيانات) في الخلفية
+                // 5. معالجة المهام الخلفية (Google Sheets) في الخلفية
                 GoogleIntegration.autoSave('Violations', AppState.appData.violations).catch(err => {
-                    if (AppState.debugMode) Utils.safeWarn('خطأ في حفظ قاعدة البيانات:', err);
-                    Notification.warning('تم الحفظ محلياً لكن فشل الحفظ في قاعدة البيانات');
+                    if (AppState.debugMode) Utils.safeWarn('خطأ في حفظ Google Sheets:', err);
+                    Notification.warning('تم الحفظ محلياً لكن فشل الحفظ في Google Sheets');
                 });
 
             } catch (error) {
@@ -2223,6 +2215,16 @@ const Violations = {
             Utils.safeWarn('⚠️ خطأ في الحصول على قائمة المواقع:', error);
             return [];
         }
+    },
+
+    refreshSiteDropdowns() {
+        try {
+            var sites = this.getSiteOptions();
+            var esc = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML : function(s) { return String(s == null ? '' : s); };
+            var opts = '<option value="">اختر المصنع</option>' + (sites || []).map(function(s) { return '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>'; }).join('');
+            var el = document.getElementById('blacklist-factory');
+            if (el && el.tagName === 'SELECT') { var v = el.value; el.innerHTML = opts; if (v) el.value = v; }
+        } catch (e) { if (typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('⚠️ Violations.refreshSiteDropdowns:', e); }
     },
 
     getPlaceOptions(siteId) {
@@ -2343,13 +2345,6 @@ const Violations = {
         const violation = AppState.appData.violations.find(v => v.id === id);
         if (!violation) return;
 
-        const isContractor = !!(violation.contractorName || violation.personType === 'contractor');
-        const violatorName = isContractor ? (violation.contractorWorker || violation.contractorName || '-') : (violation.employeeName || '-');
-        const violatorCodeOrContractor = isContractor ? (violation.contractorName || '-') : (violation.employeeCode || violation.employeeNumber || '-');
-        const violatorPosition = isContractor ? (violation.contractorPosition || '-') : (violation.employeePosition || '-');
-        const violatorDepartment = isContractor ? (violation.contractorDepartment || '-') : (violation.employeeDepartment || '-');
-        const codeOrContractorLabel = isContractor ? 'المقاول' : 'الكود الوظيفي';
-
         const modal = document.createElement('div');
         modal.className = 'modal-overlay';
         modal.innerHTML = `
@@ -2365,28 +2360,57 @@ const Violations = {
                 </div>
                 <div class="modal-body" style="padding: 24px;">
                     <div class="space-y-4">
-                        <!-- معلومات المخالف (نفس هيكل نموذج الموظفين: الاسم، الكود/المقاول، الوظيفة، الإدارة) -->
+                        <!-- معلومات المخالف (نفس التصميم للموظفين والمقاولين) -->
                         <div style="background: #fef2f2; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
                             <h3 style="font-weight: 600; color: #991b1b; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
                                 <i class="fas fa-user"></i> معلومات المخالف
                             </h3>
                             <div class="grid grid-cols-2 gap-4">
+                                ${(violation.contractorName || violation.personType === 'contractor') ? `
+                                <!-- مقاول: اسم المخالف (العامل) + الوظيفة + اسم المقاول + الإدارة -->
                                 <div>
                                     <label class="text-sm font-semibold text-gray-600">اسم المخالف:</label>
-                                    <p class="text-gray-800 font-medium">${Utils.escapeHTML(violatorName)}</p>
-                                </div>
-                                <div>
-                                    <label class="text-sm font-semibold text-gray-600">${codeOrContractorLabel}:</label>
-                                    <p class="text-gray-800">${Utils.escapeHTML(violatorCodeOrContractor)}</p>
+                                    <p class="text-gray-800 font-medium">${Utils.escapeHTML(violation.contractorWorker || violation.employeeName || violation.contractorName || '-')}</p>
                                 </div>
                                 <div>
                                     <label class="text-sm font-semibold text-gray-600">الوظيفة:</label>
-                                    <p class="text-gray-800">${Utils.escapeHTML(violatorPosition)}</p>
+                                    <p class="text-gray-800">${Utils.escapeHTML(violation.contractorPosition || '-')}</p>
                                 </div>
                                 <div>
-                                    <label class="text-sm font-semibold text-gray-600">الإدارة:</label>
-                                    <p class="text-gray-800">${Utils.escapeHTML(violatorDepartment)}</p>
+                                    <label class="text-sm font-semibold text-gray-600">اسم المقاول:</label>
+                                    <p class="text-gray-800 font-medium">${Utils.escapeHTML(violation.contractorName || '-')}</p>
                                 </div>
+                                ${violation.contractorDepartment ? `
+                                <div>
+                                    <label class="text-sm font-semibold text-gray-600">الإدارة:</label>
+                                    <p class="text-gray-800">${Utils.escapeHTML(violation.contractorDepartment || '-')}</p>
+                                </div>
+                                ` : ''}
+                                ` : `
+                                <!-- موظف: اسم المخالف + الكود الوظيفي + الوظيفة + الإدارة -->
+                                <div>
+                                    <label class="text-sm font-semibold text-gray-600">اسم المخالف:</label>
+                                    <p class="text-gray-800 font-medium">${Utils.escapeHTML(violation.employeeName || '-')}</p>
+                                </div>
+                                ${violation.employeeCode ? `
+                                <div>
+                                    <label class="text-sm font-semibold text-gray-600">الكود الوظيفي:</label>
+                                    <p class="text-gray-800">${Utils.escapeHTML(violation.employeeCode || violation.employeeNumber || '-')}</p>
+                                </div>
+                                ` : ''}
+                                ${violation.employeePosition ? `
+                                <div>
+                                    <label class="text-sm font-semibold text-gray-600">الوظيفة:</label>
+                                    <p class="text-gray-800">${Utils.escapeHTML(violation.employeePosition || '-')}</p>
+                                </div>
+                                ` : ''}
+                                ${violation.employeeDepartment ? `
+                                <div>
+                                    <label class="text-sm font-semibold text-gray-600">الإدارة:</label>
+                                    <p class="text-gray-800">${Utils.escapeHTML(violation.employeeDepartment || '-')}</p>
+                                </div>
+                                ` : ''}
+                                `}
                             </div>
                         </div>
 
@@ -2489,23 +2513,22 @@ const Violations = {
             const qrCode = typeof QRCode !== 'undefined' ? QRCode.generate(qrCodeData, 100) : null;
             const formCode = violation.isoCode || `VIOL-${violation.id?.substring(0, 8) || 'UNKNOWN'}`;
 
-            const isContractorPdf = !!(violation.contractorName || violation.personType === 'contractor');
-            const pdfViolatorName = isContractorPdf ? (violation.contractorWorker || violation.contractorName || '') : (violation.employeeName || '');
-            const pdfCodeOrContractor = isContractorPdf ? (violation.contractorName || '') : (violation.employeeCode || violation.employeeNumber || '');
-            const pdfCodeLabel = isContractorPdf ? 'المقاول' : 'الكود الوظيفي';
-            const pdfPosition = isContractorPdf ? (violation.contractorPosition || '') : (violation.employeePosition || '');
-            const pdfDepartment = isContractorPdf ? (violation.contractorDepartment || '') : (violation.employeeDepartment || '');
-
             const htmlContent = FormHeader.generatePDFHTML(
                 formCode,
                 'تقرير مخالفة',
                 `
                 <table>
                     <tr><th>كود ISO</th><td>${Utils.escapeHTML(violation.isoCode || '')}</td></tr>
-                    <tr><th>اسم المخالف</th><td>${Utils.escapeHTML(pdfViolatorName)}</td></tr>
-                    <tr><th>${pdfCodeLabel}</th><td>${Utils.escapeHTML(pdfCodeOrContractor)}</td></tr>
-                    <tr><th>الوظيفة</th><td>${Utils.escapeHTML(pdfPosition)}</td></tr>
-                    <tr><th>الإدارة</th><td>${Utils.escapeHTML(pdfDepartment)}</td></tr>
+                    <tr><th>اسم المخالف</th><td>${Utils.escapeHTML((violation.contractorName || violation.personType === 'contractor') ? (violation.contractorWorker || violation.employeeName || violation.contractorName || '') : (violation.employeeName || ''))}</td></tr>
+                    ${(violation.contractorName || violation.personType === 'contractor') ? `
+                    ${violation.contractorPosition ? `<tr><th>الوظيفة</th><td>${Utils.escapeHTML(violation.contractorPosition || '')}</td></tr>` : ''}
+                    <tr><th>اسم المقاول</th><td>${Utils.escapeHTML(violation.contractorName || '')}</td></tr>
+                    ${violation.contractorDepartment ? `<tr><th>الإدارة</th><td>${Utils.escapeHTML(violation.contractorDepartment || '')}</td></tr>` : ''}
+                    ` : `
+                    ${violation.employeeCode ? `<tr><th>الكود الوظيفي</th><td>${Utils.escapeHTML(violation.employeeCode || violation.employeeNumber || '')}</td></tr>` : ''}
+                    ${violation.employeePosition ? `<tr><th>الوظيفة</th><td>${Utils.escapeHTML(violation.employeePosition || '')}</td></tr>` : ''}
+                    ${violation.employeeDepartment ? `<tr><th>الإدارة</th><td>${Utils.escapeHTML(violation.employeeDepartment || '')}</td></tr>` : ''}
+                    `}
                     <tr><th>نوع المخالفة</th><td>${Utils.escapeHTML(violation.violationType || '')}</td></tr>
                     <tr><th>تاريخ المخالفة</th><td>${violation.violationDate ? Utils.formatDate(violation.violationDate) : '-'}</td></tr>
                     <tr><th>الموقع</th><td>${Utils.escapeHTML(violation.violationLocation || '')}</td></tr>
@@ -2552,7 +2575,7 @@ const Violations = {
 
     // ===== Blacklist Register Functions =====
     /**
-     * تحميل بيانات Blacklist من قاعدة البيانات
+     * تحميل بيانات Blacklist من Google Sheets
      */
     async loadBlacklistDataAsync() {
         try {
@@ -2571,12 +2594,12 @@ const Violations = {
             if (!isGoogleEnabled || !isGoogleIntegrationAvailable) {
                 // إذا لم يكن Google Integration متاحاً، استخدام البيانات المحلية
                 if (AppState.debugMode) {
-                    Utils.safeLog('⚠️ الاتصال بقاعدة البيانات غير متاح - استخدام البيانات المحلية فقط');
+                    Utils.safeLog('⚠️ Google Integration غير متاح - استخدام البيانات المحلية فقط');
                 }
                 return;
             }
 
-            // تحميل البيانات من قاعدة البيانات (بدون عرض مؤشر تحميل - الواجهة تُعرض أولاً)
+            // تحميل البيانات من Google Sheets (بدون عرض مؤشر تحميل - الواجهة تُعرض أولاً)
             const result = await GoogleIntegration.sendRequest({
                 action: 'readFromSheet',
                 data: {
@@ -2584,7 +2607,7 @@ const Violations = {
                     spreadsheetId: AppState.googleConfig?.sheets?.spreadsheetId
                 }
             }).catch(error => {
-                Utils.safeWarn('⚠️ تعذر تحميل بيانات Blacklist من قاعدة البيانات:', error);
+                Utils.safeWarn('⚠️ تعذر تحميل بيانات Blacklist من Google Sheets:', error);
                 return { success: false, data: [] };
             });
 
@@ -2593,7 +2616,7 @@ const Violations = {
                 AppState.appData.blacklistRegister = result.data;
                 dataUpdated = true;
                 if (AppState.debugMode) {
-                    Utils.safeLog(`✅ تم تحميل ${result.data.length} سجل Blacklist من قاعدة البيانات`);
+                    Utils.safeLog(`✅ تم تحميل ${result.data.length} سجل Blacklist من Google Sheets`);
                 }
             } else {
                 // التأكد من وجود مصفوفة فارغة إذا لم يتم تحميل البيانات
@@ -3574,12 +3597,12 @@ const Violations = {
                 window.DataManager.save();
             }
 
-            // حفظ في قاعدة البيانات
+            // حفظ في Google Sheets
             try {
                 await GoogleIntegration.autoSave('Blacklist_Register', AppState.appData.blacklistRegister);
             } catch (err) {
-                if (AppState.debugMode) Utils.safeWarn('خطأ في حفظ قاعدة البيانات:', err);
-                Notification.warning('تم الحفظ محلياً لكن فشل الحفظ في قاعدة البيانات');
+                if (AppState.debugMode) Utils.safeWarn('خطأ في حفظ Google Sheets:', err);
+                Notification.warning('تم الحفظ محلياً لكن فشل الحفظ في Google Sheets');
             }
 
             Loading.hide();
@@ -3703,12 +3726,12 @@ const Violations = {
                 window.DataManager.save();
             }
 
-            // حفظ في قاعدة البيانات
+            // حفظ في Google Sheets
             try {
                 await GoogleIntegration.autoSave('Blacklist_Register', AppState.appData.blacklistRegister);
             } catch (err) {
-                if (AppState.debugMode) Utils.safeWarn('خطأ في حفظ قاعدة البيانات:', err);
-                Notification.warning('تم الحذف محلياً لكن فشل الحفظ في قاعدة البيانات');
+                if (AppState.debugMode) Utils.safeWarn('خطأ في حفظ Google Sheets:', err);
+                Notification.warning('تم الحذف محلياً لكن فشل الحفظ في Google Sheets');
             }
 
             Loading.hide();

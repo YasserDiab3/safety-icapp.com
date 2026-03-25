@@ -3,26 +3,6 @@
    Reports & Statistics Card Design
    ======================================== */
 
-/* ===== إلغاء fadeInUp وكل animation/transition على أقسام لوحة التحكم (مطابق للنظام على Google) ===== */
-#dashboard-section .content-card.safety-metrics-section,
-#dashboard-section .content-card.reports-statistics-section,
-.content-card.safety-metrics-section,
-.content-card.reports-statistics-section {
-    animation: none !important;
-    transition: none !important;
-    -webkit-transition: none !important;
-    opacity: 1 !important;
-}
-
-/* كروت KPI العلوية في لوحة التحكم — بدون ظهور تدريجي أو انتقال (تفادي وميض) */
-#dashboard-section .kpi-grid,
-#dashboard-section .kpi-grid .kpi-card {
-    animation: none !important;
-    transition: none !important;
-    -webkit-transition: none !important;
-    opacity: 1 !important;
-}
-
 /* ===== كارت التقارير والإحصائيات الرئيسي (بدون transition لتفادي وميض الكروت) ===== */
 .content-card.reports-statistics-section {
     position: relative;
@@ -268,7 +248,6 @@
 }
 .reports-statistics-section .metric-card-frame {
     contain: layout style;
-    visibility: visible !important;
 }
 
 .safety-metrics-section .metrics-grid-container,
@@ -279,7 +258,6 @@
 }
 .safety-metrics-section .metric-card-frame {
     contain: layout style;
-    visibility: visible !important;
 }
 
 /* ===== لا إخفاء ولا conditional rendering: القيم ظاهرة دائماً، التحديث داخلي فقط (textContent) =====
@@ -310,7 +288,6 @@
 .reports-statistics-section #violations-value,
 .reports-statistics-section #inspections-reports-value,
 .reports-statistics-section #approved-contractors-value,
-.reports-statistics-section #approved-contractors-card-value,
 .reports-statistics-section #electricity-consumption-value,
 .reports-statistics-section #gas-consumption-value {
     min-width: 3.5ch !important;

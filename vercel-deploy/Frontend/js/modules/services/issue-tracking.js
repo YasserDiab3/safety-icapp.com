@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Issue Tracking Service
  * نظام تتبع المشاكل العرضي - يعمل في كل مكان في التطبيق
  * 
@@ -45,11 +45,9 @@ const IssueTrackingService = {
                 }
             };
 
-            // التحقق من تفعيل الخلفية (Supabase أو Google)
-            const useSupabase = AppState.useSupabaseBackend === true;
-            const googleEnabled = AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl;
-            if (!useSupabase && !googleEnabled) {
-                throw new Error('يجب تفعيل الاتصال بالخادم (Supabase أو الإعدادات) أولاً');
+            // التحقق من تفعيل Google Integration
+            if (!AppState.googleConfig?.appsScript?.enabled || !AppState.googleConfig?.appsScript?.scriptUrl) {
+                throw new Error('يجب تفعيل Google Integration أولاً');
             }
 
             const response = await GoogleIntegration.sendRequest({
@@ -299,9 +297,10 @@ const IssueTrackingService = {
      */
     async getOpenIssuesCount() {
         try {
-            const useSupabase = AppState.useSupabaseBackend === true;
-            const googleEnabled = AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl;
-            if (!useSupabase && !googleEnabled) return 0;
+            // التحقق من تفعيل Google Integration
+            if (!AppState.googleConfig?.appsScript?.enabled || !AppState.googleConfig?.appsScript?.scriptUrl) {
+                return 0;
+            }
 
             const response = await GoogleIntegration.sendRequest({
                 action: 'getAllIssues',
@@ -309,15 +308,11 @@ const IssueTrackingService = {
             });
 
             if (response.success) {
-                return response.data?.length ?? 0;
+                return response.data?.length || 0;
             }
             return 0;
         } catch (error) {
-            const errMsg = (error && error.message) || String(error);
-            if ((errMsg + '').includes('Action not implemented: getAllIssues')) {
-                return 0;
-            }
-            Utils.safeError('خطأ في جلب عدد المشاكل:', errMsg);
+            Utils.safeError('خطأ في جلب عدد المشاكل:', error);
             return 0;
         }
     },
@@ -327,9 +322,10 @@ const IssueTrackingService = {
      */
     async getCriticalIssues() {
         try {
-            const useSupabase = AppState.useSupabaseBackend === true;
-            const googleEnabled = AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl;
-            if (!useSupabase && !googleEnabled) return [];
+            // التحقق من تفعيل Google Integration
+            if (!AppState.googleConfig?.appsScript?.enabled || !AppState.googleConfig?.appsScript?.scriptUrl) {
+                return [];
+            }
 
             const response = await GoogleIntegration.sendRequest({
                 action: 'getAllIssues',
@@ -341,11 +337,7 @@ const IssueTrackingService = {
             }
             return [];
         } catch (error) {
-            const errMsg = (error && error.message) || String(error);
-            if ((errMsg + '').includes('Action not implemented: getAllIssues')) {
-                return [];
-            }
-            Utils.safeError('خطأ في جلب المشاكل الحرجة:', errMsg);
+            Utils.safeError('خطأ في جلب المشاكل الحرجة:', error);
             return [];
         }
     },
@@ -576,5 +568,4 @@ const IssueTrackingService = {
 if (typeof window !== 'undefined') {
     window.IssueTrackingService = IssueTrackingService;
 }
-
 

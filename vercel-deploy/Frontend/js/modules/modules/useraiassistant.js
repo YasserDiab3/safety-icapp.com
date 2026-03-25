@@ -1,4 +1,4 @@
-﻿/**
+/**
  * UserAIAssistant Module
  * ØªÙ… Ø§Ø³ØªØ®Ø±Ø§Ø¬Ù‡ Ù…Ù† app-modules.js
  */
@@ -19,6 +19,14 @@ const UserAIAssistant = {
      * تحميل الموديول
      */
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         const section = document.getElementById('useraiassistant-section');
         if (!section) {
             // محاولة البحث عن قسم بديل
@@ -91,13 +99,20 @@ const UserAIAssistant = {
      * تهيئة المساعد
      */
     init() {
+        // منع التهيئة المزدوجة — إذا تم تهيئة المساعد مسبقاً نتجاهل الاستدعاء
+        if (this._initialized) return;
+        this._initialized = true;
+
         // إخفاء الزر في شاشة تسجيل الدخول
         const loginScreen = document.getElementById('login-screen');
         const mainApp = document.getElementById('main-app');
         const assistantBtn = document.getElementById('user-ai-assistant-btn');
         const chatWindow = document.getElementById('user-ai-assistant-chat');
 
-        if (!assistantBtn || !chatWindow) return;
+        if (!assistantBtn || !chatWindow) {
+            this._initialized = false; // السماح بإعادة المحاولة إذا لم تُوجد العناصر بعد
+            return;
+        }
 
         // إظهار/إخفاء الزر حسب حالة التطبيق
         const updateButtonVisibility = () => {
@@ -357,8 +372,9 @@ const UserAIAssistant = {
         const content = document.createElement('div');
         content.className = 'user-ai-message-content';
 
-        // معالجة النص (دعم الأسطر المتعددة والتنسيق)
-        const textContent = this.formatMessageText(text);
+        // معالجة النص (دعم الأسطر المتعددة والتنسيق) — منع عرض رد فارغ
+        const displayText = (text !== undefined && text !== null && String(text).trim()) ? text : 'لم أتمكن من إرجاع رد. يرجى صياغة السؤال بشكل أوضح أو المحاولة لاحقاً.';
+        const textContent = this.formatMessageText(displayText);
         content.appendChild(textContent);
 
         // إضافة معلومات إضافية (وقت الاستجابة، الموديول، إلخ)
@@ -543,17 +559,20 @@ const UserAIAssistant = {
                         conversationHistory: this.conversationHistory.slice(-5)
                     });
                     
-                    if (response && response.success) {
-                        // تحديث السياق
-                        this.updateContext(enhancedMessage, response);
-                        
-                        return {
-                            text: response.text || response.message,
-                            data: response.data,
-                            intent: response.intent,
-                            module: response.module,
-                            actions: response.actions || []
-                        };
+                    if (response) {
+                        // تحديث السياق عند النجاح
+                        if (response.success) this.updateContext(enhancedMessage, response);
+                        // إرجاع النص دائماً (حتى عند عدم العثور على موظف) لتفادي رد فارغ
+                        const text = response.text || response.message;
+                        if (text) {
+                            return {
+                                text: text,
+                                data: response.data,
+                                intent: response.intent,
+                                module: response.module,
+                                actions: response.actions || []
+                            };
+                        }
                     }
                 } catch (error) {
                     Utils.safeWarn('⚠️ خطأ في استخدام AIAssistant:', error);
@@ -687,7 +706,17 @@ const UserAIAssistant = {
         const lowerMessage = message.toLowerCase();
 
         // استخراج أسماء الإدارات
-        const departments = ['إنتاج', 'صيانة', 'أمن', 'سلامة', 'إدارة', 'موارد بشرية'];
+        // Use canonical (e.g., English) department names and map them to localized strings for display.
+        const canonicalDepartments = ['production', 'maintenance', 'security', 'safety', 'management', 'hr'];
+        const localizedDepartments = {
+            'production': 'إنتاج',
+            'maintenance': 'صيانة',
+            'security': 'أمن',
+            'safety': 'سلامة',
+            'management': 'إدارة',
+            'hr': 'موارد بشرية'
+        };
+        // Then iterate over canonicalDepartments and check if localizedDepartments[dept] is in lowerMessage.
         departments.forEach(dept => {
             if (lowerMessage.includes(dept.toLowerCase())) {
                 if (!this.context.mentionedEntities.includes(dept)) {
@@ -816,7 +845,9 @@ const UserAIAssistant = {
         const trainings = AppState.appData?.training || [];
         const completed = trainings.filter(t => t.status === 'مكتمل' || t.status === 'completed').length;
         const upcoming = trainings.filter(t => t.status === 'مخطط' || t.status === 'planned').length;
-        const totalParticipants = trainings.reduce((sum, t) => sum + (t.participants?.length || t.participantsCount || 0), 0);
+        const totalParticipants = typeof Training !== 'undefined' && Training.getParticipantsCount
+            ? trainings.reduce((sum, t) => sum + Training.getParticipantsCount(t), 0)
+            : trainings.reduce((sum, t) => sum + (t.participants?.length || t.participantsCount || 0), 0);
 
         let text = `🎓 معلومات عن التدريب:\n\n`;
         text += `• إجمالي البرامج التدريبية: ${trainings.length}\n`;
@@ -1104,6 +1135,34 @@ const UserAIAssistant = {
         }
     }
 };
+
+// ===== Auto-init: تهيئة تلقائية عند تحميل الموديول =====
+// يضمن تسجيل click listener حتى عند الدخول بجلسة محفوظة (session restore)
+(function () {
+    'use strict';
+    try {
+        const tryAutoInit = function () {
+            if (!UserAIAssistant || UserAIAssistant._initialized) return;
+            const mainApp = document.getElementById('main-app');
+            if (mainApp && mainApp.style.display !== 'none') {
+                UserAIAssistant.init();
+            } else if (mainApp) {
+                // انتظار حتى يظهر التطبيق الرئيسي
+                const obs = new MutationObserver(function (_, observer) {
+                    if (mainApp.style.display !== 'none') {
+                        observer.disconnect();
+                        UserAIAssistant.init();
+                    }
+                });
+                obs.observe(mainApp, { attributes: true, attributeFilter: ['style'] });
+            }
+        };
+        // تأخير بسيط لضمان اكتمال تحميل DOM
+        setTimeout(tryAutoInit, 300);
+    } catch (e) {
+        // تجاهل أخطاء التهيئة التلقائية
+    }
+})();
 
 // ===== Export module to global scope =====
 // تصدير الموديول إلى window فوراً لضمان توافره

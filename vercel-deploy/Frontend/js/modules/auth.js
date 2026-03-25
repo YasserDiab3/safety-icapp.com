@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Auth Module - موديول المصادقة
  * تم استخراجه من app-modules.js لتحسين الأداء
  */
@@ -22,9 +22,6 @@ window.Auth = {
         disabledKey: 'hse_bootstrap_disabled',
         disabledAtKey: 'hse_bootstrap_disabled_at'
     },
-
-    /** مدة الجلسة بالساعات — يمكن تقليلها (مثلاً 4 أو 8) لإنهاء الجلسات أسرع */
-    SESSION_DURATION_HOURS: 8,
 
     isBootstrapEmail(email) {
         try {
@@ -61,7 +58,7 @@ window.Auth = {
                 return 'تعذر الاتصال بالخادم (الخادم غير متاح أو خطأ 503). يرجى التحقق من الاتصال بالإنترنت ونشر التطبيق، ثم المحاولة لاحقاً.';
             }
         } catch (e) { /* ignore */ }
-        return 'اسم المستخدم أو كلمة المرور غير صحيح';
+        return 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
     },
 
     /**
@@ -87,7 +84,7 @@ window.Auth = {
             if (AppState?.currentUser?.isBootstrap === true) {
                 try {
                     if (typeof Notification !== 'undefined' && Notification.success) {
-                        Notification.success('✅ تم تعطيل حساب مدير النظام الافتراضي بعد نجاح المزامنة. يرجى تسجيل الدخول بحسابك من قاعدة البيانات.');
+                        Notification.success('✅ تم تعطيل حساب مدير النظام الافتراضي بعد نجاح المزامنة. يرجى تسجيل الدخول بحسابك من Google Sheets.');
                     }
                 } catch (e) { /* ignore */ }
 
@@ -161,22 +158,23 @@ window.Auth = {
         // استخدام البيانات المحلية أولاً لتسريع تسجيل الدخول
         // ⚠️ مهم: في أول تشغيل (users=0) يجب أن ننتظر مزامنة Users قبل محاولة التحقق من الحساب
         let localUsersCount = Array.isArray(AppState.appData.users) ? AppState.appData.users.length : 0;
-        // مع Supabase: المزامنة متاحة إذا وُجدت syncUsers (بدون اشتراط appsScript)
-        const canSyncUsers = !!(
-            (AppState.useSupabaseBackend === true && typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.syncUsers === 'function') ||
-            (AppState.googleConfig && AppState.googleConfig.appsScript && AppState.googleConfig.appsScript.enabled && AppState.googleConfig.appsScript.scriptUrl && typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.syncUsers === 'function')
-        );
+        const canSyncUsers = !!(AppState.googleConfig &&
+            AppState.googleConfig.appsScript &&
+            AppState.googleConfig.appsScript.enabled &&
+            AppState.googleConfig.appsScript.scriptUrl &&
+            typeof GoogleIntegration !== 'undefined' &&
+            typeof GoogleIntegration.syncUsers === 'function');
 
         if (localUsersCount > 0) {
             Utils.safeLog(`📊 استخدام ${localUsersCount} مستخدم محلي - تسجيل دخول سريع`);
         } else if (canSyncUsers) {
-            Utils.safeLog('🔄 لا توجد بيانات محلية - مزامنة المستخدمين من قاعدة البيانات قبل تسجيل الدخول...');
+            Utils.safeLog('🔄 لا توجد بيانات محلية - مزامنة Users من Google Sheets قبل تسجيل الدخول...');
             try {
-                const timeoutMs = 15000; // ✅ زيادة المهلة إلى 15 ثانية
+                const timeoutMs = 8000; // تقليل مهلة مزامنة المستخدمين لتسريع الدخول
                 const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(false), timeoutMs));
                 const syncOk = await Promise.race([GoogleIntegration.syncUsers(true), timeoutPromise]);
                 if (syncOk) {
-                    Utils.safeLog('✅ تم تحديث قائمة المستخدمين من قاعدة البيانات');
+                    Utils.safeLog('✅ تم تحديث قائمة المستخدمين من Google Sheets');
                 } else {
                     Utils.safeWarn('⚠️ تعذر مزامنة Users في الوقت المحدد - سيتم المتابعة بالبيانات المحلية');
                     // ✅ إصلاح: محاولة تحميل البيانات المحلية إذا فشلت المزامنة
@@ -195,13 +193,13 @@ window.Auth = {
             } catch (error) {
                 const errorMsg = error?.message || '';
                 const errorStr = errorMsg.toLowerCase();
-                const isNormalError = errorMsg.includes('معرف قاعدة البيانات غير محدد') ||
+                const isNormalError = errorMsg.includes('معرف Google Sheets غير محدد') ||
                     errorMsg.includes('غير متاح') ||
                     errorMsg.includes('not available') ||
-                    errorStr.includes('الخادم غير مفعّل');
+                    errorStr.includes('google apps script غير مفعل');
                 
                 if (!isNormalError) {
-                    Utils.safeWarn('⚠️ فشل مزامنة المستخدمين من قاعدة البيانات:', error);
+                    Utils.safeWarn('⚠️ فشل مزامنة Users من Google Sheets:', error);
                     // ✅ إصلاح: محاولة تحميل البيانات المحلية عند الفشل
                     if (typeof window.DataManager !== 'undefined' && window.DataManager.load) {
                         try {
@@ -219,7 +217,7 @@ window.Auth = {
             // تحديث العداد بعد محاولة المزامنة
             localUsersCount = Array.isArray(AppState.appData.users) ? AppState.appData.users.length : 0;
         } else {
-            Utils.safeLog(`📊 قاعدة البيانات غير متصلة/غير جاهزة - استخدام ${localUsersCount} مستخدم محلي`);
+            Utils.safeLog(`📊 Google Sheets غير مفعّل/غير جاهز - استخدام ${localUsersCount} مستخدم محلي`);
             // ✅ إصلاح: محاولة تحميل البيانات المحلية إذا كانت متاحة
             if (localUsersCount === 0 && typeof window.DataManager !== 'undefined' && window.DataManager.load) {
                 try {
@@ -238,22 +236,9 @@ window.Auth = {
         // جميع المستخدمين يجب أن يكونوا من قاعدة البيانات قط
         let user = null; // تم إزالة validUsers لأسباب أمنية
 
-        // البحث في قاعدة بيانات المستخدمين
+        // البحث ي قاعدة بيانات المستخدمين من Google Sheets
         let foundUser = null;
         let users = AppState.appData.users || [];
-
-        // عند استخدام Supabase: مزامنة المستخدمين قبل التحقق لتجنب استخدام هاش قديم من الكاش
-        if (AppState.useSupabaseBackend === true && typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.syncUsers === 'function') {
-            try {
-                await GoogleIntegration.syncUsers(true);
-                users = AppState.appData.users || [];
-            } catch (syncErr) {
-                Utils.safeWarn('⚠️ فشل مزامنة المستخدمين عند الدخول:', syncErr);
-                const msg = 'تعذر الاتصال بقاعدة البيانات. تحقق من الاتصال بالإنترنت وحاول مرة أخرى.';
-                if (typeof Notification !== 'undefined') Notification.error(msg);
-                return { success: false, message: msg };
-            }
-        }
 
         // ✅ Bootstrap: إذا لم يوجد أي مستخدمين بعد، نسمح بحساب bootstrap (مرة واحدة فقط حتى نجاح المزامنة)
         if (Array.isArray(users) && users.length === 0 && !this.isBootstrapDisabled() && this.isBootstrapEmail(email)) {
@@ -273,7 +258,7 @@ window.Auth = {
             foundUser = bootstrapUser;
         }
 
-        // معالجة البيانات إذا كانت تحتوي على JSON strings (من الخلفية)
+        // معالجة البيانات إذا كانت تحتوي على JSON strings (من Google Sheets)
         if (users.length > 0) {
             users = users.map(u => {
                 // إذا كانت permissions عبارة عن string JSON، نحولها إلى كائن
@@ -300,15 +285,12 @@ window.Auth = {
 
         Utils.safeLog('🔍 البحث في قاعدة البيانات، عدد المستخدمين:', users.length);
 
-        // التنشيط من قاعدة البيانات: المستخدم يُعتبر مفعّلاً عندما يكون موجوداً في جدول users
-        // مع data يحتوي على الحقول المطلوبة ووجود password_hash (وكلمة مرور صحيحة) وعدم تعطيل الحساب (active !== false).
         if (users.length > 0) {
-            // البحث باستخدام البريد أولاً، ثم id إذا كان يشبه البريد (مطابقة تسجيل الدخول)
+            // البحث باستخدام عدة طرق لضمان العثور على المستخدم
             foundUser = users.find(u => {
-                if (!u) return false;
-                const userEmail = (u.email != null && String(u.email).trim()) ? String(u.email).toLowerCase().trim() : '';
-                const userId = (u.id != null && /@/.test(String(u.id))) ? String(u.id).toLowerCase().trim() : '';
-                return userEmail === email || userId === email;
+                if (!u || !u.email) return false;
+                const userEmail = typeof u.email === 'string' ? u.email.toLowerCase().trim() : '';
+                return userEmail === email;
             });
             
             if (foundUser) {
@@ -342,154 +324,16 @@ window.Auth = {
                 return { success: false, message: errorMessage };
             }
 
-            // التحقق من وجود passwordHash (أو password_hash من Supabase)
-            const userHash = (foundUser.passwordHash || foundUser.password_hash || '').trim();
-            if (!userHash || userHash === '***') {
+            // التحقق من وجود passwordHash
+            if (!foundUser.passwordHash || foundUser.passwordHash.trim() === '' || foundUser.passwordHash === '***') {
                 Utils.safeWarn('⚠️ المستخدم موجود لكن لا يملك passwordHash صحيح');
                 const errorMessage = 'يجب تحديث كلمة المرور. يرجى الاتصال بالمدير لإعادة تعيين كلمة المرور.';
                 Notification.error(errorMessage);
                 return { success: false, message: errorMessage };
             }
 
-            // ===== التحقق من تسجيل الدخول المتزامن =====
-            // منع تسجيل الدخول من جهاز آخر إذا كان المستخدم متصل بالفعل
-            // توليد معرف جلسة فريد لهذا المتصفح/الجهاز
-            const generateSessionId = () => {
-                // إنشاء معرف فريد يجمع بين timestamp و random string و user agent hash
-                const timestamp = Date.now();
-                const random = Math.random().toString(36).substring(2, 15);
-                const userAgent = navigator.userAgent.substring(0, 50);
-                const userAgentHash = userAgent.split('').reduce((acc, char) => {
-                    return ((acc << 5) - acc) + char.charCodeAt(0);
-                }, 0).toString(36);
-                return `SESS_${timestamp}_${random}_${userAgentHash}`;
-            };
-
-            // الحصول على معرف الجلسة الحالي من sessionStorage أو إنشاء واحد جديد
-            let currentSessionId = sessionStorage.getItem('hse_session_id');
-            if (!currentSessionId) {
-                currentSessionId = generateSessionId();
-                sessionStorage.setItem('hse_session_id', currentSessionId);
-            }
-
-            // محاولة مزامنة حالة المستخدم من قاعدة البيانات للحصول على أحدث حالة
-            if (canSyncUsers && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.syncUsers) {
-                try {
-                    Utils.safeLog('🔄 مزامنة حالة المستخدم من قاعدة البيانات للتحقق من حالة الاتصال...');
-                    await GoogleIntegration.syncUsers(true);
-                    // إعادة البحث عن المستخدم بعد المزامنة
-                    const refreshedUsers = AppState.appData.users || [];
-                    const refreshedUser = refreshedUsers.find(u => {
-                        if (!u) return false;
-                        const userEmail = (u.email != null && String(u.email).trim()) ? String(u.email).toLowerCase().trim() : '';
-                        const userId = (u.id != null && /@/.test(String(u.id))) ? String(u.id).toLowerCase().trim() : '';
-                        return userEmail === email || userId === email;
-                    });
-                    if (refreshedUser) {
-                        foundUser.isOnline = refreshedUser.isOnline;
-                        foundUser.activeSessionId = refreshedUser.activeSessionId;
-                        Utils.safeLog('✅ تم تحديث حالة الاتصال من قاعدة البيانات:', {
-                            isOnline: foundUser.isOnline,
-                            activeSessionId: foundUser.activeSessionId
-                        });
-                    }
-                } catch (syncError) {
-                    Utils.safeWarn('⚠️ فشل مزامنة حالة المستخدم:', syncError);
-                    // نستمر في التحقق بالحالة المحلية
-                }
-            }
-
-            // التحقق من وجود جلسة نشطة في المتصفح الحالي
-            let hasActiveSession = false;
-            let currentSessionData = null;
-            try {
-                const currentSession = sessionStorage.getItem('hse_current_session');
-                if (currentSession) {
-                    currentSessionData = JSON.parse(currentSession);
-                    // إذا كانت الجلسة الحالية لنفس المستخدم، نتحقق من صحة الجلسة
-                    if (currentSessionData && currentSessionData.email && currentSessionData.email.toLowerCase() === email) {
-                        // التحقق من أن الجلسة غير منتهية (إذا كان هناك loginTime)
-                        if (currentSessionData.loginTime) {
-                            const loginTime = new Date(currentSessionData.loginTime);
-                            const now = new Date();
-                            const sessionAge = now - loginTime;
-                            const hours = (typeof this.SESSION_DURATION_HOURS === 'number' && this.SESSION_DURATION_HOURS > 0)
-                                ? this.SESSION_DURATION_HOURS : 8;
-                            const maxSessionAge = hours * 60 * 60 * 1000;
-                            
-                            if (sessionAge < maxSessionAge) {
-                                // التحقق من أن معرف الجلسة يطابق
-                                if (currentSessionData.sessionId === currentSessionId) {
-                                    hasActiveSession = true;
-                                    Utils.safeLog('✅ المستخدم متصل بالفعل من نفس المتصفح - السماح بتسجيل الدخول');
-                                } else {
-                                    Utils.safeLog('⚠️ معرف الجلسة غير متطابق - سيتم إنشاء جلسة جديدة');
-                                }
-                            } else {
-                                Utils.safeLog('⚠️ الجلسة منتهية الصلاحية - سيتم السماح بتسجيل الدخول');
-                                // الجلسة منتهية، نسمح بتسجيل الدخول ولكن نحدث isOnline
-                            }
-                        } else {
-                            // لا يوجد loginTime، نعتبرها جلسة نشطة إذا كان sessionId يطابق
-                            if (currentSessionData.sessionId === currentSessionId) {
-                                hasActiveSession = true;
-                                Utils.safeLog('✅ المستخدم متصل بالفعل من نفس المتصفح - السماح بتسجيل الدخول');
-                            }
-                        }
-                    }
-                }
-            } catch (e) {
-                Utils.safeWarn('⚠️ خطأ في التحقق من الجلسة الحالية:', e);
-            }
-
-            // التحقق من وجود جلسة نشطة من جهاز آخر — مدير النظام يُسمح له بالدخول من أي جهاز، المستخدمون العاديون يُمنعون
-            const isAdminUser = foundUser.role === 'admin' || (foundUser.role && String(foundUser.role).includes('مدير'));
-            if (foundUser.isOnline === true && foundUser.activeSessionId && !isAdminUser) {
-                // إذا كان هناك معرف جلسة نشط ولا يطابق الجلسة الحالية — للمستخدمين العاديين فقط
-                if (foundUser.activeSessionId !== currentSessionId && !hasActiveSession) {
-                    Utils.safeWarn('⚠️ المستخدم متصل بالفعل من جهاز آخر', {
-                        activeSessionId: foundUser.activeSessionId,
-                        currentSessionId: currentSessionId
-                    });
-                    const sessionHours = (typeof this.SESSION_DURATION_HOURS === 'number' && this.SESSION_DURATION_HOURS > 0)
-                        ? this.SESSION_DURATION_HOURS : 8;
-                    const errorMessage = '⚠️ هذا الحساب متصل بالفعل من جهاز آخر.\n\n' +
-                        'يرجى تسجيل الخروج من الجهاز الآخر أولاً، أو انتظار انتهاء الجلسة (' + sessionHours + ' ساعات).\n\n' +
-                        'أو اطلب من مدير النظام سحب الجلسة من إدارة المستخدمين للسماح لك بالدخول.\n\n' +
-                        'لا يمكن تسجيل الدخول من أكثر من جهاز في نفس الوقت.';
-                    Notification.error(errorMessage);
-
-                    // إشعار مدير النظام ليقوم بالسماح أو سحب الجلسة
-                    try {
-                        const usersList = AppState.appData?.users || [];
-                        const admins = usersList.filter(u => u && (u.role === 'admin' || (u.role && String(u.role).includes('مدير'))));
-                        const notifyPayload = {
-                            userId: admins.length ? (admins[0].id || admins[0].email) : 'admin',
-                            title: 'محاولة تسجيل دخول من جهاز آخر',
-                            message: 'المستخدم ' + (foundUser.name || email) + ' حاول تسجيل الدخول من جهاز آخر. يمكنك سحب الجلسة من إدارة المستخدمين للسماح له بالدخول.',
-                            type: 'login_blocked',
-                            priority: 'high',
-                            link: '#users-section',
-                            data: { module: 'users', action: 'revoke_session', userEmail: email, userId: foundUser.id }
-                        };
-                        if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.sendToAppsScript === 'function') {
-                            GoogleIntegration.sendToAppsScript('addNotification', notifyPayload).catch(function () {});
-                        }
-                        admins.slice(1).forEach(function (admin) {
-                            if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.sendToAppsScript === 'function') {
-                                GoogleIntegration.sendToAppsScript('addNotification', { ...notifyPayload, userId: admin.id || admin.email }).catch(function () {});
-                            }
-                        });
-                    } catch (e) {
-                        Utils.safeWarn('⚠️ فشل إرسال إشعار المدير:', e);
-                    }
-
-                    return { success: false, message: errorMessage };
-                }
-            }
-            if (foundUser.isOnline === true && foundUser.activeSessionId && isAdminUser && foundUser.activeSessionId !== currentSessionId && !hasActiveSession) {
-                Utils.safeLog('✅ مدير النظام — السماح بتسجيل الدخول من جهاز جديد (الجلسة السابقة ستُستبدل)');
-            }
+            // ملاحظة: مزامنة Google Sheets والتحقق من الجلسة المتزامنة تُنفَّذان بعد التحقق من كلمة المرور
+            // لتجنب انتظار الشبكة عند كل ضغطة دخول (خصوصاً عند كلمة مرور خاطئة).
 
             // ✅ تشخيص: عرض قيمة name الأصلية من foundUser
             console.log('🔍 [AUTH] foundUser.name الأصلي:', {
@@ -517,18 +361,24 @@ window.Auth = {
                 extractedName = foundUser.name.trim();
             }
 
-            const normalizedPerms = (typeof Permissions !== 'undefined' && typeof Permissions.normalizePermissions === 'function')
-                ? (Permissions.normalizePermissions(foundUser.permissions) || {})
-                : (foundUser.permissions || {});
             user = {
                 name: extractedName || 'مستخدم',
                 password: foundUser.password || '***',
                 passwordHash: foundUser.passwordHash || '',
                 role: foundUser.role || 'user',
                 department: foundUser.department || '',
-                permissions: normalizedPerms,
+                // ✅ حقول المصنع/الموقع الفرعي (اختيارية) لدعم الظهور بعد التحميل
+                factory: foundUser.factory || foundUser.factoryId || foundUser.plant || foundUser.siteId || foundUser.site || foundUser.location || '',
+                factoryId: foundUser.factoryId || foundUser.factory || foundUser.plantId || foundUser.siteId || '',
+                factoryName: foundUser.factoryName || foundUser.plantName || foundUser.siteName || foundUser.locationName || '',
+                subLocation: foundUser.subLocation || foundUser.subLocationId || foundUser.subSite || foundUser.subsite || foundUser.placeId || foundUser.place || foundUser.branch || '',
+                subLocationId: foundUser.subLocationId || foundUser.placeId || foundUser.subLocation || '',
+                subLocationName: foundUser.subLocationName || foundUser.placeName || foundUser.subSiteName || foundUser.subsiteName || '',
+                branch: foundUser.branch || foundUser.branchName || '',
+                permissions: foundUser.permissions || {},
                 id: foundUser.id,
-                email: foundUser.email
+                email: foundUser.email,
+                photo: foundUser.photo || ''
             };
 
             console.log('✅ [AUTH] user.name النهائي:', user.name);
@@ -542,7 +392,7 @@ window.Auth = {
             });
         } else if (!user && !foundUser) {
             // ⚠️ إنتاج: لا ننشئ حسابات افتراضية أو كلمات مرور داخل الكود.
-            // إذا كانت قاعدة البيانات فارغة، نطلب إعداد المستخدمين عبر قاعدة البيانات/المدير.
+            // إذا كانت قاعدة البيانات فارغة، نطلب إعداد المستخدمين عبر Google Sheets/المدير.
             if (users.length === 0) {
                 // ✅ إصلاح: محاولة مزامنة مرة أخرى قبل إرجاع الخطأ
                 if (canSyncUsers) {
@@ -561,19 +411,7 @@ window.Auth = {
                                 });
                                 if (foundUser) {
                                     Utils.safeLog('✅ تم العثور على المستخدم بعد إعادة المزامنة');
-                                    const p = (typeof Permissions !== 'undefined' && typeof Permissions.normalizePermissions === 'function')
-                                        ? (Permissions.normalizePermissions(foundUser.permissions) || {})
-                                        : (foundUser.permissions || {});
-                                    user = {
-                                        name: (foundUser.name && String(foundUser.name).trim()) || 'مستخدم',
-                                        password: foundUser.password || '***',
-                                        passwordHash: foundUser.passwordHash || '',
-                                        role: foundUser.role || 'user',
-                                        department: foundUser.department || '',
-                                        permissions: p,
-                                        id: foundUser.id,
-                                        email: foundUser.email
-                                    };
+                                    // المتابعة في الكود الطبيعي بدلاً من إرجاع خطأ
                                 }
                             }
                         }
@@ -581,41 +419,22 @@ window.Auth = {
                         Utils.safeWarn('⚠️ فشلت إعادة مزامنة Users:', syncError);
                     }
                 }
-                // احتياطي: جلب المستخدمين مباشرة من API إذا لم تنجح المزامنة (Supabase)
-                if (!foundUser && !user && users.length === 0 && canSyncUsers && typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.readFromSheets === 'function') {
-                    try {
-                        const directUsers = await GoogleIntegration.readFromSheets('Users');
-                        const arr = Array.isArray(directUsers) ? directUsers : [];
-                        if (arr.length > 0) {
-                            if (global.AppState && global.AppState.appData) global.AppState.appData.users = arr;
-                            users = arr;
-                            foundUser = users.find(u => u && u.email && (String(u.email).toLowerCase().trim() === email));
-                            if (foundUser) {
-                                Utils.safeLog('✅ تم العثور على المستخدم بعد الجلب المباشر');
-                                const p2 = (typeof Permissions !== 'undefined' && typeof Permissions.normalizePermissions === 'function')
-                                    ? (Permissions.normalizePermissions(foundUser.permissions) || {})
-                                    : (foundUser.permissions || {});
-                                user = {
-                                    name: (foundUser.name && String(foundUser.name).trim()) || 'مستخدم',
-                                    password: foundUser.password || '***',
-                                    passwordHash: foundUser.passwordHash || '',
-                                    role: foundUser.role || 'user',
-                                    department: foundUser.department || '',
-                                    permissions: p2,
-                                    id: foundUser.id,
-                                    email: foundUser.email
-                                };
-                            }
-                        }
-                    } catch (e) {
-                        Utils.safeWarn('⚠️ فشل الجلب المباشر للمستخدمين:', e);
-                    }
-                }
                 
                 // إذا لم يتم العثور على المستخدم بعد إعادة المحاولة
-                if (!foundUser && !user && users.length === 0) {
-                    const msg = 'اسم المستخدم أو كلمة المرور غير صحيح';
-                    Notification.error(msg);
+                if (!foundUser && users.length === 0) {
+                    const useSupabase = !!(typeof AppState !== 'undefined' && AppState.useSupabaseBackend === true);
+                    let msg = 'لا يوجد مستخدمون مسجلون بعد.';
+                    if (useSupabase) {
+                        msg += ' انقر "إنشاء أول مستخدم" أدناه أو أضفه من Supabase (جدول users).';
+                        Notification.error(msg);
+                        if (typeof this.showCreateFirstUserBox === 'function') this.showCreateFirstUserBox();
+                    } else if (canSyncUsers) {
+                        msg += ' يرجى التحقق من إعدادات Google Apps Script وورقة Users.';
+                        Notification.error(msg);
+                    } else {
+                        msg += ' يرجى تفعيل Google Apps Script أو إضافة مستخدمين من الإعدادات.';
+                        Notification.error(msg);
+                    }
                     return { success: false, message: msg };
                 }
             }
@@ -642,20 +461,16 @@ window.Auth = {
             return { success: false, message: errorMessage };
         }
 
-        // تطبيع من API قد يُرجع password_hash (snake_case)
-        if (user.password_hash && !user.passwordHash) user.passwordHash = user.password_hash;
-
         const inputPasswordRaw = (password || '').trim();
-        // دعم كلا الشكلين من الـ API: passwordHash (camelCase) أو password_hash (snake_case) من Supabase
-        let hashedStored = (user.passwordHash || user.password_hash || '').trim();
+        let hashedStored = (user.passwordHash || '').trim();
 
         // إضافة سجلات تفصيلية لمعرفة ما تم استرجاعه
         Utils.safeLog('🔍 فحص كلمة المرور المستخدم:', {
             email: email,
-            hasPasswordHash: !!hashedStored,
-            passwordHashLength: hashedStored?.length || 0,
-            passwordHashValue: hashedStored ? (hashedStored.substring(0, 10) + '...') : 'غير موجود',
-            isPasswordHashValid: hashedStored ? Utils.isSha256Hex(hashedStored) : false,
+            hasPasswordHash: !!user.passwordHash,
+            passwordHashLength: user.passwordHash?.length || 0,
+            passwordHashValue: user.passwordHash ? (user.passwordHash.substring(0, 10) + '...') : 'غير موجود',
+            isPasswordHashValid: user.passwordHash ? Utils.isSha256Hex(user.passwordHash) : false,
             userDataKeys: Object.keys(user)
         });
 
@@ -666,7 +481,7 @@ window.Auth = {
         let needsHashUpdate = false;
         let passwordMatch = false;
         
-        // معالجة passwordHash كـ Object (من قاعدة البيانات)
+        // معالجة passwordHash كـ Object (من Google Sheets)
         if (typeof hashedStored === 'object' && hashedStored !== null) {
             if (hashedStored.value) {
                 hashedStored = String(hashedStored.value).trim();
@@ -715,7 +530,7 @@ window.Auth = {
             // التحقق المباشر من كلمة المرور النصية
             if (hashedStored === inputPasswordRaw) {
                 Utils.safeLog('✅ تطابق مباشر مع كلمة المرور النصية!');
-                Utils.safeLog('🔄 سيتم تحويل كلمة المرور إلى Hash وتحديث قاعدة البيانات');
+                Utils.safeLog('🔄 سيتم تحويل كلمة المرور إلى Hash وتحديث Google Sheets');
                 
                 passwordMatch = true;
                 isFirstTimeLogin = true;
@@ -743,20 +558,20 @@ window.Auth = {
         
         // التحقق من نتيجة المطابقة
         if (!passwordMatch) {
-            // محاولة أخيرة: مزامنة قسرية للتحقق من التحديثات (Supabase أو Google Script)
-            const canSyncUsers = AppState.useSupabaseBackend === true || AppState.googleConfig?.appsScript?.enabled;
-            if (canSyncUsers && typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.syncUsers === 'function') {
+            // محاولة أخيرة: مزامنة قسرية للتحقق من التحديثات
+            if (AppState.googleConfig.appsScript.enabled) {
                 Utils.safeLog('🔄 كلمة المرور غير صحيحة - محاولة مزامنة قسرية...');
                 try {
-                    await GoogleIntegration.syncUsers(true);
+                    const wrongPwSyncMs = 4000;
+                    const tOut = new Promise(resolve => setTimeout(() => resolve(false), wrongPwSyncMs));
+                    await Promise.race([GoogleIntegration.syncUsers(true), tOut]);
 
                     // إعادة تحميل المستخدم
                     const refreshedUsers = AppState.appData.users || [];
                     const refreshedUser = refreshedUsers.find(u => {
-                        if (!u) return false;
-                        const userEmail = (u.email != null && String(u.email).trim()) ? String(u.email).toLowerCase().trim() : '';
-                        const userId = (u.id != null && /@/.test(String(u.id))) ? String(u.id).toLowerCase().trim() : '';
-                        return userEmail === email || userId === email;
+                        if (!u || !u.email) return false;
+                        const userEmail = typeof u.email === 'string' ? u.email.toLowerCase().trim() : '';
+                        return userEmail === email;
                     });
 
                     if (refreshedUser && refreshedUser.passwordHash) {
@@ -787,8 +602,89 @@ window.Auth = {
 
                 Utils.safeError('❌ كلمة المرور غير صحيحة');
                 const errorMessage = 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
-                // عدم استدعاء Notification هنا؛ النموذج يعرض الرسالة مرة واحدة لتجنب التكرار
+                Notification.error(errorMessage);
                 return { success: false, message: errorMessage };
+            }
+        }
+
+        // ===== بعد نجاح كلمة المرور: مزامنة سريعة + منع الدخول المتزامن من جهازين =====
+        const skipConcurrentForBootstrap = this.isBootstrapEmail(email) && !this.isBootstrapDisabled();
+        if (foundUser && !skipConcurrentForBootstrap) {
+            const generateSessionId = () => {
+                const timestamp = Date.now();
+                const random = Math.random().toString(36).substring(2, 15);
+                const userAgent = navigator.userAgent.substring(0, 50);
+                const userAgentHash = userAgent.split('').reduce((acc, char) => {
+                    return ((acc << 5) - acc) + char.charCodeAt(0);
+                }, 0).toString(36);
+                return `SESS_${timestamp}_${random}_${userAgentHash}`;
+            };
+            let currentSessionIdPreLogin = sessionStorage.getItem('hse_session_id');
+            if (!currentSessionIdPreLogin) {
+                currentSessionIdPreLogin = generateSessionId();
+                sessionStorage.setItem('hse_session_id', currentSessionIdPreLogin);
+            }
+
+            if (canSyncUsers && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.syncUsers) {
+                try {
+                    Utils.safeLog('🔄 مزامنة حالة الاتصال بعد التحقق من كلمة المرور...');
+                    const sessionSyncMs = 4000;
+                    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(false), sessionSyncMs));
+                    await Promise.race([GoogleIntegration.syncUsers(true), timeoutPromise]);
+                    const refreshedUsers = AppState.appData.users || [];
+                    const refreshedUser = refreshedUsers.find(u => {
+                        if (!u || !u.email) return false;
+                        const userEmail = typeof u.email === 'string' ? u.email.toLowerCase().trim() : '';
+                        return userEmail === email;
+                    });
+                    if (refreshedUser) {
+                        foundUser.isOnline = refreshedUser.isOnline;
+                        foundUser.activeSessionId = refreshedUser.activeSessionId;
+                        Utils.safeLog('✅ تم تحديث حالة الاتصال من Google Sheets:', {
+                            isOnline: foundUser.isOnline,
+                            activeSessionId: foundUser.activeSessionId
+                        });
+                    }
+                } catch (syncError) {
+                    Utils.safeWarn('⚠️ فشل مزامنة حالة المستخدم:', syncError);
+                }
+            }
+
+            let hasActiveSession = false;
+            try {
+                const currentSession = sessionStorage.getItem('hse_current_session');
+                if (currentSession) {
+                    const currentSessionData = JSON.parse(currentSession);
+                    if (currentSessionData && currentSessionData.email && currentSessionData.email.toLowerCase() === email) {
+                        if (currentSessionData.loginTime) {
+                            const loginTime = new Date(currentSessionData.loginTime);
+                            const now = new Date();
+                            const sessionAge = now - loginTime;
+                            const maxSessionAge = 24 * 60 * 60 * 1000;
+                            if (sessionAge < maxSessionAge && currentSessionData.sessionId === currentSessionIdPreLogin) {
+                                hasActiveSession = true;
+                                Utils.safeLog('✅ المستخدم متصل بالفعل من نفس المتصفح - السماح بتسجيل الدخول');
+                            }
+                        } else if (currentSessionData.sessionId === currentSessionIdPreLogin) {
+                            hasActiveSession = true;
+                            Utils.safeLog('✅ المستخدم متصل بالفعل من نفس المتصفح - السماح بتسجيل الدخول');
+                        }
+                    }
+                }
+            } catch (e) {
+                Utils.safeWarn('⚠️ خطأ في التحقق من الجلسة الحالية:', e);
+            }
+
+            if (foundUser.isOnline === true && foundUser.activeSessionId) {
+                if (foundUser.activeSessionId !== currentSessionIdPreLogin && !hasActiveSession) {
+                    Utils.safeWarn('⚠️ المستخدم متصل بالفعل من جهاز آخر', {
+                        activeSessionId: foundUser.activeSessionId,
+                        currentSessionId: currentSessionIdPreLogin
+                    });
+                    const errorMessage = '⚠️ هذا الحساب متصل بالفعل من جهاز آخر.\n\nيرجى تسجيل الخروج من الجهاز الآخر أولاً، أو انتظار انتهاء الجلسة (24 ساعة).\n\nلا يمكن تسجيل الدخول من أكثر من جهاز في نفس الوقت.';
+                    Notification.error(errorMessage);
+                    return { success: false, message: errorMessage };
+                }
             }
         }
 
@@ -803,10 +699,8 @@ window.Auth = {
             const userEmail = typeof u.email === 'string' ? u.email.toLowerCase().trim() : '';
             return userEmail === email;
         }));
-        // مصدر موحّد لبيانات المستخدم عند تعيين الجلسة (من قاعدة البيانات أولاً حتى يُعيّن role بشكل صحيح للمدير)
-        const effectiveUser = fullUserData || user;
 
-        let userPermissions = (effectiveUser && effectiveUser.permissions) || {};
+        let userPermissions = user.permissions || {};
         if (fullUserData && fullUserData.permissions) {
             if (typeof fullUserData.permissions === 'string') {
                 try {
@@ -819,16 +713,13 @@ window.Auth = {
                 userPermissions = fullUserData.permissions;
             }
         }
-        if (typeof Permissions !== 'undefined' && typeof Permissions.normalizePermissions === 'function') {
-            userPermissions = Permissions.normalizePermissions(userPermissions) || {};
-        }
 
         const isBootstrap = this.isBootstrapEmail(email) && !this.isBootstrapDisabled();
 
-        // ✅ الحل الجذري: التأكد من وجود name صحيح (استخدام effectiveUser من قاعدة البيانات لضمان ظهور دور المدير)
+        // ✅ الحل الجذري: التأكد من وجود name صحيح
         // إذا كان user.name فارغًا، نستخدم email كبديل
         // ✅ إصلاح جذري: التأكد من أن userName ليس "النظام" أو فارغ
-        let userName = (effectiveUser && (effectiveUser.name || effectiveUser.displayName || '')) ? String(effectiveUser.name || effectiveUser.displayName || '').trim() : '';
+        let userName = (user.name || user.displayName || '').trim();
         
         // ✅ إذا كان userName فارغ أو "النظام"، نستخدم email
         if (!userName || userName === 'النظام' || userName === '') {
@@ -838,7 +729,7 @@ window.Auth = {
         
         // ✅ التحقق النهائي: إذا كان userName لا يزال فارغ، نستخدم id كبديل
         if (!userName || userName === 'النظام' || userName === '') {
-            userName = (fullUserData?.id || (effectiveUser && effectiveUser.id) || '').toString().trim();
+            userName = (fullUserData?.id || user.id || '').toString().trim();
             if (userName) {
                 console.log('⚠️ [AUTH] user.name و email كانا فارغين، استخدام id:', userName);
             }
@@ -851,34 +742,34 @@ window.Auth = {
         }
         
         console.log('🔍 [AUTH] تعيين AppState.currentUser:', {
-            originalName: effectiveUser && effectiveUser.name,
-            displayName: effectiveUser && effectiveUser.displayName,
+            originalName: user.name,
+            displayName: user.displayName,
             email: email,
-            finalName: userName,
-            role: effectiveUser && effectiveUser.role
+            finalName: userName
         });
         
         AppState.currentUser = {
             email,
-            name: userName, // ✅ استخدام userName
-            role: (effectiveUser && effectiveUser.role) ? String(effectiveUser.role).trim() : 'user',
-            department: (effectiveUser && effectiveUser.department) ? String(effectiveUser.department) : '',
+            name: userName, // ✅ استخدام userName بدلاً من user.name مباشرة
+            role: user.role || 'user',
+            department: user.department || '',
             permissions: userPermissions,
-            id: fullUserData?.id || (effectiveUser && effectiveUser.id),
+            id: fullUserData?.id || user.id,
             passwordHash: hashedStored,
             passwordChanged: fullUserData?.passwordChanged ?? false,
             forcePasswordChange: fullUserData?.forcePasswordChange === true,
             isBootstrap: isBootstrap,
-            loginTime: loginTime
+            loginTime: loginTime,
+            photo: fullUserData?.photo || user?.photo || '' // ✅ إظهار صورة المستخدم بعد الدخول مباشرة
         };
 
         console.log('✅ [AUTH] AppState.currentUser.name النهائي:', AppState.currentUser.name);
         Utils.safeLog('✅ تسجيل الدخول ناجح:', AppState.currentUser);
         Utils.safeLog('📋 الصلاحيات:', AppState.currentUser.permissions);
 
-        // إذا كان تسجيل دخول أول مرة، حدّث قاعدة البيانات بالـ Hash الجديد
+        // إذا كان تسجيل دخول أول مرة، حدّث Google Sheets بالـ Hash الجديد
         if (needsHashUpdate) {
-            Utils.safeLog('🔄 ===== تحديث Hash في قاعدة البيانات =====');
+            Utils.safeLog('🔄 ===== تحديث Hash في Google Sheets =====');
             try {
                 // إعداد البيانات المحدثة
                 const updatedUserData = {
@@ -890,15 +781,15 @@ window.Auth = {
                     updatedAt: new Date().toISOString()
                 };
                 
-                Utils.safeLog('📤 إرسال Hash الجديد إلى قاعدة البيانات...');
+                Utils.safeLog('📤 إرسال Hash الجديد إلى Google Sheets...');
                 
-                // تحديث في قاعدة البيانات
+                // تحديث في Google Sheets
                 if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.updateUser) {
                     GoogleIntegration.updateUser(updatedUserData).then(updateResult => {
                         if (updateResult && updateResult.success) {
-                            Utils.safeLog('✅ تم تحديث passwordHash في قاعدة البيانات بنجاح!');
+                            Utils.safeLog('✅ تم تحديث passwordHash في Google Sheets بنجاح!');
                         } else {
-                            Utils.safeWarn('⚠️ فشل تحديث قاعدة البيانات:', updateResult);
+                            Utils.safeWarn('⚠️ فشل تحديث Google Sheets:', updateResult);
                         }
                     }).catch(updateError => {
                         Utils.safeError('❌ خطأ في تحديث Hash:', updateError);
@@ -978,29 +869,29 @@ window.Auth = {
                 window.DataManager.save();
             }
             
-            // مزامنة lastLogin مع قاعدة البيانات في الخلفية
+            // مزامنة lastLogin مع Google Sheets في الخلفية
             if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.sendToAppsScript && 
                 AppState.googleConfig?.appsScript?.enabled) {
                 const userId = usersList[userIndex].id;
                 const updateData = {
                     lastLogin: loginTime,
                     isOnline: true,
-                    activeSessionId: currentSessionId, // إرسال معرف الجلسة إلى قاعدة البيانات
+                    activeSessionId: currentSessionId, // إرسال معرف الجلسة إلى Google Sheets
                     loginHistory: usersList[userIndex].loginHistory
                 };
                 
-                // تحديث في الخلفية بشكل غير متزامن (لا ننتظر حتى لا نبطئ تسجيل الدخول)
+                // تحديث في Google Sheets بشكل غير متزامن (لا ننتظر حتى لا نبطئ تسجيل الدخول)
                 GoogleIntegration.sendToAppsScript('updateUser', {
                     userId: userId,
                     updateData: updateData
                 }).then(updateResult => {
                     if (updateResult && updateResult.success) {
-                        Utils.safeLog('✅ تم مزامنة lastLogin و activeSessionId مع قاعدة البيانات بنجاح');
+                        Utils.safeLog('✅ تم مزامنة lastLogin و activeSessionId مع Google Sheets بنجاح');
                     } else {
-                        Utils.safeWarn('⚠️ فشل مزامنة lastLogin مع قاعدة البيانات:', updateResult?.message);
+                        Utils.safeWarn('⚠️ فشل مزامنة lastLogin مع Google Sheets:', updateResult?.message);
                     }
                 }).catch(updateError => {
-                    Utils.safeWarn('⚠️ خطأ في مزامنة lastLogin مع قاعدة البيانات:', updateError);
+                    Utils.safeWarn('⚠️ خطأ في مزامنة lastLogin مع Google Sheets:', updateError);
                     // لا نوقف تسجيل الدخول حتى لو فشلت المزامنة
                 });
             }
@@ -1023,9 +914,9 @@ window.Auth = {
                 }, 200);
             }
         } else if (!foundUser && user) {
-            // إضافة المستخدم إلى قاعدة البيانات (إذا كان جديداً) — id = البريد الإلكتروني
+            // إضافة المستخدم إلى قاعدة البيانات (إذا كان جديداً)
             const newUser = {
-                id: (email || '').trim().toLowerCase(),
+                id: Utils.generateId('USER'),
                 email: email,
                 name: user.name,
                 password: user.password,
@@ -1057,7 +948,7 @@ window.Auth = {
             if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
                 window.DataManager.save();
             }
-            // لا يتم تحديث قاعدة البيانات تلقائياً بعد تسجيل الدخول للحفاظ على السجلات الأصلية
+            // لا يتم تحديث Google Sheets تلقائياً بعد تسجيل الدخول للحفاظ على السجلات الأصلية
         }
 
         // حفظ الجلسة بشكل آمن (بدون passwordHash)
@@ -1069,27 +960,13 @@ window.Auth = {
             permissions: AppState.currentUser.permissions,
             id: AppState.currentUser.id,
             loginTime: AppState.currentUser.loginTime,
-            sessionId: currentSessionId // حفظ معرف الجلسة في الجلسة
+            sessionId: currentSessionId, // حفظ معرف الجلسة في الجلسة
+            photo: AppState.currentUser.photo || '' // ✅ حفظ الصورة لاستعادتها عند فتح الصفحة
             // تم إزالة passwordHash لأسباب أمنية
         };
 
         sessionStorage.setItem('hse_current_session', JSON.stringify(safeUserData));
         Utils.safeLog('💾 تم حفظ الجلسة في sessionStorage');
-
-        // نسخة احتياطية في localStorage لاستعادة الجلسة بعد إعادة التحميل (إذا فُقدت sessionStorage)
-        try {
-            const backupData = {
-                email: safeUserData.email,
-                name: safeUserData.name,
-                role: safeUserData.role,
-                department: safeUserData.department,
-                permissions: safeUserData.permissions,
-                id: safeUserData.id,
-                loginTime: safeUserData.loginTime,
-                sessionId: currentSessionId
-            };
-            localStorage.setItem('hse_session_backup', JSON.stringify(backupData));
-        } catch (e) { Utils.safeWarn('⚠️ فشل حفظ نسخة احتياطية للجلسة:', e); }
 
         // إذا اختار "تذكرني"، نحفظ في localStorage أيضاً
         if (remember) {
@@ -1101,16 +978,6 @@ window.Auth = {
             Utils.safeLog('🗑 تم حذف localStorage (لم يختر تذكرني)');
         }
 
-        // ✅ تحديث القائمة الجانبية فوراً بعد تسجيل الدخول لضمان ظهور المديولات حسب الصلاحيات (بدون انتظار التحميل اللاحق أو إعادة تنشيط من Supabase)
-        if (typeof Permissions !== 'undefined' && typeof Permissions.updateNavigation === 'function') {
-            Permissions.updateNavigation();
-            setTimeout(function () {
-                if (typeof Permissions !== 'undefined' && typeof Permissions.updateNavigation === 'function') {
-                    Permissions.updateNavigation();
-                }
-            }, 150);
-        }
-
         // التحقق من التسجيل الأول أو عدم تغيير كلمة المرور
         const requiresPasswordChange = fullUserData?.forcePasswordChange === true;
         const isFirstLogin = !fullUserData?.passwordChanged;
@@ -1119,13 +986,13 @@ window.Auth = {
             Notification.success(`مرحباً ${user.name}`);
         }
 
-        // تحميل إعدادات الاتصال بشكل دائم بعد تسجيل الدخول (يجب أن تكون متاحة لجميع المستخدمين)
+        // تحميل إعدادات Google بشكل دائم بعد تسجيل الدخول (يجب أن تكون متاحة لجميع المستخدمين)
         if (typeof window.DataManager !== 'undefined' && window.DataManager.loadGoogleConfig) {
             try {
                 window.DataManager.loadGoogleConfig();
-                Utils.safeLog('✅ تم تحميل إعدادات الاتصال بعد تسجيل الدخول');
+                Utils.safeLog('✅ تم تحميل إعدادات Google بعد تسجيل الدخول');
             } catch (configError) {
-                Utils.safeWarn('⚠️ خطأ في تحميل إعدادات الاتصال بعد تسجيل الدخول:', configError);
+                Utils.safeWarn('⚠️ خطأ في تحميل إعدادات Google بعد تسجيل الدخول:', configError);
             }
         }
 
@@ -1138,7 +1005,7 @@ window.Auth = {
                 } catch (monitorError) {
                     Utils.safeWarn('⚠️ فشل بدء نظام مراقبة الاتصال:', monitorError);
                 }
-            }, 1000);
+            }, 500);
         }
 
         // ✅ إصلاح: تحميل البيانات الأساسية أولاً بشكل مباشر ومتسلسل بدون تأخير
@@ -1159,11 +1026,9 @@ window.Auth = {
                     }
                 }
 
-                // ✅ الخطوة 2: تحميل البيانات الأساسية بشكل متسلسل من قاعدة البيانات (مهم جداً)
-                // يعمل مع Supabase و Google Script — بدون تأخير، تحميل مباشر
-                const hasBackend = typeof GoogleIntegration !== 'undefined' &&
-                    (AppState.useSupabaseBackend === true || (AppState.googleConfig && AppState.googleConfig.appsScript && AppState.googleConfig.appsScript.enabled));
-                if (hasBackend) {
+                // ✅ الخطوة 2: تحميل البيانات الأساسية بشكل متسلسل (مهم جداً)
+                // البيانات الأساسية: Users, Employees, Contractors, ApprovedContractors
+                if (AppState.googleConfig && AppState.googleConfig.appsScript && AppState.googleConfig.appsScript.enabled && typeof GoogleIntegration !== 'undefined') {
                     const prioritySheets = ['Users', 'Employees', 'Contractors', 'ApprovedContractors'];
                     const sheetMapping = {
                         'Users': 'users',
@@ -1177,7 +1042,7 @@ window.Auth = {
                         try {
                             // محاولة التحميل مع timeout لتجنب الانتظار الطويل
                             const timeoutPromise = new Promise((_, reject) => 
-                                setTimeout(() => reject(new Error('انتهت مهلة التحميل')), 10000)
+                                setTimeout(() => reject(new Error('انتهت مهلة التحميل')), 6000)
                             );
                             
                             const dataPromise = GoogleIntegration.readFromSheets(sheetName);
@@ -1188,7 +1053,7 @@ window.Auth = {
                                 AppState.appData[key] = data;
                                 Utils.safeLog(`✅ تم تحميل ${sheetName}: ${data.length} سجل`);
                             } else if (key && Array.isArray(AppState.appData[key]) && AppState.appData[key].length > 0) {
-                                Utils.safeLog(`⚠️ ${sheetName}: فشل التحميل من قاعدة البيانات - استخدام ${AppState.appData[key].length} سجل محلي`);
+                                Utils.safeLog(`⚠️ ${sheetName}: فشل التحميل من Google Sheets - استخدام ${AppState.appData[key].length} سجل محلي`);
                             }
                         } catch (error) {
                             const key = sheetMapping[sheetName];
@@ -1228,7 +1093,7 @@ window.Auth = {
                     }
 
                     // ✅ الخطوة 3: تحديث الجلسة والقائمة بعد تحميل بيانات المستخدمين
-                    // هذا مهم جداً لضمان تحديث الصلاحيات والقائمة الجانبية وظهور المديولات
+                    // هذا مهم جداً لضمان تحديث الصلاحيات والقائمة الجانبية
                     try {
                         if (typeof window.Auth !== 'undefined' && typeof window.Auth.updateUserSession === 'function') {
                             window.Auth.updateUserSession();
@@ -1236,12 +1101,6 @@ window.Auth = {
 
                         if (typeof Permissions !== 'undefined' && typeof Permissions.updateNavigation === 'function') {
                             Permissions.updateNavigation();
-                            // إعادة تحديث القائمة بعد تأخير قصير لضمان جاهزية DOM وتم تطبيق role من قاعدة البيانات
-                            setTimeout(function () {
-                                if (typeof Permissions !== 'undefined' && typeof Permissions.updateNavigation === 'function') {
-                                    Permissions.updateNavigation();
-                                }
-                            }, 400);
                         }
                     } catch (updateError) {
                         Utils.safeWarn('⚠️ فشل تحديث الجلسة أو القائمة:', updateError);
@@ -1300,8 +1159,8 @@ window.Auth = {
                         Utils.safeWarn('⚠️ فشل تحميل بيانات الموديولات:', err);
                     });
                 } else {
-                    // إذا لم يكن قاعدة البيانات مفعّل، نستخدم البيانات المحلية فقط
-                    Utils.safeLog('ℹ️ قاعدة البيانات غير مفعّل - استخدام البيانات المحلية فقط');
+                    // إذا لم يكن Google Sheets مفعّل، نستخدم البيانات المحلية فقط
+                    Utils.safeLog('ℹ️ Google Sheets غير مفعّل - استخدام البيانات المحلية فقط');
                 }
             } catch (err) {
                 Utils.safeError('❌ خطأ عام في تحميل البيانات:', err);
@@ -1386,28 +1245,28 @@ window.Auth = {
                     window.DataManager.save();
                 }
                 
-                // مزامنة lastLogout مع قاعدة البيانات في الخلفية
+                // مزامنة lastLogout مع Google Sheets في الخلفية
                 if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.sendToAppsScript && 
                     AppState.googleConfig?.appsScript?.enabled) {
                     const userId = users[userIndex].id;
                     const updateData = {
                         lastLogout: users[userIndex].lastLogout,
                         isOnline: false,
-                        activeSessionId: null // مسح معرف الجلسة في قاعدة البيانات
+                        activeSessionId: null // مسح معرف الجلسة في Google Sheets
                     };
                     
-                    // تحديث في قاعدة البيانات بشكل غير متزامن (لا ننتظر حتى لا نبطئ تسجيل الخروج)
+                    // تحديث في Google Sheets بشكل غير متزامن (لا ننتظر حتى لا نبطئ تسجيل الخروج)
                     GoogleIntegration.sendToAppsScript('updateUser', {
                         userId: userId,
                         updateData: updateData
                     }).then(updateResult => {
                         if (updateResult && updateResult.success) {
-                            Utils.safeLog('✅ تم مزامنة lastLogout و activeSessionId مع قاعدة البيانات بنجاح');
+                            Utils.safeLog('✅ تم مزامنة lastLogout و activeSessionId مع Google Sheets بنجاح');
                         } else {
-                            Utils.safeWarn('⚠️ فشل مزامنة lastLogout مع قاعدة البيانات:', updateResult?.message);
+                            Utils.safeWarn('⚠️ فشل مزامنة lastLogout مع Google Sheets:', updateResult?.message);
                         }
                     }).catch(updateError => {
-                        Utils.safeWarn('⚠️ خطأ في مزامنة lastLogout مع قاعدة البيانات:', updateError);
+                        Utils.safeWarn('⚠️ خطأ في مزامنة lastLogout مع Google Sheets:', updateError);
                         // لا نوقف تسجيل الخروج حتى لو فشلت المزامنة
                     });
                 }
@@ -1436,7 +1295,6 @@ window.Auth = {
         // مسح جميع بيانات الجلسة
         try {
             localStorage.removeItem('hse_remember_user');
-            localStorage.removeItem('hse_session_backup');
             sessionStorage.removeItem('hse_current_session');
             sessionStorage.removeItem('hse_current_section');
             sessionStorage.removeItem('hse_session_id'); // مسح معرف الجلسة
@@ -1461,33 +1319,24 @@ window.Auth = {
      */
     checkRememberedUser() {
         try {
-            // استعادة الجلسة من localStorage إلى sessionStorage إذا كانت فارغة (ضمان العمل بعد إعادة التحميل)
+            // أولاً: التحقق من sessionStorage (للمتصح الحالي)
             let sessionData = sessionStorage.getItem('hse_current_session');
-            if (!sessionData) {
-                const fromStorage = localStorage.getItem('hse_session_backup') || localStorage.getItem('hse_remember_user');
-                if (fromStorage) {
-                    try {
-                        const data = JSON.parse(fromStorage);
-                        if (data && data.email) {
-                            sessionStorage.setItem('hse_current_session', fromStorage);
-                            if (data.sessionId) sessionStorage.setItem('hse_session_id', data.sessionId);
-                            sessionData = fromStorage;
-                        }
-                    } catch (e) { Utils.safeWarn('⚠️ فشل استعادة الجلسة من localStorage في checkRememberedUser:', e); }
-                }
-            }
-            if (typeof AppState === 'undefined' || !AppState.appData) {
-                return false;
-            }
-            // التحقق من sessionStorage (أو ما تم استعادته من localStorage)
             if (sessionData) {
                 try {
                     const user = JSON.parse(sessionData);
                     // التحقق من أن البيانات صحيحة وأن المستخدم ما زال موجوداً
                     if (user && user.email) {
+                        // استعادة hse_session_id من بيانات الجلسة إن فُقد (بعد إعادة تحميل في نفس التبويب)
+                        let currentSessionId = sessionStorage.getItem('hse_session_id');
+                        if (!currentSessionId && user.sessionId) {
+                            try {
+                                sessionStorage.setItem('hse_session_id', user.sessionId);
+                                currentSessionId = user.sessionId;
+                            } catch (e) { /* ignore */ }
+                        }
+
                         // التحقق من وجود المستخدم ي قاعدة البيانات
                         const email = user.email.toLowerCase();
-                        // تم إزالة validUsers لأسباب أمنية - البحث في قاعدة البيانات فقط
                         const users = AppState.appData.users || [];
                         let foundUser = users.find(u => u.email && u.email.toLowerCase() === email);
 
@@ -1501,43 +1350,30 @@ window.Auth = {
                             return false;
                         }
 
-                        // التحقق من معرف الجلسة - إذا فُقد بعد إعادة التحميل نعيد إنشاءه ونقبل الاستعادة (نفس التبويب)
-                        let currentSessionId = sessionStorage.getItem('hse_session_id');
-                        const sessionIdWasMissing = !currentSessionId;
-                        if (!currentSessionId) {
-                            const timestamp = Date.now();
-                            const random = Math.random().toString(36).substring(2, 15);
-                            const userAgent = navigator.userAgent.substring(0, 50);
-                            const userAgentHash = userAgent.split('').reduce((acc, char) => ((acc << 5) - acc) + char.charCodeAt(0), 0).toString(36);
-                            currentSessionId = `SESS_${timestamp}_${random}_${userAgentHash}`;
-                            sessionStorage.setItem('hse_session_id', currentSessionId);
-                        }
-                        const isAdminRestore = foundUser && (foundUser.role === 'admin' || (foundUser.role && String(foundUser.role).includes('مدير')));
-                        // التحقق من "جهاز آخر" فقط عندما كان معرف الجلسة موجوداً (لا بعد إعادة تحميل نفس الصفحة)
-                        if (foundUser && foundUser.isOnline === true && foundUser.activeSessionId && !isAdminRestore && !sessionIdWasMissing) {
+                        // التحقق من معرف الجلسة: عند إعادة التحميل (نفس التبويب) لا نرفض الجلسة بسبب كاش قديم
+                        if (!currentSessionId) currentSessionId = sessionStorage.getItem('hse_session_id');
+                        if (foundUser && foundUser.isOnline === true && foundUser.activeSessionId && !AppState.isPageRefresh) {
                             if (foundUser.activeSessionId !== currentSessionId) {
                                 Utils.safeWarn('⚠️ المستخدم متصل من جهاز آخر - لا يمكن استعادة الجلسة');
-                            sessionStorage.removeItem('hse_current_session');
-                            localStorage.removeItem('hse_remember_user');
-                            localStorage.removeItem('hse_session_backup');
-                            sessionStorage.removeItem('hse_session_id');
-                            AppState.isPageRefresh = false;
-                            return false;
-                        }
+                                sessionStorage.removeItem('hse_current_session');
+                                localStorage.removeItem('hse_remember_user');
+                                sessionStorage.removeItem('hse_session_id');
+                                AppState.isPageRefresh = false;
+                                return false;
+                            }
                         }
 
-                        // التحقق من معرف الجلسة فقط عندما لم نكن قد أعدنا إنشاءه (بعد إعادة التحميل لا نلغي الجلسة بسبب اختلاف المؤقت)
-                        if (!sessionIdWasMissing && user.sessionId && currentSessionId && user.sessionId !== currentSessionId) {
+                        // التحقق من أن معرف الجلسة في بيانات الجلسة يطابق المعرف الحالي
+                        if (user.sessionId && currentSessionId && user.sessionId !== currentSessionId) {
                             Utils.safeWarn('⚠️ معرف الجلسة غير متطابق - مسح الجلسة القديمة');
                             sessionStorage.removeItem('hse_current_session');
                             localStorage.removeItem('hse_remember_user');
-                            localStorage.removeItem('hse_session_backup');
                             AppState.isPageRefresh = false;
                             return false;
                         }
 
                         // نقبل المستخدم حتى لو لم نجده في قاعدة البيانات
-                        // لأنه قد يكون هناك تأخير في تحميل البيانات من قاعدة البيانات
+                        // لأنه قد يكون هناك تأخير في تحميل البيانات من Google Sheets
                         if (foundUser) {
                             // استخدام بيانات المستخدم الكاملة من قاعدة البيانات
                             // ✅ ضمان name صحيح حتى في الاستعادة
@@ -1549,8 +1385,7 @@ window.Auth = {
                                 name: mergedName,
                                 passwordHash: foundUser.passwordHash || user.passwordHash,
                                 password: '***', // إخفاء كلمة المرور
-                                loginTime: user.loginTime || AppState.currentUser?.loginTime, // الحفاظ على وقت تسجيل الدخول
-                                postLoginPolicySeenAt: foundUser.postLoginPolicySeenAt || user.postLoginPolicySeenAt // عدم إظهار السياسة مرة أخرى عند التحديث
+                                loginTime: user.loginTime || AppState.currentUser?.loginTime // الحفاظ على وقت تسجيل الدخول
                             };
                             
                             console.log('✅ [AUTH] AppState.currentUser.name بعد الاستعادة (sessionStorage):', AppState.currentUser.name);
@@ -1561,8 +1396,7 @@ window.Auth = {
                             // استخدام بيانات المستخدم من الجلسة المحفوظة
                             AppState.currentUser = {
                                 ...user,
-                                name: (user.name || user.displayName || '').trim() || user.email || user.id || '',
-                                postLoginPolicySeenAt: user.postLoginPolicySeenAt // الحفاظ على حالة اطّلاع السياسة من الجلسة
+                                name: (user.name || user.displayName || '').trim() || user.email || user.id || ''
                             };
                             Utils.safeLog('⚠️ استخدام بيانات المستخدم من الجلسة (لم يُعثر عليه في قاعدة البيانات بعد)');
                             
@@ -1610,7 +1444,7 @@ window.Auth = {
                                     } else {
                                         // لم يتم العثور بعد - إعادة المحاولة بعد قليل
                                         if (retryCount < maxRetries) {
-                                            const delay = Math.min(1000 * retryCount, 3000); // زيادة التأخير تدريجياً (1s, 2s, 3s)
+                                            const delay = Math.min(500 * retryCount, 1500); // تقليل التأخير التدريجي
                                             setTimeout(checkAndUpdateSession, delay);
                                         } else {
                                             AppState._sessionUpdateScheduled = false;
@@ -1620,20 +1454,27 @@ window.Auth = {
                                 };
                                 
                                 // محاولة فورية أولاً
-                                setTimeout(checkAndUpdateSession, 500);
+                                setTimeout(checkAndUpdateSession, 250);
                             }
                         }
                         
-                        // حفظ الجلسة مرة أخرى للتأكد من استمراريتها (مع postLoginPolicySeenAt لعدم إظهار السياسة عند التحديث)
+                        // حفظ الجلسة مرة أخرى للتأكد من استمراريتها
                         const safeUserData = {
                             email: AppState.currentUser.email,
                             name: AppState.currentUser.name,
                             role: AppState.currentUser.role,
                             department: AppState.currentUser.department,
+                            factory: AppState.currentUser.factory || AppState.currentUser.factoryId || '',
+                            factoryId: AppState.currentUser.factoryId || AppState.currentUser.factory || '',
+                            factoryName: AppState.currentUser.factoryName || '',
+                            subLocation: AppState.currentUser.subLocation || AppState.currentUser.subLocationId || '',
+                            subLocationId: AppState.currentUser.subLocationId || AppState.currentUser.subLocation || '',
+                            subLocationName: AppState.currentUser.subLocationName || '',
+                            branch: AppState.currentUser.branch || '',
                             permissions: AppState.currentUser.permissions,
                             id: AppState.currentUser.id,
                             loginTime: AppState.currentUser.loginTime,
-                            postLoginPolicySeenAt: AppState.currentUser.postLoginPolicySeenAt
+                            photo: AppState.currentUser.photo || ''
                         };
                         sessionStorage.setItem('hse_current_session', JSON.stringify(safeUserData));
                         Utils.safeLog('✅ تم استعادة الجلسة من sessionStorage - المستخدم مسجل دخول');
@@ -1645,7 +1486,6 @@ window.Auth = {
                     try {
                         sessionStorage.removeItem('hse_current_session');
                         sessionStorage.removeItem('hse_session_id');
-                        localStorage.removeItem('hse_session_backup');
                     } catch (clearError) {
                         Utils.safeWarn('⚠️ فشل مسح الجلسة التالفة:', clearError);
                     }
@@ -1659,48 +1499,38 @@ window.Auth = {
                     const user = JSON.parse(remembered);
                     // التحقق من صحة البيانات وأن المستخدم ما زال موجوداً
                     if (user && user.email) {
+                        let currentSessionId = sessionStorage.getItem('hse_session_id');
+                        if (!currentSessionId && user.sessionId) {
+                            try {
+                                sessionStorage.setItem('hse_session_id', user.sessionId);
+                                currentSessionId = user.sessionId;
+                            } catch (e) { /* ignore */ }
+                        }
+
                         const email = user.email.toLowerCase();
-                        // تم إزالة validUsers لأسباب أمنية - البحث في قاعدة البيانات فقط
                         const users = AppState.appData.users || [];
                         let foundUser = users.find(u => u.email && u.email.toLowerCase() === email);
 
-                        // فقط إذا وُجد المستخدم وكان غير مفعّل، نمسح الجلسة
                         if (foundUser && foundUser.active === false) {
                             localStorage.removeItem('hse_remember_user');
-                            localStorage.removeItem('hse_session_backup');
                             sessionStorage.removeItem('hse_session_id');
                             AppState.isPageRefresh = false;
                             return false;
                         }
 
-                        // التحقق من معرف الجلسة — إذا فُقد نعيد إنشاءه (إعادة تحميل نفس الصفحة)
-                        let currentSessionIdLocal = sessionStorage.getItem('hse_session_id');
-                        const sessionIdWasMissingLocal = !currentSessionIdLocal;
-                        if (!currentSessionIdLocal) {
-                            const timestamp = Date.now();
-                            const random = Math.random().toString(36).substring(2, 15);
-                            const userAgent = navigator.userAgent.substring(0, 50);
-                            const userAgentHash = userAgent.split('').reduce((acc, char) => ((acc << 5) - acc) + char.charCodeAt(0), 0).toString(36);
-                            currentSessionIdLocal = `SESS_${timestamp}_${random}_${userAgentHash}`;
-                            sessionStorage.setItem('hse_session_id', currentSessionIdLocal);
-                        }
-                        const isAdminRestoreLocal = foundUser && (foundUser.role === 'admin' || (foundUser.role && String(foundUser.role).includes('مدير')));
-                        if (foundUser && foundUser.isOnline === true && foundUser.activeSessionId && !isAdminRestoreLocal && !sessionIdWasMissingLocal) {
-                            if (foundUser.activeSessionId !== currentSessionIdLocal) {
+                        if (foundUser && foundUser.isOnline === true && foundUser.activeSessionId && !AppState.isPageRefresh) {
+                            if (foundUser.activeSessionId !== currentSessionId) {
                                 Utils.safeWarn('⚠️ المستخدم متصل من جهاز آخر - لا يمكن استعادة الجلسة من localStorage');
                                 localStorage.removeItem('hse_remember_user');
-                                localStorage.removeItem('hse_session_backup');
                                 sessionStorage.removeItem('hse_session_id');
                                 AppState.isPageRefresh = false;
                                 return false;
                             }
                         }
 
-                        // عدم إلغاء الجلسة بسبب اختلاف sessionId عند الاستعادة بعد إعادة التحميل (sessionIdWasMissingLocal)
-                        if (!sessionIdWasMissingLocal && user.sessionId && currentSessionIdLocal && user.sessionId !== currentSessionIdLocal) {
+                        if (user.sessionId && currentSessionId && user.sessionId !== currentSessionId) {
                             Utils.safeWarn('⚠️ معرف الجلسة في localStorage غير متطابق - مسح الجلسة القديمة');
                             localStorage.removeItem('hse_remember_user');
-                            localStorage.removeItem('hse_session_backup');
                             AppState.isPageRefresh = false;
                             return false;
                         }
@@ -1723,8 +1553,7 @@ window.Auth = {
                                 name: mergedName, // ✅ استخدام mergedName
                                 passwordHash: foundUser.passwordHash || user.passwordHash,
                                 password: '***', // إخفاء كلمة المرور
-                                loginTime: user.loginTime || AppState.currentUser?.loginTime, // الحفاظ على وقت تسجيل الدخول
-                                postLoginPolicySeenAt: foundUser.postLoginPolicySeenAt || user.postLoginPolicySeenAt // عدم إظهار السياسة مرة أخرى عند التحديث
+                                loginTime: user.loginTime || AppState.currentUser?.loginTime // الحفاظ على وقت تسجيل الدخول
                             };
                             
                             console.log('✅ [AUTH] AppState.currentUser.name بعد الاستعادة (localStorage):', AppState.currentUser.name);
@@ -1735,8 +1564,7 @@ window.Auth = {
                             // استخدام بيانات المستخدم من localStorage
                             AppState.currentUser = {
                                 ...user,
-                                name: (user.name || user.displayName || '').trim() || user.email || user.id || '',
-                                postLoginPolicySeenAt: user.postLoginPolicySeenAt // الحفاظ على حالة اطّلاع السياسة
+                                name: (user.name || user.displayName || '').trim() || user.email || user.id || ''
                             };
                             Utils.safeLog('⚠️ استخدام بيانات المستخدم من localStorage (لم يُعثر عليه في قاعدة البيانات بعد)');
                             
@@ -1772,8 +1600,7 @@ window.Auth = {
                                             passwordHash: dbUser.passwordHash || user.passwordHash,
                                             password: '***',
                                             loginTime: user.loginTime || AppState.currentUser?.loginTime, // الحفاظ على وقت تسجيل الدخول
-                                            id: dbUser.id || user.id || AppState.currentUser?.id, // الحفاظ على ID
-                                            postLoginPolicySeenAt: user.postLoginPolicySeenAt || dbUser.postLoginPolicySeenAt // عدم إظهار السياسة مرة أخرى بعد إعادة التحميل
+                                            id: dbUser.id || user.id || AppState.currentUser?.id // الحفاظ على ID
                                         };
                                         
                                         console.log('✅ [AUTH] AppState.currentUser.name بعد التحديث التلقائي (localStorage):', AppState.currentUser.name);
@@ -1785,7 +1612,7 @@ window.Auth = {
                                     } else {
                                         // لم يتم العثور بعد - إعادة المحاولة بعد قليل
                                         if (retryCount < maxRetries) {
-                                            const delay = Math.min(1000 * retryCount, 3000); // زيادة التأخير تدريجياً (1s, 2s, 3s)
+                                            const delay = Math.min(500 * retryCount, 1500); // تقليل التأخير التدريجي
                                             setTimeout(checkAndUpdateSession, delay);
                                         } else {
                                             AppState._sessionUpdateScheduled = false;
@@ -1795,11 +1622,11 @@ window.Auth = {
                                 };
                                 
                                 // محاولة فورية أولاً
-                                setTimeout(checkAndUpdateSession, 500);
+                                setTimeout(checkAndUpdateSession, 250);
                             }
                         }
                         
-                        // حفظ في sessionStorage أيضاً (مع postLoginPolicySeenAt لعدم إظهار السياسة مرة أخرى عند إعادة التحميل)
+                        // حفظ في sessionStorage أيضاً
                         const safeUserData = {
                             email: AppState.currentUser.email,
                             name: AppState.currentUser.name,
@@ -1808,7 +1635,7 @@ window.Auth = {
                             permissions: AppState.currentUser.permissions,
                             id: AppState.currentUser.id,
                             loginTime: AppState.currentUser.loginTime,
-                            postLoginPolicySeenAt: AppState.currentUser.postLoginPolicySeenAt
+                            photo: AppState.currentUser.photo || ''
                         };
                         sessionStorage.setItem('hse_current_session', JSON.stringify(safeUserData));
                         Utils.safeLog('✅ تم استعادة الجلسة من localStorage - المستخدم مسجل دخول');
@@ -1861,14 +1688,13 @@ window.Auth = {
         AppState._lastSessionUpdate = now;
 
         try {
-            // البحث عن المستخدم في قاعدة البيانات (بالبريد أو id إذا كان يشبه البريد)
-            const email = (AppState.currentUser.email || AppState.currentUser.id || '').toString().toLowerCase().trim();
+            // البحث عن المستخدم في قاعدة البيانات للحصول على أحدث البيانات
+            const email = AppState.currentUser.email.toLowerCase();
             const users = AppState.appData.users || [];
-            let dbUser = users.find(u => (u.email && u.email.toString().toLowerCase().trim() === email) || (u.id && /@/.test(String(u.id)) && u.id.toString().toLowerCase().trim() === email));
+            const dbUser = users.find(u => u.email && u.email.toLowerCase() === email);
 
             if (!dbUser) {
                 Utils.safeWarn('⚠️ المستخدم غير موجود في قاعدة البيانات');
-                AppState._sessionUpdateInProgress = false;
                 return false;
             }
 
@@ -1904,6 +1730,14 @@ window.Auth = {
                 name: updatedName, // ✅ استخدام updatedName بدلاً من dbUser.name مباشرة
                 role: dbUser.role || AppState.currentUser.role,
                 department: dbUser.department || AppState.currentUser.department,
+                // ✅ الحفاظ/تحديث حقول المصنع/الموقع الفرعي من قاعدة البيانات إن وُجدت
+                factory: dbUser.factory || dbUser.factoryId || dbUser.plant || dbUser.siteId || dbUser.site || dbUser.location || AppState.currentUser.factory || '',
+                factoryId: dbUser.factoryId || dbUser.factory || dbUser.plantId || dbUser.siteId || AppState.currentUser.factoryId || '',
+                factoryName: dbUser.factoryName || dbUser.plantName || dbUser.siteName || dbUser.locationName || AppState.currentUser.factoryName || '',
+                subLocation: dbUser.subLocation || dbUser.subLocationId || dbUser.subSite || dbUser.subsite || dbUser.placeId || dbUser.place || dbUser.branch || AppState.currentUser.subLocation || '',
+                subLocationId: dbUser.subLocationId || dbUser.placeId || dbUser.subLocation || AppState.currentUser.subLocationId || '',
+                subLocationName: dbUser.subLocationName || dbUser.placeName || dbUser.subSiteName || dbUser.subsiteName || AppState.currentUser.subLocationName || '',
+                branch: dbUser.branch || dbUser.branchName || AppState.currentUser.branch || '',
                 permissions: finalPermissions, // استخدام الصلاحيات المطبعة والمدققة
                 active: dbUser.active !== undefined ? dbUser.active : AppState.currentUser.active,
                 photo: dbUser.photo || AppState.currentUser.photo,
@@ -1926,26 +1760,22 @@ window.Auth = {
                 name: AppState.currentUser.name,
                 role: AppState.currentUser.role,
                 department: AppState.currentUser.department,
+                factory: AppState.currentUser.factory || AppState.currentUser.factoryId || '',
+                factoryId: AppState.currentUser.factoryId || AppState.currentUser.factory || '',
+                factoryName: AppState.currentUser.factoryName || '',
+                subLocation: AppState.currentUser.subLocation || AppState.currentUser.subLocationId || '',
+                subLocationId: AppState.currentUser.subLocationId || AppState.currentUser.subLocation || '',
+                subLocationName: AppState.currentUser.subLocationName || '',
+                branch: AppState.currentUser.branch || '',
                 permissions: permissionsToSave, // استخدام الصلاحيات المدققة
                 id: AppState.currentUser.id,
                 loginTime: AppState.currentUser.loginTime,
-                postLoginPolicySeenAt: AppState.currentUser.postLoginPolicySeenAt // لعدم إظهار السياسة عند إعادة التحميل
+                photo: AppState.currentUser.photo || '' // ✅ حفظ الصورة لاستعادتها عند فتح الصفحة
             };
 
             // تحديث sessionStorage
             sessionStorage.setItem('hse_current_session', JSON.stringify(safeUserData));
             Utils.safeLog('✅ تم تحديث الجلسة في sessionStorage');
-
-            // تحديث النسخة الاحتياطية للجلسة (لاستعادة بعد إعادة التحميل)
-            try {
-                const sessionId = sessionStorage.getItem('hse_session_id');
-                if (sessionId) {
-                    localStorage.setItem('hse_session_backup', JSON.stringify({
-                        ...safeUserData,
-                        sessionId: sessionId
-                    }));
-                }
-            } catch (e) { /* ignore */ }
 
             // تحديث localStorage إذا كان موجوداً (تذكرني)
             const remembered = localStorage.getItem('hse_remember_user');
@@ -2038,13 +1868,13 @@ window.Auth = {
             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
         }
 
-        // حفظ في قاعدة البيانات إذا كان معّلاً
+        // حفظ في Google Sheets إذا كان معّلاً
         if (AppState.googleConfig && AppState.googleConfig.appsScript && AppState.googleConfig.appsScript.enabled && AppState.googleConfig.sheets && AppState.googleConfig.sheets.spreadsheetId) {
             try {
                 await GoogleIntegration.autoSave('Users', AppState.appData.users);
-                Utils.safeLog('✅ تم حفظ كلمة المرور الجديدة في قاعدة البيانات');
+                Utils.safeLog('✅ تم حفظ كلمة المرور الجديدة في Google Sheets');
             } catch (error) {
-                Utils.safeWarn('⚠ فشل حظ كلمة المرور ي قاعدة البيانات:', error);
+                Utils.safeWarn('⚠ فشل حظ كلمة المرور ي Google Sheets:', error);
             }
         }
 
@@ -2057,9 +1887,7 @@ window.Auth = {
      * يتم تحميل البيانات بشكل متتالي لضمان عدم فقدان أي بيانات
      */
     async loadModulesDataSequentially() {
-        const hasBackend = typeof GoogleIntegration !== 'undefined' &&
-            (AppState.useSupabaseBackend === true || AppState.googleConfig?.appsScript?.enabled);
-        if (!hasBackend) {
+        if (!AppState.googleConfig?.appsScript?.enabled || typeof GoogleIntegration === 'undefined') {
             return;
         }
 
@@ -2087,7 +1915,7 @@ window.Auth = {
                 return;
             }
 
-            // خريطة الموديولات وأوراق قاعدة البيانات الخاصة بها
+            // خريطة الموديولات وأوراق Google Sheets الخاصة بها
             const moduleSheetsMap = {
                 'incidents': ['Incidents'],
                 'nearmiss': ['NearMiss'],
@@ -2115,10 +1943,11 @@ window.Auth = {
                 'periodic-inspections': ['PeriodicInspectionCategories', 'PeriodicInspectionRecords', 'PeriodicInspectionSchedules', 'PeriodicInspectionChecklists']
             };
 
-            // خريطة أوراق قاعدة البيانات إلى مفاتيح AppState
+            // خريطة أوراق Google Sheets إلى مفاتيح AppState
             const sheetToKeyMap = {
                 'Incidents': 'incidents',
-                'NearMiss': 'nearMiss',
+                // key in AppState is `nearmiss` (not `nearMiss`)
+                'NearMiss': 'nearmiss',
                 'PTW': 'ptw',
                 'PTWRegistry': 'ptwRegistry',
                 'Training': 'training',
@@ -2183,7 +2012,7 @@ window.Auth = {
                     const sheets = moduleSheetsMap[moduleName] || [];
                     
                     if (sheets.length === 0) {
-                        Utils.safeLog(`⚠️ لا توجد أوراق قاعدة البيانات للموديول: ${moduleName}`);
+                        Utils.safeLog(`⚠️ لا توجد أوراق Google Sheets للموديول: ${moduleName}`);
                         continue;
                     }
 
@@ -2218,7 +2047,7 @@ window.Auth = {
                                     return { sheetName, key, success: false, error: 'البيانات ليست مصفوفة', kept: false };
                                 }
                             }
-                            return { sheetName, key, success: false, error: 'لا يوجد key للجدول' };
+                            return { sheetName, key, success: false, error: 'لا يوجد key للورقة' };
                         } catch (error) {
                             const key = sheetToKeyMap[sheetName];
                             const errorMsg = error?.message || String(error);
@@ -2253,7 +2082,7 @@ window.Auth = {
                     
                     // ✅ إصلاح: إزالة المرجع للمتغير غير المعرّف silent - تسجيل التحذير دائماً إذا كانت هناك أوراق فارغة
                     if (emptySheets.length > 0) {
-                        Utils.safeWarn(`⚠️ الموديول ${moduleName} يحتوي على ${emptySheets.length} جدول فارغ: ${emptySheets.join(', ')}`);
+                        Utils.safeWarn(`⚠️ الموديول ${moduleName} يحتوي على ${emptySheets.length} ورقة فارغة: ${emptySheets.join(', ')}`);
                     }
                 } catch (error) {
                     Utils.safeWarn(`⚠️ فشل تحميل بيانات الموديول ${moduleName}:`, error);
@@ -2266,6 +2095,17 @@ window.Auth = {
             }
 
             Utils.safeLog('✅ اكتمل تحميل بيانات جميع الموديولات المسموح بها');
+
+            // تحديث الواجهة مباشرة بعد اكتمال تحميل بيانات الموديولات
+            try {
+                if (typeof window !== 'undefined' &&
+                    window.UI &&
+                    typeof window.UI.refreshCurrentSection === 'function') {
+                    window.UI.refreshCurrentSection(true); // silent = true
+                }
+            } catch (uiError) {
+                Utils.safeWarn('⚠️ فشل تحديث الواجهة بعد تحميل الموديولات:', uiError);
+            }
         } catch (error) {
             Utils.safeError('❌ خطأ في تحميل بيانات الموديولات:', error);
         }
@@ -2279,25 +2119,7 @@ window.Auth = {
 
         email = email.trim().toLowerCase();
 
-        // استرجاع كلمة المرور عبر البريد (Supabase): التحقق من البريد وإرسال رابط إلى البريد
-        if (typeof AppState !== 'undefined' && AppState.useSupabaseBackend === true) {
-            try {
-                const resetBaseUrl = typeof window !== 'undefined' && window.location && window.location.origin ? window.location.origin : '';
-                const result = await GoogleIntegration.sendRequest({
-                    action: 'requestPasswordReset',
-                    data: { email: email, resetBaseUrl: resetBaseUrl }
-                });
-                if (result && result.success) {
-                    return { success: true, message: result.message || 'إذا كان البريد مسجلاً ستتلقى رسالة خلال دقائق.' };
-                }
-                return { success: false, message: (result && result.message) || 'تعذر إرسال رابط الاسترجاع.' };
-            } catch (err) {
-                const msg = (err && err.message) || String(err);
-                return { success: false, message: msg };
-            }
-        }
-
-        // المسار القديم (غير Supabase): البحث في المستخدمين المحليين وكلمة مرور مؤقتة
+        // البحث في قاعدة بيانات المستخدمين
         const user = AppState.appData.users.find(u => {
             if (!u || !u.email) return false;
             return u.email.toLowerCase().trim() === email;
@@ -2308,13 +2130,16 @@ window.Auth = {
             return { success: false, message: 'البريد الإلكتروني غير مسجل في النظام' };
         }
 
+        // إنشاء كلمة مرور مؤقتة إذا لم يتم تحديد واحدة
         let tempPassword = newPassword;
         if (!tempPassword) {
+            // إنشاء كلمة مرور مؤقتة قوية
             const randomPart = Math.random().toString(36).substring(2, 10);
             const timestamp = Date.now().toString(36).substring(5, 9);
             tempPassword = 'Temp' + randomPart + timestamp + '!';
         }
 
+        // تحديث كلمة المرور
         const hashedTemp = await Utils.hashPassword(tempPassword);
         user.password = '***';
         user.passwordHash = hashedTemp;
@@ -2322,29 +2147,39 @@ window.Auth = {
         user.forcePasswordChange = true;
         user.updatedAt = new Date().toISOString();
 
+        // حفظ التغييرات محلياً
+        // حفظ البيانات باستخدام window.DataManager
         if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
             await window.DataManager.save();
         } else {
             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
         }
 
+        // تحديث المستخدم الحالي إذا كان هو نفسه
         if (AppState.currentUser && AppState.currentUser.email && AppState.currentUser.email.toLowerCase().trim() === email) {
             AppState.currentUser.passwordHash = hashedTemp;
             AppState.currentUser.passwordChanged = false;
             AppState.currentUser.forcePasswordChange = true;
         }
 
+        // حفظ تلقائياً في Google Sheets
         try {
-            if (AppState.googleConfig && AppState.googleConfig.appsScript && AppState.googleConfig.appsScript.enabled && AppState.googleConfig.appsScript.scriptUrl) {
+            if (AppState.googleConfig.appsScript.enabled && AppState.googleConfig.appsScript.scriptUrl) {
+                // استخدام resetUserPassword في Backend أولاً
                 let result = await GoogleIntegration.sendToAppsScript('resetUserPassword', {
                     userId: user.id,
                     email: user.email,
                     newPassword: tempPassword
                 });
+
                 if (result && result.success) {
-                    Utils.safeLog('✅ تم تحديث كلمة المرور في قاعدة البيانات بنجاح');
-                    if (result.tempPassword) tempPassword = result.tempPassword;
+                    Utils.safeLog('✅ تم تحديث كلمة المرور في Google Sheets بنجاح');
+                    // استخدام كلمة المرور المؤقتة من Backend إذا كانت متاحة
+                    if (result.tempPassword) {
+                        tempPassword = result.tempPassword;
+                    }
                 } else {
+                    // إذا فشل، نحاول updateUser
                     result = await GoogleIntegration.sendToAppsScript('updateUser', {
                         userId: user.id,
                         updateData: {
@@ -2354,15 +2189,18 @@ window.Auth = {
                             updatedAt: user.updatedAt
                         }
                     });
+
                     if (result && result.success) {
-                        Utils.safeLog('✅ تم تحديث كلمة المرور في قاعدة البيانات بنجاح (عبر updateUser)');
+                        Utils.safeLog('✅ تم تحديث كلمة المرور في Google Sheets بنجاح (عبر updateUser)');
                     } else {
+                        // إذا فشل، نحاول autoSave
                         await GoogleIntegration.autoSave('Users', AppState.appData.users);
                     }
                 }
             }
         } catch (error) {
-            Utils.safeWarn('⚠ فشل تحديث كلمة المرور في قاعدة البيانات:', error);
+            Utils.safeWarn('⚠ فشل تحديث كلمة المرور في Google Sheets:', error);
+            // نحاول autoSave كبديل
             try {
                 await GoogleIntegration.autoSave('Users', AppState.appData.users);
             } catch (autoSaveError) {
@@ -2374,107 +2212,8 @@ window.Auth = {
         return {
             success: true,
             message: 'تم إعادة تعيين كلمة المرور بنجاح',
-            tempPassword: tempPassword
+            tempPassword: tempPassword // إرجاع كلمة المرور المؤقتة للمدير
         };
-    },
-
-    showCreateFirstUserBox() {
-        try {
-            const box = document.getElementById('create-first-user-box');
-            if (box) box.style.display = '';
-            const btn = document.getElementById('create-first-user-btn');
-            if (btn && !btn._bound) {
-                btn._bound = true;
-                btn.addEventListener('click', function () {
-                    const modal = document.getElementById('create-first-user-modal');
-                    if (modal) modal.style.display = 'flex';
-                });
-            }
-            const closeBtn = document.getElementById('create-first-user-modal-close');
-            const cancelBtn = document.getElementById('create-first-user-cancel');
-            function closeModal() {
-                const modal = document.getElementById('create-first-user-modal');
-                if (modal) modal.style.display = 'none';
-            }
-            if (closeBtn && !closeBtn._bound) {
-                closeBtn._bound = true;
-                closeBtn.addEventListener('click', closeModal);
-            }
-            if (cancelBtn && !cancelBtn._bound) {
-                cancelBtn._bound = true;
-                cancelBtn.addEventListener('click', closeModal);
-            }
-            const form = document.getElementById('create-first-user-form');
-            if (form && !form._bound) {
-                form._bound = true;
-                form.addEventListener('submit', function (e) {
-                    e.preventDefault();
-                    if (typeof Auth._handleCreateFirstUserSubmit === 'function') Auth._handleCreateFirstUserSubmit(form);
-                });
-            }
-        } catch (err) {
-            if (typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('showCreateFirstUserBox:', err);
-        }
-    },
-
-    hideCreateFirstUserBox() {
-        try {
-            const box = document.getElementById('create-first-user-box');
-            if (box) box.style.display = 'none';
-            const modal = document.getElementById('create-first-user-modal');
-            if (modal) modal.style.display = 'none';
-        } catch (e) {}
-    },
-
-    async _handleCreateFirstUserSubmit(form) {
-        const nameEl = form.querySelector('[name="first_user_name"]');
-        const emailEl = form.querySelector('[name="first_user_email"]');
-        const passEl = form.querySelector('[name="first_user_password"]');
-        const name = (nameEl && nameEl.value || '').trim();
-        const email = (emailEl && emailEl.value || '').trim().toLowerCase();
-        const password = (passEl && passEl.value || '');
-        if (!name || !email || !password) {
-            if (typeof Notification !== 'undefined') Notification.error('يرجى تعبئة الاسم والبريد وكلمة المرور.');
-            return;
-        }
-        if (typeof Utils === 'undefined' || !Utils.hashPassword) {
-            if (typeof Notification !== 'undefined') Notification.error('الأداة غير جاهزة. حدّث الصفحة وحاول مرة أخرى.');
-            return;
-        }
-        if (typeof GoogleIntegration === 'undefined' || !GoogleIntegration.sendToAppsScript) {
-            if (typeof Notification !== 'undefined') Notification.error('الاتصال بـ Supabase غير متاح.');
-            return;
-        }
-        const submitBtn = form.querySelector('button[type="submit"]');
-        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'جاري الإنشاء...'; }
-        try {
-            const passwordHash = await Utils.hashPassword(password);
-            const result = await GoogleIntegration.sendToAppsScript('addUser', {
-                id: email,
-                email: email,
-                name: name,
-                role: 'admin',
-                passwordHash: passwordHash
-            });
-            if (result && result.success) {
-                if (typeof Notification !== 'undefined') Notification.success('تم إنشاء المستخدم. يمكنك تسجيل الدخول الآن.');
-                Auth.hideCreateFirstUserBox();
-                if (typeof SupabaseIntegration !== 'undefined' && SupabaseIntegration.clearCache) SupabaseIntegration.clearCache('Users');
-                if (typeof SupabaseIntegration !== 'undefined' && SupabaseIntegration.clearCache) SupabaseIntegration.clearCache('users');
-                if (emailEl) emailEl.value = email;
-                if (passEl) passEl.value = password;
-                var un = document.getElementById('username');
-                if (un) un.value = email;
-                var pw = document.getElementById('password');
-                if (pw) pw.value = password;
-            } else {
-                if (typeof Notification !== 'undefined') Notification.error((result && result.message) || 'فشل إنشاء المستخدم.');
-            }
-        } catch (err) {
-            if (typeof Notification !== 'undefined') Notification.error(err && err.message ? err.message : 'فشل إنشاء المستخدم.');
-        } finally {
-            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'إنشاء المستخدم'; }
-        }
     }
 };
 
@@ -2482,4 +2221,3 @@ window.Auth = {
 if (typeof window !== 'undefined') {
     window.Auth = window.Auth || Auth;
 }
-

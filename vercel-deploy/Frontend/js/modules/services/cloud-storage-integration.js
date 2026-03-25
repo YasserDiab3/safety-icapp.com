@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Cloud Storage Integration Service
  * Handles OAuth integration with OneDrive, Google Drive, and SharePoint
  */
@@ -612,5 +612,4 @@ const CloudStorageIntegration = {
 if (typeof window !== 'undefined') {
     window.CloudStorageIntegration = CloudStorageIntegration;
 }
-
 

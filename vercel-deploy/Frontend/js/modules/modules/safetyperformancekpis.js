@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SafetyPerformanceKPIs Module
  * ØªÙ… Ø§Ø³ØªØ®Ø±Ø§Ø¬Ù‡ Ù…Ù† app-modules.js
  */
@@ -14,6 +14,14 @@ const SafetyPerformanceKPIs = {
     kpiTargets: {},
 
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         const section = document.getElementById('safety-performance-kpis-section');
 
         // التحقق من الصلاحيات - فقط للمدير

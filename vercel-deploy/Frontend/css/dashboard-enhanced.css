@@ -285,13 +285,7 @@
     box-sizing: border-box;
 }
 
-/* Metric Cards (Inside Safety/Reports Sections) - لا transition عند تحديث القيم لتفادي الوميض */
-.safety-metrics-section .metric-card-frame,
-.reports-statistics-section .metric-card-frame {
-    transition: none !important;
-    animation: none !important;
-}
-
+/* Metric Cards (Inside Safety/Reports Sections) */
 .metric-card-frame {
     background: var(--ent-bg-card);
     border: 1px solid var(--ent-border);
@@ -315,11 +309,6 @@
     box-shadow: var(--ent-shadow);
     transform: translateY(-2px);
     border-color: var(--ent-accent);
-}
-
-.safety-metrics-section .metric-card-frame:hover,
-.reports-statistics-section .metric-card-frame:hover {
-    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .metric-card-frame[data-clickable="true"] {

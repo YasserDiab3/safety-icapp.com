@@ -1,3 +1,94 @@
+/* ===== Language Dropdown Styles ===== */
+.language-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    min-width: 140px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    z-index: 50;
+    margin-top: 4px;
+    overflow: hidden;
+}
+
+.language-dropdown.hidden {
+    display: none;
+}
+
+.language-dropdown.show {
+    display: block;
+}
+
+#login-language-dropdown.show {
+    display: block !important;
+}
+
+.language-dropdown button {
+    display: block;
+    width: 100%;
+    padding: 8px 16px;
+    text-align: left;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    color: #374151;
+    transition: background-color 0.2s ease;
+}
+
+.language-dropdown button:hover {
+    background-color: #f3f4f6;
+}
+
+.dark .language-dropdown {
+    background: #1f2937;
+    border-color: #374151;
+}
+
+.dark .language-dropdown button {
+    color: #d1d5db;
+}
+
+.dark .language-dropdown button:hover {
+    background-color: #374151;
+}
+
+/* Login language switcher positioning */
+.language-switcher {
+    position: relative;
+}
+
+#login-language-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    width: 100%;
+    margin-top: 4px;
+}
+
+/* Language toggle button active state */
+#language-toggle.active,
+#login-language-toggle-btn.active {
+    background-color: rgba(255, 199, 44, 0.2);
+    border-color: #FFC72C;
+}
+
+/* LTR styles for language dropdown */
+html[lang="en"] .language-dropdown,
+body[lang="en"] .language-dropdown {
+    right: auto;
+    left: 0;
+}
+
+html[lang="en"] .language-dropdown button,
+body[lang="en"] .language-dropdown button {
+    text-align: left;
+}
+
 /* ===== Base Styles ===== */
 * {
     margin: 0;
@@ -229,9 +320,186 @@ body.app-active {
     }
 }
 
+/* ===== LTR (English) Layout Styles ===== */
+html[lang="en"] .sidebar,
+body[lang="en"] .sidebar,
+.ltr .sidebar {
+    right: auto;
+    left: 0;
+    border-left: none;
+    border-right: 3px solid #FFC72C;
+    transform: translateX(-100%);
+}
+
+html[lang="en"] .sidebar:not(.open),
+body[lang="en"] .sidebar:not(.open),
+.ltr .sidebar:not(.open) {
+    transform: translateX(-100%) !important;
+}
+
+html[lang="en"] .sidebar.open,
+body[lang="en"] .sidebar.open,
+.ltr .sidebar.open {
+    transform: translateX(0) !important;
+}
+
+html[lang="en"] .app-shell,
+body[lang="en"] .app-shell,
+.ltr .app-shell {
+    margin-right: 0;
+    margin-left: var(--sidebar-width);
+}
+
+/* LTR styles for mobile */
+@media (max-width: 1024px) {
+    html[lang="en"] .app-shell,
+    body[lang="en"] .app-shell,
+    .ltr .app-shell {
+        margin-left: 0 !important;
+    }
+}
+
+/* LTR styles for desktop */
+@media (min-width: 1025px) {
+    html[lang="en"] .sidebar.open~.app-shell,
+    body[lang="en"] .sidebar.open~.app-shell,
+    .ltr .sidebar.open~.app-shell {
+        margin-right: 0 !important;
+        margin-left: var(--sidebar-width) !important;
+    }
+}
+
+/* Adjust section-title padding for LTR */
+html[lang="en"] .section-header:has(.navigation-icons-container) .section-title,
+html[lang="en"] .section-header:has(.back-home-icon) .section-title,
+body[lang="en"] .section-header:has(.navigation-icons-container) .section-title,
+body[lang="en"] .section-header:has(.back-home-icon) .section-title {
+    padding-right: 0;
+    padding-left: 110px;
+}
+
+@media (max-width: 768px) {
+    html[lang="en"] .section-header:has(.navigation-icons-container) .section-title,
+    html[lang="en"] .section-header:has(.back-home-icon) .section-title,
+    body[lang="en"] .section-header:has(.navigation-icons-container) .section-title,
+    body[lang="en"] .section-header:has(.back-home-icon) .section-title {
+        padding-left: 104px;
+    }
+}
+
+@media (max-width: 480px) {
+    html[lang="en"] .section-header:has(.navigation-icons-container) .section-title,
+    html[lang="en"] .section-header:has(.back-home-icon) .section-title,
+    body[lang="en"] .section-header:has(.navigation-icons-container) .section-title,
+    body[lang="en"] .section-header:has(.back-home-icon) .section-title {
+        padding-left: 98px;
+    }
+}
+
+/* LTR Header styles */
+html[lang="en"] .section-header,
+body[lang="en"] .section-header,
+.ltr .section-header {
+    padding-left: 0;
+    padding-right: 0;
+}
+
+html[lang="en"] .navigation-icons-container,
+body[lang="en"] .navigation-icons-container,
+.ltr .navigation-icons-container {
+    right: auto;
+    left: 1rem;
+}
+
+html[lang="en"] .back-home-icon,
+body[lang="en"] .back-home-icon,
+.ltr .back-home-icon {
+    right: auto;
+    left: 1rem;
+}
+
+/* LTR Nav item styles */
+html[lang="en"] .nav-item,
+body[lang="en"] .nav-item,
+.ltr .nav-item {
+    border-right: none;
+    border-left: 4px solid transparent;
+    border-radius: 0 8px 8px 0;
+    margin: 0.25rem 0.5rem;
+}
+
+html[lang="en"] .nav-item::before,
+body[lang="en"] .nav-item::before,
+.ltr .nav-item::before {
+    right: auto;
+    left: 0;
+}
+
+html[lang="en"] .nav-item:hover,
+body[lang="en"] .nav-item:hover,
+.ltr .nav-item:hover {
+    border-right-color: transparent;
+    border-left-color: #FFC72C;
+    transform: translateX(3px);
+}
+
+html[lang="en"] .nav-item.active,
+body[lang="en"] .nav-item.active,
+.ltr .nav-item.active {
+    border-right-color: transparent;
+    border-left-color: #FFC72C;
+    box-shadow: 2px 0 10px rgba(255, 199, 44, 0.3);
+}
+
+html[lang="en"] .nav-item i,
+body[lang="en"] .nav-item i,
+.ltr .nav-item i {
+    margin-left: 0;
+    margin-right: 1rem;
+}
+
+/* LTR Sidebar border fix */
+html[lang="en"] .sidebar,
+body[lang="en"] .sidebar,
+.ltr .sidebar {
+    border-left: none;
+    border-right: 3px solid #FFC72C;
+}
+
+/* LTR Mobile topbar */
+html[lang="en"] .mobile-topbar,
+body[lang="en"] .mobile-topbar,
+.ltr .mobile-topbar {
+    padding-left: 0;
+    padding-right: 4rem;
+}
+
+/* LTR Sidebar toggle button */
+html[lang="en"] .sidebar-toggle,
+body[lang="en"] .sidebar-toggle,
+.ltr .sidebar-toggle {
+    right: auto;
+    left: 1rem;
+}
+
+/* LTR Main Content */
+html[lang="en"] .main-content,
+body[lang="en"] .main-content,
+.ltr .main-content {
+    margin-right: 0;
+}
+
+/* LTR for closed sidebar on desktop */
+@media (min-width: 1025px) {
+    html[lang="en"] .sidebar:not(.open),
+    body[lang="en"] .sidebar:not(.open),
+    .ltr .sidebar:not(.open) {
+        transform: translateX(-100%) !important;
+    }
+}
+
 /* إخفاء القائمة الجانبية على سطح المكتب عند إغلاقها */
 @media (min-width: 1025px) {
-
     /* القائمة الجانبية مخفية افتراضياً إلا إذا كانت مفتوحة */
     .sidebar:not(.open) {
         transform: translateX(100%) !important;
@@ -2780,10 +3048,6 @@ body.app-active {
     .user-avatar {
         width: 70px;
         height: 70px;
-        max-width: 70px;
-        max-height: 70px;
-        min-width: 70px;
-        min-height: 70px;
         font-size: 1.75rem;
     }
 

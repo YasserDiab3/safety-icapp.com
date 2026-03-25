@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Script to check for 404 errors and missing resources
  * Paste this in the browser console (F12) to diagnose 404 issues
  */
@@ -54,23 +54,23 @@
         }
     });
     
-    // 3. Check for backend script URL
-    console.log('\n🔗 فحص إعدادات رابط الخادم...');
+    // 3. Check for Google Apps Script URL
+    console.log('\n🔗 فحص إعدادات Google Apps Script...');
     if (typeof AppState !== 'undefined' && AppState.googleConfig) {
         const scriptUrl = AppState.googleConfig?.appsScript?.scriptUrl;
         if (scriptUrl) {
             if (scriptUrl.includes('/dev')) {
-                warnings.push('⚠️ رابط الخادم ينتهي بـ /dev - يُفضّل أن ينتهي بـ /exec');
-                console.warn('⚠️ رابط الخادم ينتهي بـ /dev - يُفضّل أن ينتهي بـ /exec');
+                warnings.push('⚠️ Google Apps Script URL ينتهي بـ /dev - يجب أن ينتهي بـ /exec');
+                console.warn('⚠️ Google Apps Script URL ينتهي بـ /dev - يجب أن ينتهي بـ /exec');
             } else if (scriptUrl.includes('/exec')) {
-                console.log('✅ رابط الخادم صحيح (ينتهي بـ /exec)');
+                console.log('✅ Google Apps Script URL صحيح (ينتهي بـ /exec)');
             } else {
-            warnings.push('⚠️ رابط الخادم غير معروف');
-            console.warn('⚠️ رابط الخادم غير معروف:', scriptUrl);
+                warnings.push('⚠️ Google Apps Script URL غير معروف');
+                console.warn('⚠️ Google Apps Script URL غير معروف:', scriptUrl);
             }
         } else {
-            warnings.push('⚠️ رابط الخادم غير محدد');
-            console.warn('⚠️ رابط الخادم غير محدد');
+            warnings.push('⚠️ Google Apps Script URL غير محدد');
+            console.warn('⚠️ Google Apps Script URL غير محدد');
         }
     } else {
         warnings.push('⚠️ AppState غير محمل بعد - انتظر قليلاً ثم أعد تشغيل هذا السكريبت');
@@ -138,4 +138,3 @@
         checkComplete: false
     };
 })();
-

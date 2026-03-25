@@ -1,4 +1,4 @@
-﻿/**
+/**
  * HSE Module
  * ØªÙ… Ø§Ø³ØªØ®Ø±Ø§Ø¬Ù‡ Ù…Ù† app-modules.js
  */
@@ -8,6 +8,14 @@ const HSE = {
     currentTab: 'dashboard',
 
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         // محاولة البحث عن القسم الصحيح
         let section = document.getElementById('hse-section');
         if (!section) {

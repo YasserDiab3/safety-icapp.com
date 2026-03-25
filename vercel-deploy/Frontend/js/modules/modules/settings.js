@@ -43,7 +43,7 @@ const Settings = {
                         const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
                         
                         // التحقق من الحجم (base64 string length)
-                        // حد مقبول لحجم قاعدة البيانات (مثلاً 50,000 حرف)
+                        // Google Sheets limit: 50,000 chars
                         // نهدف إلى أقل من 45,000 حرف (لترك هامش أمان)
                         if (compressedDataUrl.length > 45000) {
                             // إذا كان الحجم لا يزال كبيراً، نضغط أكثر
@@ -135,6 +135,14 @@ const Settings = {
     },
 
     async load() {
+        // إضافة مستمع لتغيير اللغة
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         const section = document.getElementById('settings-section');
         if (!section) return;
 
@@ -173,9 +181,9 @@ const Settings = {
             <div class="section-header">
                 <h1 class="section-title">
                     <i class="fas fa-cog ml-3"></i>
-                    الإعدادات
+                    ${I18n.t('settings.title')}
                 </h1>
-                <p class="section-subtitle">إدارة إعدادات النظام والتكامل والصلاحيات</p>
+                <p class="section-subtitle">${I18n.t('settings.subtitle')}</p>
             </div>
 
             <!-- Tabs Navigation -->
@@ -183,112 +191,112 @@ const Settings = {
                 <div class="tabs-nav">
                     <button class="tab-btn active" data-tab="company-data">
                         <i class="fas fa-building ml-2"></i>
-                        بيانات الشركة والهوية
+                        ${I18n.t('settings.tabs.company')}
                     </button>
                     <button class="tab-btn" data-tab="integration">
                         <i class="fas fa-cloud ml-2"></i>
-                        التكامل والمزامنة
+                        ${I18n.t('settings.tabs.integration')}
                     </button>
                     <button class="tab-btn" data-tab="cloud-storage">
                         <i class="fas fa-cloud-upload-alt ml-2"></i>
-                        تكامل التخزين السحابي
+                        ${I18n.t('settings.tabs.cloud')}
                     </button>
                     <button class="tab-btn" data-tab="google-drive">
                         <i class="fab fa-google-drive ml-2"></i>
-                        التخزين السحابي
+                        ${I18n.t('settings.tabs.drive')}
                     </button>
                     <button class="tab-btn" data-tab="sharepoint">
                         <i class="fab fa-microsoft ml-2"></i>
-                        Microsoft SharePoint
+                        ${I18n.t('settings.tabs.sharepoint')}
                     </button>
                     <button class="tab-btn" data-tab="system-settings">
                         <i class="fas fa-sliders-h ml-2"></i>
-                        إعدادات النظام
+                        ${I18n.t('settings.tabs.system')}
                     </button>
                     <button class="tab-btn" data-tab="form-settings">
                         <i class="fas fa-file-alt ml-2"></i>
-                        إعدادات النماذج
+                        ${I18n.t('settings.tabs.forms')}
                     </button>
                     <button class="tab-btn" data-tab="violation-types">
                         <i class="fas fa-tags ml-2"></i>
-                        إدارة أنواع المخالفات
+                        ${I18n.t('settings.tabs.violations')}
                     </button>
                     <button class="tab-btn" data-tab="reports">
                         <i class="fas fa-file-pdf ml-2"></i>
-                        التقارير والإشعارات
+                        ${I18n.t('settings.tabs.reports')}
                     </button>
                     <button class="tab-btn" data-tab="notifications">
                         <i class="fas fa-envelope ml-2"></i>
-                        إدارة الإشعارات الإلكترونية
+                        ${I18n.t('settings.tabs.email')}
                     </button>
                     <button class="tab-btn" data-tab="permissions">
                         <i class="fas fa-shield-alt ml-2"></i>
-                        الصلاحيات والاعتمادات
+                        ${I18n.t('settings.tabs.permissions')}
                     </button>
                     <button class="tab-btn" data-tab="approval-circuit">
                         <i class="fas fa-project-diagram ml-2"></i>
-                        دائرة الاعتمادات والصلاحيات
+                        ${I18n.t('settings.tabs.circuit')}
                     </button>
                     <button class="tab-btn" data-tab="logs" ${!isAdmin ? 'style="display:none;"' : ''}>
                         <i class="fas fa-history ml-2"></i>
-                        السجلات والمراقبة
+                        ${I18n.t('settings.tabs.logs')}
                     </button>
                 </div>
             </div>
 
-            <!-- Tab Content: بيانات الشركة والهوية -->
+            <!-- Tab Content: Company Data -->
             <div class="tab-content active" id="tab-company-data">
                 <div class="settings-group mt-6">
                 <div class="settings-group-header">
                     <h2 class="settings-group-title">
                         <i class="fas fa-building text-blue-600 ml-2"></i>
-                        بيانات الشركة والهوية
+                        ${I18n.t('settings.company.title')}
                     </h2>
-                    <p class="settings-group-subtitle">إعدادات معلومات الشركة والشعار والهوية البصرية</p>
+                    <p class="settings-group-subtitle">${I18n.t('settings.company.subtitle')}</p>
                 </div>
                 <div class="settings-group-content">
                     <div class="content-card">
                         <div class="card-header">
-                            <h2 class="card-title"><i class="fas fa-building ml-2"></i>بيانات الشركة</h2>
+                            <h2 class="card-title"><i class="fas fa-building ml-2"></i>${I18n.t('settings.company.title')}</h2>
                         </div>
                         <div class="card-body space-y-4">
                             <div>
                                 <label for="company-name-input" class="block text-sm font-semibold text-gray-700 mb-2">
                                     <i class="fas fa-pen ml-2"></i>
-                                    اسم الشركة (يظهر في الهيدر والتقارير)
+                                    ${I18n.t('settings.company.name')}
                                 </label>
                                 <input type="text" id="company-name-input" class="form-input"
-                                    placeholder="أدخل اسم الشركة" value="${Utils.escapeHTML(AppState.companySettings?.name || '')}">
+                                    placeholder="${I18n.isRTL() ? 'أدخل اسم الشركة' : 'Enter company name'}" value="${Utils.escapeHTML(AppState.companySettings?.name || '')}">
                                 <p class="text-xs text-gray-500 mt-1">
                                     <i class="fas fa-info-circle ml-1"></i>
-                                    سيتم استخدام هذا الاسم في رأس التطبيق وجميع تقارير PDF.
+                                    ${I18n.t('settings.company.nameHint')}
                                 </p>
                             </div>
                             <div>
                                 <label for="company-name-font-size-input" class="block text-sm font-semibold text-gray-700 mb-2">
                                     <i class="fas fa-text-height ml-2"></i>
-                                    حجم خط اسم الشركة (بالبكسل)
+                                    ${I18n.t('settings.company.fontSize')}
                                 </label>
                                 <div class="flex items-center gap-3">
                                     <input type="number" id="company-name-font-size-input" class="form-input" min="8" max="72" step="1"
-                                        placeholder="مثال: 16" value="${AppState.companySettings?.nameFontSize || '16'}">
-                                    <span class="text-xs text-gray-500">بكسل</span>
+                                        placeholder="${I18n.isRTL() ? 'مثال: 16' : 'e.g., 16'}" value="${AppState.companySettings?.nameFontSize || '16'}">
+                                    <span class="text-xs text-gray-500">${I18n.isRTL() ? 'بكسل' : 'px'}</span>
                                 </div>
                                 <p class="text-xs text-gray-500 mt-1">
                                     <i class="fas fa-info-circle ml-1"></i>
-                                    حجم الخط الافتراضي: 16 بكسل. يمكنك تغييره من 8 إلى 72 بكسل.
+                                    ${I18n.t('settings.company.fontSizeHint')}
                                 </p>
                             </div>
                             <div>
                                 <label for="company-secondary-name-input" class="block text-sm font-semibold text-gray-700 mb-2">
                                     <i class="fas fa-pen-nib ml-2"></i>
-                                    الاسم الإضافي / السطر الإضافي للشركة (يظهر في الهيدر والتقارير)
+                                    ${I18n.t('settings.company.secondaryName')}
                                 </label>
                                 <input type="text" id="company-secondary-name-input" class="form-input"
-                                    placeholder="أدخل الاسم الإضافي للشركة" value="${Utils.escapeHTML(AppState.companySettings?.secondaryName || '')}">
+                                    placeholder="${I18n.isRTL() ? 'أدخل الاسم الإضافي للشركة' : 'Enter secondary company name'}" value="${Utils.escapeHTML(AppState.companySettings?.secondaryName || '')}">
                                 <p class="text-xs text-gray-500 mt-1">
                                     <i class="fas fa-info-circle ml-1"></i>
-                                    سيتم عرض هذا السطر أسفل اسم الشركة في الهيدر والتقارير. إذا تُرك فارغًا لن يظهر في الواجهة أو PDF.
+                                    ${I18n.t('settings.company.secondaryNameHint')}
                                 </p>
                             </div>
                             <div>
@@ -455,45 +463,45 @@ const Settings = {
                             <i class="fas fa-cloud text-green-600 ml-2"></i>
                             التكامل والمزامنة
                         </h2>
-                        <p class="settings-group-subtitle">إعدادات التكامل والمزامنة مع قاعدة البيانات</p>
+                        <p class="settings-group-subtitle">إعدادات التكامل مع Google Sheets و Google Apps Script</p>
                     </div>
                     <div class="settings-group-content">
                         <div class="content-card">
                             <div class="card-header">
-                                <h2 class="card-title"><i class="fas fa-cloud ml-2"></i>التكامل مع قاعدة البيانات</h2>
+                                <h2 class="card-title"><i class="fas fa-cloud ml-2"></i>تكامل Google</h2>
                             </div>
                             <div class="card-body">
                                 <form id="google-settings-form" class="space-y-6">
                                     <div>
                                         <label class="flex items-center mb-4">
                                             <input type="checkbox" id="google-apps-script-enabled" class="rounded border-gray-300 text-blue-600"
-                                                ${AppState.googleConfig?.appsScript?.enabled ? 'checked' : ''}>
-                                            <span class="mr-2 text-sm text-gray-700">تفعيل واجهة التكامل (API)</span>
+                                                ${AppState.googleConfig.appsScript.enabled ? 'checked' : ''}>
+                                            <span class="mr-2 text-sm text-gray-700">تفعيل Google Apps Script</span>
                                         </label>
                                     </div>
                                     <div>
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">
                                             <i class="fas fa-link ml-2"></i>
-                                            رابط واجهة التكامل (API)
+                                            رابط Google Apps Script (مطلوب)
                                         </label>
                                         <input type="url" id="google-apps-script-url" class="form-input"
-                                            value="${AppState.googleConfig?.appsScript?.scriptUrl || ''}"
+                                            value="${AppState.googleConfig.appsScript.scriptUrl || ''}"
                                             placeholder="https://script.google.com/macros/s/.../exec">
                                     </div>
                                     <div>
                                         <label class="flex items-center mb-4">
                                             <input type="checkbox" id="google-sheets-enabled" class="rounded border-gray-300 text-blue-600"
-                                                ${AppState.googleConfig?.sheets?.enabled ? 'checked' : ''}>
-                                            <span class="mr-2 text-sm text-gray-700">تفعيل المزامنة</span>
+                                                ${AppState.googleConfig.sheets.enabled ? 'checked' : ''}>
+                                            <span class="mr-2 text-sm text-gray-700">تفعيل Google Sheets</span>
                                         </label>
                                     </div>
                                     <div>
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">
                                             <i class="fas fa-table ml-2"></i>
-                                            معرف المصدر (اختياري مع Supabase)
+                                            معرف Google Sheets (مطلوب)
                                         </label>
                                         <input type="text" id="google-sheets-id" class="form-input"
-                                            value="${AppState.googleConfig?.sheets?.spreadsheetId || ''}"
+                                            value="${AppState.googleConfig.sheets.spreadsheetId || ''}"
                                             placeholder="معرف الجدول">
                                     </div>
                                     <div class="flex items-center justify-end gap-4 pt-4 border-t">
@@ -529,13 +537,13 @@ const Settings = {
                                 <div class="border-t pt-4">
                                     <button id="sync-data-btn" class="btn-primary w-full">
                                         <i class="fas fa-sync ml-2"></i>
-                                        مزامنة البيانات من قاعدة البيانات (قراءة)
+                                        مزامنة البيانات مع Google Sheets (قراءة)
                                     </button>
                                 </div>
                                 <div class="border-t pt-4">
                                     <button id="save-all-data-btn" class="btn-success w-full">
                                         <i class="fas fa-cloud-upload-alt ml-2"></i>
-                                        حفظ جميع البيانات في قاعدة البيانات (كتابة)
+                                        حفظ جميع البيانات في Google Sheets (كتابة)
                                     </button>
                                 </div>
                             </div>
@@ -549,7 +557,7 @@ const Settings = {
                 ${isAdmin ? this.renderCloudStorageSettings() : '<div class="settings-group mt-6"><p class="text-gray-600">هذا القسم متاح للمديرين فقط</p></div>'}
             </div>
 
-            <!-- Tab Content: التخزين السحابي -->
+            <!-- Tab Content: Google Drive -->
             <div class="tab-content" id="tab-google-drive">
                 ${isAdmin ? this.renderGoogleDriveSettings() : '<div class="settings-group mt-6"><p class="text-gray-600">هذا القسم متاح للمديرين فقط</p></div>'}
             </div>
@@ -1212,7 +1220,7 @@ const Settings = {
             const saveAllBtn = document.getElementById('save-all-data-btn');
             if (saveAllBtn) {
                 saveAllBtn.addEventListener('click', async () => {
-                    if (confirm('هل تريد حفظ جميع البيانات في قاعدة البيانات؟\nسيتم استبدال البيانات الموجودة.')) {
+                    if (confirm('هل تريد حفظ جميع البيانات ي Google Sheets؟\nسيتم استبدال البيانات الموجودة.')) {
                         await GoogleIntegration.saveAllToSheets();
                     }
                 });
@@ -1287,39 +1295,46 @@ const Settings = {
                             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
                         }
                         
-                        // حفظ الشعار في قاعدة البيانات عند التحميل/الرفع
-                        if (AppState.useSupabaseBackend === true && typeof GoogleIntegration !== 'undefined') {
+                        // حفظ الشعار في قاعدة البيانات (Google Sheets) عند التحميل الأول
+                        if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
                             try {
+                                const userData = AppState.currentUser || {};
                                 const result = await GoogleIntegration.sendToAppsScript('saveCompanySettings', {
-                                    data: {
-                                        ...(AppState.companySettings || {}),
-                                        logo: logoDataUrl,
-                                        name: AppState.companySettings?.name || '',
-                                        secondaryName: AppState.companySettings?.secondaryName || '',
-                                        formVersion: AppState.companySettings?.formVersion || '1.0',
-                                        nameFontSize: AppState.companySettings?.nameFontSize ?? 16,
-                                        secondaryNameFontSize: AppState.companySettings?.secondaryNameFontSize ?? 14,
-                                        secondaryNameColor: AppState.companySettings?.secondaryNameColor || '#6B7280',
-                                        clinicMonthlyVisitsAlertThreshold: AppState.companySettings?.clinicMonthlyVisitsAlertThreshold ?? 10,
-                                        address: AppState.companySettings?.address || '',
-                                        phone: AppState.companySettings?.phone || '',
-                                        email: AppState.companySettings?.email || '',
-                                        postLoginItems: typeof AppState.companySettings?.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings?.postLoginItems || [])
+                                    name: AppState.companySettings?.name || '',
+                                    secondaryName: AppState.companySettings?.secondaryName || '',
+                                    formVersion: AppState.companySettings?.formVersion || '1.0',
+                                    nameFontSize: AppState.companySettings?.nameFontSize || 16,
+                                    secondaryNameFontSize: AppState.companySettings?.secondaryNameFontSize || 14,
+                                    secondaryNameColor: AppState.companySettings?.secondaryNameColor || '#6B7280',
+                                    clinicMonthlyVisitsAlertThreshold: AppState.companySettings?.clinicMonthlyVisitsAlertThreshold ?? 10,
+                                    address: AppState.companySettings?.address || '',
+                                    phone: AppState.companySettings?.phone || '',
+                                    email: AppState.companySettings?.email || '',
+                                    logo: logoDataUrl,
+                                    postLoginItems: typeof AppState.companySettings?.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings?.postLoginItems || []),
+                                    userData: {
+                                        email: userData.email,
+                                        name: userData.name,
+                                        role: userData.role,
+                                        permissions: userData.permissions
                                     }
                                 });
 
                                 if (result && result.success) {
                                     Utils.safeLog('✅ تم حفظ الشعار في قاعدة البيانات بنجاح');
                                     Notification.success('تم حفظ الشعار في قاعدة البيانات بنجاح');
+                                    
+                                    // ✅ إصلاح: إعادة تحميل إعدادات الشركة بعد الحفظ لضمان التحديث
+                                    // استخدام forceReload=true لإجبار التحميل من قاعدة البيانات
                                     if (typeof DataManager !== 'undefined' && DataManager.loadCompanySettings) {
                                         setTimeout(async () => {
                                             try {
-                                                await DataManager.loadCompanySettings(true);
+                                                await DataManager.loadCompanySettings(true); // forceReload = true
                                                 Utils.safeLog('✅ تم إعادة تحميل إعدادات الشركة بعد حفظ الشعار');
                                             } catch (reloadError) {
                                                 Utils.safeWarn('⚠️ فشل إعادة تحميل إعدادات الشركة:', reloadError);
                                             }
-                                        }, 500);
+                                        }, 100);
                                     }
                                 } else {
                                     const errorMsg = result?.message || 'فشل حفظ الشعار في قاعدة البيانات';
@@ -1382,26 +1397,31 @@ const Settings = {
                             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
                         }
                         
-                        // حفظ إزالة الشعار في قاعدة البيانات
-                        if (AppState.useSupabaseBackend === true && typeof GoogleIntegration !== 'undefined') {
+                        // حفظ إزالة الشعار في قاعدة البيانات (Google Sheets)
+                        if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
                             try {
+                                const userData = AppState.currentUser || {};
                                 const result = await GoogleIntegration.sendToAppsScript('saveCompanySettings', {
-                                    data: {
-                                        ...(AppState.companySettings || {}),
-                                        logo: '',
-                                        name: AppState.companySettings?.name || '',
-                                        secondaryName: AppState.companySettings?.secondaryName || '',
-                                        formVersion: AppState.companySettings?.formVersion || '1.0',
-                                        nameFontSize: AppState.companySettings?.nameFontSize ?? 16,
-                                        secondaryNameFontSize: AppState.companySettings?.secondaryNameFontSize ?? 14,
-                                        secondaryNameColor: AppState.companySettings?.secondaryNameColor || '#6B7280',
-                                        clinicMonthlyVisitsAlertThreshold: AppState.companySettings?.clinicMonthlyVisitsAlertThreshold ?? 10,
-                                        address: AppState.companySettings?.address || '',
-                                        phone: AppState.companySettings?.phone || '',
-                                        email: AppState.companySettings?.email || '',
-                                        postLoginItems: typeof AppState.companySettings?.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings?.postLoginItems || [])
+                                    name: AppState.companySettings?.name || '',
+                                    secondaryName: AppState.companySettings?.secondaryName || '',
+                                    formVersion: AppState.companySettings?.formVersion || '1.0',
+                                    nameFontSize: AppState.companySettings?.nameFontSize || 16,
+                                    secondaryNameFontSize: AppState.companySettings?.secondaryNameFontSize || 14,
+                                    secondaryNameColor: AppState.companySettings?.secondaryNameColor || '#6B7280',
+                                    clinicMonthlyVisitsAlertThreshold: AppState.companySettings?.clinicMonthlyVisitsAlertThreshold ?? 10,
+                                    address: AppState.companySettings?.address || '',
+                                    phone: AppState.companySettings?.phone || '',
+                                    email: AppState.companySettings?.email || '',
+                                    logo: '',
+                                    postLoginItems: typeof AppState.companySettings?.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings?.postLoginItems || []),
+                                    userData: {
+                                        email: userData.email,
+                                        name: userData.name,
+                                        role: userData.role,
+                                        permissions: userData.permissions
                                     }
                                 });
+
                                 if (result && result.success) {
                                     Utils.safeLog('✅ تم حذف الشعار من قاعدة البيانات بنجاح');
                                 } else {
@@ -1530,37 +1550,54 @@ const Settings = {
                     });
                     DataManager.saveCompanySettings();
                     
-                    // حفظ في قاعدة البيانات إذا كان Supabase مفعّلاً
-                    if (AppState.useSupabaseBackend === true && typeof GoogleIntegration !== 'undefined') {
+                    // حفظ في Google Sheets إذا كان متاحاً
+                    if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
                         try {
+                            const userData = AppState.currentUser || {};
                             const result = await GoogleIntegration.sendToAppsScript('saveCompanySettings', {
-                                data: {
-                                    name: newName,
-                                    secondaryName,
-                                    formVersion,
-                                    nameFontSize,
-                                    secondaryNameFontSize,
-                                    secondaryNameColor,
-                                    clinicMonthlyVisitsAlertThreshold,
-                                    address: AppState.companySettings?.address || '',
-                                    phone: AppState.companySettings?.phone || '',
-                                    email: AppState.companySettings?.email || '',
-                                    logo: AppState.companySettings?.logo || AppState.companyLogo || '',
-                                    postLoginItems: typeof AppState.companySettings?.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings?.postLoginItems || [])
+                                name: newName,
+                                secondaryName,
+                                formVersion,
+                                nameFontSize,
+                                secondaryNameFontSize,
+                                secondaryNameColor,
+                                clinicMonthlyVisitsAlertThreshold,
+                                address: AppState.companySettings?.address || '',
+                                phone: AppState.companySettings?.phone || '',
+                                email: AppState.companySettings?.email || '',
+                                logo: AppState.companySettings?.logo || AppState.companyLogo || '',
+                                postLoginItems: typeof AppState.companySettings?.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings?.postLoginItems || []),
+                                userData: {
+                                    email: userData.email,
+                                    name: userData.name,
+                                    role: userData.role,
+                                    permissions: userData.permissions
                                 }
                             });
+
                             if (result && result.success) {
-                                Utils.safeLog('✅ تم حفظ إعدادات الشركة في قاعدة البيانات بنجاح');
+                                Utils.safeLog('✅ تم حفظ إعدادات الشركة في Google Sheets بنجاح');
                             } else {
-                                Utils.safeWarn('⚠️ فشل حفظ إعدادات الشركة في قاعدة البيانات:', result?.message);
+                                Utils.safeWarn('⚠️ فشل حفظ إعدادات الشركة في Google Sheets:', result?.message);
                             }
                         } catch (error) {
-                            Utils.safeWarn('⚠️ خطأ أثناء مزامنة إعدادات الشركة مع قاعدة البيانات:', error);
+                            Utils.safeWarn('⚠️ خطأ أثناء مزامنة إعدادات الشركة مع Google Sheets:', error);
                         }
                     }
                     
                     if (typeof UI !== 'undefined' && typeof UI.updateCompanyBranding === 'function') {
                         UI.updateCompanyBranding();
+                    }
+                    // إعادة تحميل إعدادات الشركة من المصدر بعد الحفظ لضمان تحميل اسم الشركة (نفس زمن تحميل الشعار)
+                    if (typeof DataManager !== 'undefined' && DataManager.loadCompanySettings) {
+                        setTimeout(async () => {
+                            try {
+                                await DataManager.loadCompanySettings(true);
+                                Utils.safeLog('✅ تم تحميل إعدادات الشركة بعد الحفظ');
+                            } catch (reloadError) {
+                                Utils.safeWarn('⚠️ فشل إعادة تحميل إعدادات الشركة:', reloadError);
+                            }
+                        }, 100);
                     }
                     Notification.success('تم تحديث بيانات الشركة بنجاح');
                     Settings.load();
@@ -1603,23 +1640,23 @@ const Settings = {
                 if (typeof DataManager !== 'undefined' && DataManager.saveCompanySettings) {
                     DataManager.saveCompanySettings();
                 }
-                if (AppState.useSupabaseBackend === true && typeof GoogleIntegration !== 'undefined') {
+                if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
                     try {
+                        const userData = AppState.currentUser || {};
                         const payload = {
-                            data: {
-                                name: AppState.companySettings.name || '',
-                                secondaryName: AppState.companySettings.secondaryName || '',
-                                formVersion: AppState.companySettings.formVersion || '1.0',
-                                nameFontSize: AppState.companySettings.nameFontSize || 16,
-                                secondaryNameFontSize: AppState.companySettings.secondaryNameFontSize || 14,
-                                secondaryNameColor: AppState.companySettings.secondaryNameColor || '#6B7280',
-                                clinicMonthlyVisitsAlertThreshold: AppState.companySettings.clinicMonthlyVisitsAlertThreshold ?? 10,
-                                address: AppState.companySettings.address || '',
-                                phone: AppState.companySettings.phone || '',
-                                email: AppState.companySettings.email || '',
-                                logo: AppState.companySettings.logo || AppState.companyLogo || '',
-                                postLoginItems: typeof AppState.companySettings.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings.postLoginItems || [])
-                            }
+                            name: AppState.companySettings.name || '',
+                            secondaryName: AppState.companySettings.secondaryName || '',
+                            formVersion: AppState.companySettings.formVersion || '1.0',
+                            nameFontSize: AppState.companySettings.nameFontSize || 16,
+                            secondaryNameFontSize: AppState.companySettings.secondaryNameFontSize || 14,
+                            secondaryNameColor: AppState.companySettings.secondaryNameColor || '#6B7280',
+                            clinicMonthlyVisitsAlertThreshold: AppState.companySettings.clinicMonthlyVisitsAlertThreshold ?? 10,
+                            address: AppState.companySettings.address || '',
+                            phone: AppState.companySettings.phone || '',
+                            email: AppState.companySettings.email || '',
+                            logo: AppState.companySettings.logo || AppState.companyLogo || '',
+                            postLoginItems: typeof AppState.companySettings.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings.postLoginItems || []),
+                            userData: { email: userData.email, name: userData.name, role: userData.role, permissions: userData.permissions }
                         };
                         await GoogleIntegration.sendToAppsScript('saveCompanySettings', payload);
                     } catch (e) { Utils.safeWarn('⚠️ فشل مزامنة تعليمات ما بعد الدخول:', e); }
@@ -1750,37 +1787,54 @@ const Settings = {
                     }
                     DataManager.saveCompanySettings();
                     
-                    // حفظ في قاعدة البيانات إذا كان Supabase مفعّلاً
-                    if (AppState.useSupabaseBackend === true && typeof GoogleIntegration !== 'undefined') {
+                    // حفظ في Google Sheets إذا كان متاحاً
+                    if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
                         try {
+                            const userData = AppState.currentUser || {};
                             const result = await GoogleIntegration.sendToAppsScript('saveCompanySettings', {
-                                data: {
-                                    name: DEFAULT_COMPANY_NAME,
-                                    secondaryName: '',
-                                    formVersion: '1.0',
-                                    nameFontSize: 16,
-                                    secondaryNameFontSize: 14,
-                                    secondaryNameColor: '#6B7280',
-                                    clinicMonthlyVisitsAlertThreshold: AppState.companySettings?.clinicMonthlyVisitsAlertThreshold ?? 10,
-                                    address: AppState.companySettings?.address || '',
-                                    phone: AppState.companySettings?.phone || '',
-                                    email: AppState.companySettings?.email || '',
-                                    logo: AppState.companySettings?.logo || AppState.companyLogo || '',
-                                    postLoginItems: typeof AppState.companySettings?.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings?.postLoginItems || [])
+                                name: DEFAULT_COMPANY_NAME,
+                                secondaryName: '',
+                                formVersion: '1.0',
+                                nameFontSize: 16,
+                                secondaryNameFontSize: 14,
+                                secondaryNameColor: '#6B7280',
+                                clinicMonthlyVisitsAlertThreshold: AppState.companySettings?.clinicMonthlyVisitsAlertThreshold ?? 10,
+                                address: AppState.companySettings?.address || '',
+                                phone: AppState.companySettings?.phone || '',
+                                email: AppState.companySettings?.email || '',
+                                logo: AppState.companySettings?.logo || AppState.companyLogo || '',
+                                postLoginItems: typeof AppState.companySettings?.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings?.postLoginItems || []),
+                                userData: {
+                                    email: userData.email,
+                                    name: userData.name,
+                                    role: userData.role,
+                                    permissions: userData.permissions
                                 }
                             });
+
                             if (result && result.success) {
-                                Utils.safeLog('✅ تم حفظ إعدادات الشركة الافتراضية في قاعدة البيانات بنجاح');
+                                Utils.safeLog('✅ تم حفظ إعدادات الشركة الافتراضية في Google Sheets بنجاح');
                             } else {
-                                Utils.safeWarn('⚠️ فشل حفظ إعدادات الشركة في قاعدة البيانات:', result?.message);
+                                Utils.safeWarn('⚠️ فشل حفظ إعدادات الشركة في Google Sheets:', result?.message);
                             }
                         } catch (error) {
-                            Utils.safeWarn('⚠️ خطأ أثناء مزامنة إعدادات الشركة مع قاعدة البيانات:', error);
+                            Utils.safeWarn('⚠️ خطأ أثناء مزامنة إعدادات الشركة مع Google Sheets:', error);
                         }
                     }
                     
                     if (typeof UI !== 'undefined' && typeof UI.updateCompanyBranding === 'function') {
                         UI.updateCompanyBranding();
+                    }
+                    // إعادة تحميل إعدادات الشركة من المصدر بعد الاستعادة (نفس زمن تحميل الشعار)
+                    if (typeof DataManager !== 'undefined' && DataManager.loadCompanySettings) {
+                        setTimeout(async () => {
+                            try {
+                                await DataManager.loadCompanySettings(true);
+                                Utils.safeLog('✅ تم تحميل إعدادات الشركة بعد الاستعادة');
+                            } catch (reloadError) {
+                                Utils.safeWarn('⚠️ فشل إعادة تحميل إعدادات الشركة:', reloadError);
+                            }
+                        }, 100);
                     }
                     Notification.success('تمت استعادة بيانات الشركة الافتراضية');
                     Settings.load();
@@ -1900,7 +1954,7 @@ const Settings = {
             });
         }
 
-        // التخزين السحابي Settings
+        // Google Drive Settings
         const googledriveForm = document.getElementById('googledrive-settings-form');
         if (googledriveForm) {
             googledriveForm.addEventListener('submit', async (e) => {
@@ -1916,7 +1970,7 @@ const Settings = {
                 }
 
                 DataManager.saveCloudStorageConfig();
-                Notification.success('تم حفظ إعدادات التخزين السحابي بنجاح');
+                Notification.success('تم حفظ إعدادات Google Drive بنجاح');
                 this.load();
             });
         }
@@ -1928,7 +1982,7 @@ const Settings = {
                     await CloudStorageIntegration.authorize('googleDrive');
                     this.load();
                 } catch (error) {
-                    Notification.error(error.message || 'فشل ربط التخزين السحابي');
+                    Notification.error(error.message || 'فشل ربط Google Drive');
                 }
             });
         }
@@ -2044,7 +2098,7 @@ const Settings = {
                     <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <p class="text-xs text-gray-600">
                             <i class="fas fa-info-circle ml-1 text-blue-600"></i>
-                            <strong>ملاحظة:</strong> يجب إعداد التطبيقات في Azure Portal (لـ OneDrive و SharePoint) أو Google Cloud Console (لـ التخزين السحابي) أولاً.
+                            <strong>ملاحظة:</strong> يجب إعداد التطبيقات في Azure Portal (لـ OneDrive و SharePoint) أو Google Cloud Console (لـ Google Drive) أولاً.
                             المدير فقط يملك صلاحية ربط حساب النظام بالخدمات السحابية. المستخدمون العاديون يمكنهم استخدام التكامل بعد تفعيله.
                         </p>
                     </div>
@@ -2062,14 +2116,14 @@ const Settings = {
                 <div class="card-header">
                     <h2 class="card-title">
                         <i class="fab fa-google ml-2"></i>
-                        التخزين السحابي
+                        Google Drive
                     </h2>
                 </div>
                 <div class="card-body space-y-4">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-base font-semibold text-gray-700">
                             <i class="fab fa-google ml-2"></i>
-                            إعدادات التخزين السحابي
+                            إعدادات Google Drive
                         </h3>
                         <span class="badge badge-${googleDriveStatus}">
                             ${googleDriveStatus === 'success' ? 'مفعل' : 'غير مفعل'}
@@ -2080,7 +2134,7 @@ const Settings = {
                             <label class="flex items-center mb-2">
                                 <input type="checkbox" id="googledrive-enabled" class="rounded border-gray-300 text-blue-600"
                                     ${googleDriveConfig.enabled ? 'checked' : ''}>
-                                <span class="mr-2 text-sm text-gray-700">تفعيل التخزين السحابي</span>
+                                <span class="mr-2 text-sm text-gray-700">تفعيل Google Drive</span>
                             </label>
                         </div>
                         <div>
@@ -2089,7 +2143,7 @@ const Settings = {
                             </label>
                             <input type="text" id="googledrive-client-id" class="form-input"
                                 value="${googleDriveConfig.clientId || ''}"
-                                placeholder="أدخل Client ID من لوحة مزود الخدمة (مثل Google Cloud)"
+                                placeholder="أدخل Client ID من Google Cloud Console"
                                 autocomplete="username">
                         </div>
                         <div>
@@ -2117,7 +2171,7 @@ const Settings = {
                     <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <p class="text-xs text-gray-600">
                             <i class="fas fa-info-circle ml-1 text-blue-600"></i>
-                            <strong>ملاحظة:</strong> يجب إعداد التطبيق في Google Cloud Console أولاً. المدير فقط يملك صلاحية ربط حساب النظام بـ التخزين السحابي.
+                            <strong>ملاحظة:</strong> يجب إعداد التطبيق في Google Cloud Console أولاً. المدير فقط يملك صلاحية ربط حساب النظام بـ Google Drive.
                         </p>
                     </div>
                 </div>
@@ -2922,9 +2976,6 @@ const Settings = {
                 return;
             }
 
-            if (!AppState.googleConfig) AppState.googleConfig = {};
-            if (!AppState.googleConfig.appsScript) AppState.googleConfig.appsScript = {};
-            if (!AppState.googleConfig.sheets) AppState.googleConfig.sheets = {};
             AppState.googleConfig.appsScript.enabled = appsScriptEnabled.checked;
             AppState.googleConfig.appsScript.scriptUrl = appsScriptUrl.value.trim();
             AppState.googleConfig.sheets.enabled = sheetsEnabled.checked;
@@ -2962,8 +3013,8 @@ const Settings = {
                 }
             }
 
-            // اختبار الاتصال بعد حفظ الإعدادات (عند استخدام Google Script)
-            if (saveSuccess && AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl) {
+            // اختبار الاتصال بعد حفظ الإعدادات للتأكد من نجاح الاتصال
+            if (saveSuccess && AppState.googleConfig.appsScript.enabled && AppState.googleConfig.appsScript.scriptUrl) {
                 try {
                     Loading.show();
                     // انتظار قصير للتأكد من حفظ الإعدادات
@@ -2985,7 +3036,7 @@ const Settings = {
                 }
             }
         } catch (error) {
-            Utils.safeError('خطأ في حفظ الإعدادات:', error);
+            Utils.safeError('خطأ في حفظ إعدادات Google:', error);
             Notification.error('فشل حفظ الإعدادات: ' + (error.message || 'خطأ غير معروف'));
         }
     },
@@ -2993,20 +3044,19 @@ const Settings = {
     async testConnection() {
         Loading.show();
         try {
-            const useSupabase = AppState.useSupabaseBackend === true;
-            const hasGoogle = AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl;
-            if (useSupabase || hasGoogle) {
+            if (AppState.googleConfig.appsScript.enabled && AppState.googleConfig.appsScript.scriptUrl) {
+                // استخدام timeout محسّن (30 ثانية)
                 const timeout = 30000;
                 const result = await Utils.promiseWithTimeout(
                     GoogleIntegration.readFromSheets('Users'),
                     timeout,
-                    useSupabase ? 'انتهت مهلة الاتصال بالخادم. تحقق من اتصال الإنترنت ووضع Supabase.' : 'انتهت مهلة الاتصال بالخادم. تحقق من اتصال الإنترنت وإعدادات الخادم.'
+                    'انتهت مهلة الاتصال بالخادم\n\nتحقق من:\n1. اتصال الإنترنت\n2. أن Google Apps Script منشور ومفعّل\n3. عدم وجود قيود على الشبكة'
                 );
                 Loading.hide();
-                Notification.success('الاتصال نجح! تم العثور على ' + (result?.length ?? 0) + ' سجل');
+                Notification.success('الاتصال نجح! تم العثور على ' + result.length + ' سجل');
             } else {
                 Loading.hide();
-                Notification.error('يرجى تفعيل الاتصال بالخادم وإدخال الرابط، أو استخدام Supabase');
+                Notification.error('يرجى تفعيل Google Apps Script وإدخال الرابط');
             }
         } catch (error) {
             Loading.hide();
@@ -3017,12 +3067,13 @@ const Settings = {
     },
 
     async initializeSheets() {
-        if (!AppState.useSupabaseBackend && !AppState.googleConfig?.appsScript?.enabled) {
-            Notification.error('يرجى تفعيل قاعدة البيانات (Supabase) أو تفعيل واجهة التكامل أولاً');
+        if (!AppState.googleConfig.appsScript.enabled) {
+            Notification.error('يرجى تفعيل Google Apps Script أولاً');
             return;
         }
-        if (!AppState.useSupabaseBackend && (!AppState.googleConfig?.sheets?.spreadsheetId || !String(AppState.googleConfig.sheets.spreadsheetId).trim())) {
-            Notification.error('يرجى إدخال معرف المصدر أو تفعيل قاعدة البيانات (Supabase)');
+
+        if (!AppState.googleConfig.sheets.spreadsheetId) {
+            Notification.error('يرجى إدخال معرف Google Sheets أولاً');
             return;
         }
 
@@ -3188,26 +3239,31 @@ const Settings = {
             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
         }
 
-                        // حفظ الشعار في قاعدة البيانات
-                        if (AppState.useSupabaseBackend === true && typeof GoogleIntegration !== 'undefined') {
+                        // حفظ الشعار في قاعدة البيانات (Google Sheets)
+                        if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
                             try {
+                                const userData = AppState.currentUser || {};
                                 const result = await GoogleIntegration.sendToAppsScript('saveCompanySettings', {
-                                    data: {
-                                        ...(AppState.companySettings || {}),
-                                        logo: logoDataUrl,
-                                        name: AppState.companySettings?.name || '',
-                                        secondaryName: AppState.companySettings?.secondaryName || '',
-                                        formVersion: AppState.companySettings?.formVersion || '1.0',
-                                        nameFontSize: AppState.companySettings?.nameFontSize ?? 16,
-                                        secondaryNameFontSize: AppState.companySettings?.secondaryNameFontSize ?? 14,
-                                        secondaryNameColor: AppState.companySettings?.secondaryNameColor || '#6B7280',
-                                        clinicMonthlyVisitsAlertThreshold: AppState.companySettings?.clinicMonthlyVisitsAlertThreshold ?? 10,
-                                        address: AppState.companySettings?.address || '',
-                                        phone: AppState.companySettings?.phone || '',
-                                        email: AppState.companySettings?.email || '',
-                                        postLoginItems: typeof AppState.companySettings?.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings?.postLoginItems || [])
+                                    name: AppState.companySettings?.name || '',
+                                    secondaryName: AppState.companySettings?.secondaryName || '',
+                                    formVersion: AppState.companySettings?.formVersion || '1.0',
+                                    nameFontSize: AppState.companySettings?.nameFontSize || 16,
+                                    secondaryNameFontSize: AppState.companySettings?.secondaryNameFontSize || 14,
+                                    secondaryNameColor: AppState.companySettings?.secondaryNameColor || '#6B7280',
+                                    clinicMonthlyVisitsAlertThreshold: AppState.companySettings?.clinicMonthlyVisitsAlertThreshold ?? 10,
+                                    address: AppState.companySettings?.address || '',
+                                    phone: AppState.companySettings?.phone || '',
+                                    email: AppState.companySettings?.email || '',
+                                    logo: logoDataUrl,
+                                    postLoginItems: typeof AppState.companySettings?.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings?.postLoginItems || []),
+                                    userData: {
+                                        email: userData.email,
+                                        name: userData.name,
+                                        role: userData.role,
+                                        permissions: userData.permissions
                                     }
                                 });
+
                                 if (result && result.success) {
                                     Utils.safeLog('✅ تم حفظ الشعار في قاعدة البيانات بنجاح');
                                 } else {
@@ -3268,26 +3324,31 @@ const Settings = {
             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
         }
 
-                    // حفظ إزالة الشعار في قاعدة البيانات
-                    if (AppState.useSupabaseBackend === true && typeof GoogleIntegration !== 'undefined') {
+                    // حفظ إزالة الشعار في قاعدة البيانات (Google Sheets)
+                    if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
                         try {
+                            const userData = AppState.currentUser || {};
                             const result = await GoogleIntegration.sendToAppsScript('saveCompanySettings', {
-                                data: {
-                                    ...(AppState.companySettings || {}),
-                                    logo: '',
-                                    name: AppState.companySettings?.name || '',
-                                    secondaryName: AppState.companySettings?.secondaryName || '',
-                                    formVersion: AppState.companySettings?.formVersion || '1.0',
-                                    nameFontSize: AppState.companySettings?.nameFontSize ?? 16,
-                                    secondaryNameFontSize: AppState.companySettings?.secondaryNameFontSize ?? 14,
-                                    secondaryNameColor: AppState.companySettings?.secondaryNameColor || '#6B7280',
-                                    clinicMonthlyVisitsAlertThreshold: AppState.companySettings?.clinicMonthlyVisitsAlertThreshold ?? 10,
-                                    address: AppState.companySettings?.address || '',
-                                    phone: AppState.companySettings?.phone || '',
-                                    email: AppState.companySettings?.email || '',
-                                    postLoginItems: typeof AppState.companySettings?.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings?.postLoginItems || [])
+                                name: AppState.companySettings?.name || '',
+                                secondaryName: AppState.companySettings?.secondaryName || '',
+                                formVersion: AppState.companySettings?.formVersion || '1.0',
+                                nameFontSize: AppState.companySettings?.nameFontSize || 16,
+                                secondaryNameFontSize: AppState.companySettings?.secondaryNameFontSize || 14,
+                                secondaryNameColor: AppState.companySettings?.secondaryNameColor || '#6B7280',
+                                clinicMonthlyVisitsAlertThreshold: AppState.companySettings?.clinicMonthlyVisitsAlertThreshold ?? 10,
+                                address: AppState.companySettings?.address || '',
+                                phone: AppState.companySettings?.phone || '',
+                                email: AppState.companySettings?.email || '',
+                                logo: '',
+                                postLoginItems: typeof AppState.companySettings?.postLoginItems === 'string' ? AppState.companySettings.postLoginItems : JSON.stringify(AppState.companySettings?.postLoginItems || []),
+                                userData: {
+                                    email: userData.email,
+                                    name: userData.name,
+                                    role: userData.role,
+                                    permissions: userData.permissions
                                 }
                             });
+
                             if (result && result.success) {
                                 Utils.safeLog('✅ تم حذف الشعار من قاعدة البيانات بنجاح');
                             } else {

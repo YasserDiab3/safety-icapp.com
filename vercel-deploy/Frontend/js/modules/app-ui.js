@@ -1,4 +1,4 @@
-﻿// تطبيق الوضع الليلي فوراً عند تحميل الصفحة (قبل تعريف UI)
+// تطبيق الوضع الليلي فوراً عند تحميل الصفحة (قبل تعريف UI)
 (function applyThemeImmediately() {
     const savedTheme = localStorage.getItem('theme') || 'light';
     document.documentElement.setAttribute('data-theme', savedTheme);
@@ -100,6 +100,10 @@ window.UI = {
         // إعادة تعيين العداد عند عرض شاشة الدخول فعلياً
         this._loginScreenRetryCount = 0;
 
+        // إزالة overlay استعادة الجلسة عند عرض شاشة الدخول فعلياً
+        const restoreOverlay = document.getElementById('hse-session-restore-overlay');
+        if (restoreOverlay && restoreOverlay.parentNode) restoreOverlay.remove();
+
         const loginScreen = document.getElementById('login-screen');
         const mainApp = document.getElementById('main-app');
         const usernameInput = document.getElementById('username');
@@ -118,24 +122,15 @@ window.UI = {
             rememberCheckbox.checked = false;
         }
 
-        // إعادة تعيين حالة زر تسجيل الدخول
+        // إعادة تعيين حالة زر تسجيل الدخول (مع مراعاة اللغة المحفوظة)
         if (loginForm) {
             const submitBtn = loginForm.querySelector('button[type="submit"]');
             if (submitBtn) {
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="fas fa-sign-in-alt ml-2" aria-hidden="true"></i> تسجيل الدخول';
+                const loginText = (localStorage.getItem('language') === 'en') ? 'Log in' : 'تسجيل الدخول';
+                submitBtn.innerHTML = '<i class="fas fa-sign-in-alt ml-2" aria-hidden="true"></i><span id="login-submit-text">' + loginText + '</span>';
             }
         }
-
-        // إزالة شاشة "جاري التحقق من الجلسة" عند عرض شاشة الدخول فعلياً
-        try {
-            document.body.removeAttribute('data-hse-pending-session');
-            var s = document.getElementById('hse-hide-login-until-ready');
-            if (s && s.parentNode) s.remove();
-            var loadingEl = document.querySelector('.hse-loading-text');
-            if (loadingEl && loadingEl.parentNode) loadingEl.remove();
-            if (typeof window !== 'undefined') window.__hseSessionCheckOverlayRemoved = true;
-        } catch (e) { /* ignore */ }
 
         if (loginScreen) loginScreen.style.display = 'flex';
         if (mainApp) mainApp.style.display = 'none';
@@ -2147,26 +2142,50 @@ window.UI = {
      * عرض التطبيق الرئيسي
      */
     async showMainApp() {
-        // التحقق من وجود مستخدم مسجل دخول
+        const loginScreen = document.getElementById('login-screen');
+        const mainApp = document.getElementById('main-app');
+
+        // التحقق من وجود مستخدم مسجل دخول قبل إظهار أي واجهة
         if (!AppState.currentUser) {
             if (AppState.debugMode) Utils.safeLog('⚠️ لا يوجد مستخدم مسجل دخول - لا يمكن عرض التطبيق');
             return;
         }
 
-        // إزالة شاشة "جاري التحقق من الجلسة" فوراً عند عرض التطبيق (مرة واحدة فقط)
-        try {
-            document.body.removeAttribute('data-hse-pending-session');
-            var s = document.getElementById('hse-hide-login-until-ready');
-            if (s && s.parentNode) s.remove();
-            var loadingEl = document.querySelector('.hse-loading-text');
-            if (loadingEl && loadingEl.parentNode) loadingEl.remove();
-            if (typeof window !== 'undefined') window.__hseSessionCheckOverlayRemoved = true;
-        } catch (e) { /* ignore */ }
+        // تحديث القائمة الجانبية حسب الصلاحيات
+        if (typeof Permissions !== 'undefined' && typeof Permissions.updateNavigation === 'function') {
+            Permissions.updateNavigation();
+        }
 
-        const loginScreen = document.getElementById('login-screen');
-        const mainApp = document.getElementById('main-app');
+        // إزالة overlay استعادة الجلسة + إظهار التطبيق فوراً (أولوية قصوى)
+        const restoreOverlay = document.getElementById('hse-session-restore-overlay');
+        if (restoreOverlay && restoreOverlay.parentNode) restoreOverlay.remove();
+        if (loginScreen) {
+            loginScreen.style.display = 'none';
+            loginScreen.classList.remove('active', 'show');
+        }
+        if (mainApp) mainApp.style.display = 'flex';
+        document.body.classList.add('app-active');
+        try { window._hseAppVisible = true; } catch (e) {}
 
-        // تحميل إعدادات الشركة أولاً (شاشة الدخول تبقى ظاهرة) ثم عرض السياسة مباشرة دون شاشة تحضيرية
+        // عند إعادة التحميل: عرض التطبيق فوراً ثم تحميل الإعدادات في الخلفية (بدون await)
+        if (AppState.isPageRefresh) {
+            document.documentElement.classList.remove('hse-post-login-overlay-active');
+            document.body.classList.remove('hse-post-login-overlay-active');
+            try {
+                this._continueMainAppSetup();
+            } catch (setupErr) {
+                if (AppState.debugMode) Utils.safeWarn('⚠️ خطأ في تهيئة التطبيق:', setupErr);
+            }
+            // تحميل إعدادات الشركة في الخلفية (لا تحجب العرض)
+            if (typeof DataManager !== 'undefined' && DataManager.loadCompanySettings) {
+                DataManager.loadCompanySettings(false).then(() => {
+                    AppState._companySettingsLoadedAfterLogin = true;
+                }).catch(() => {});
+            }
+            return;
+        }
+
+        // أول دخول (ليس إعادة تحميل): تحميل إعدادات الشركة وعرض السياسة
         if (!AppState.companySettings || typeof AppState.companySettings !== 'object') {
             AppState.companySettings = {};
         }
@@ -2184,25 +2203,34 @@ window.UI = {
         if (AppState.companySettings.postLoginItems === undefined) {
             AppState.companySettings.postLoginItems = [];
         }
+        if (!Array.isArray(AppState.companySettings.postLoginItems) || AppState.companySettings.postLoginItems.length === 0) {
+            try {
+                const saved = typeof localStorage !== 'undefined' && localStorage.getItem('hse_company_settings');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    const raw = parsed && parsed.postLoginItems;
+                    if (raw !== undefined && raw !== null) {
+                        const arr = Array.isArray(raw) ? raw : (typeof raw === 'string' && raw.trim() ? (() => { try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch (e) { return []; } })() : []);
+                        if (arr.length > 0) AppState.companySettings.postLoginItems = arr;
+                    }
+                }
+            } catch (e) { /* تجاهل */ }
+        }
 
+        const shouldShowPolicyByTime = !this._currentUserHasSeenPostLoginPolicy();
         let postLoginItems = this._getPostLoginItemsForDisplay();
-        // عند إعادة التحميل/التنشيط: عدم إظهار السياسة إذا كان المستخدم قد اطّلع عليها مسبقاً
-        if (postLoginItems.length > 0 && this._currentUserHasSeenPostLoginPolicy()) {
-            postLoginItems = [];
+        if (shouldShowPolicyByTime && (!postLoginItems || postLoginItems.length === 0)) {
+            postLoginItems = [{ title: 'تعليمات الاستخدام', body: 'مرحباً بك. يرجى الاطلاع على تعليمات وسياسات الشركة والالتزام بها.', active: true, order: 0, durationSeconds: 10 }];
         }
+        const shouldShowPolicy = postLoginItems.length > 0 && shouldShowPolicyByTime;
 
-        // الآن إخفاء شاشة الدخول وتهيئة العرض ثم عرض السياسة مباشرة (بدون شاشة تحضيرية داكنة)
-        if (loginScreen) {
-            loginScreen.style.display = 'none';
-            loginScreen.classList.remove('active', 'show');
-        }
-        document.body.classList.add('app-active');
-        if (mainApp) mainApp.style.display = 'none';
+        // إظهار التطبيق فوراً، ثم عرض السياسة كطبقة فوقه حتى لا يبدو الدخول "معلّقاً"
+        if (mainApp) mainApp.style.display = 'flex';
 
-        if (postLoginItems.length > 0) {
+        if (shouldShowPolicy) {
             document.documentElement.classList.add('hse-post-login-overlay-active');
             document.body.classList.add('hse-post-login-overlay-active');
-            if (AppState.debugMode) Utils.safeLog('عرض شاشة السياسة بعد الدخول (قبل لوحة التحكم)، عدد العناصر:', postLoginItems.length);
+            if (AppState.debugMode) Utils.safeLog('عرض شاشة السياسة بعد الدخول، عدد العناصر:', postLoginItems.length);
             this._showPostLoginOverlay(postLoginItems, () => {
                 const el = document.getElementById('hse-post-login-overlay');
                 if (el && el.parentNode) el.remove();
@@ -2219,7 +2247,6 @@ window.UI = {
             return;
         }
 
-        // لا توجد سياسة: إزالة صنف الـ overlay وإظهار التطبيق مباشرة
         document.documentElement.classList.remove('hse-post-login-overlay-active');
         document.body.classList.remove('hse-post-login-overlay-active');
         if (mainApp) mainApp.style.display = 'flex';
@@ -2272,31 +2299,65 @@ window.UI = {
         } catch (e) { return []; }
     },
 
-    /** هل المستخدم الحالي قد شاهد سياسة/تعليمات ما بعد الدخول مسبقاً (مرة واحدة فقط لكل مستخدم) */
+    /** مدة صلاحية "شاهد السياسة" بالأيام — بعدها نعرض السياسة مرة أخرى (كل 10 أيام) */
+    _postLoginPolicyValidityDays: 10,
+
+    /** مفتاح localStorage لآخر مشاهدة سياسة — يُربط بمعرّف المستخدم لضمان ظهور السياسة مرة واحدة لكل مستخدم في هذا المتصفح */
+    _policyLastSeenKey() {
+        const user = AppState.currentUser;
+        const id = (user && (user.email || user.id)) ? String(user.email || user.id).trim() : '';
+        return id ? 'hse_policy_last_seen_at_' + id.replace(/\s+/g, '_') : 'hse_policy_last_seen_at';
+    },
+
+    /** هل المستخدم الحالي قد شاهد سياسة ما بعد الدخول ضمن المدة المحددة (أول دخول أو أكثر من 10 أيام = نعرض السياسة) */
     _currentUserHasSeenPostLoginPolicy() {
         try {
             const user = AppState.currentUser;
             if (!user) return true;
-            const validSeen = (v) => {
-                const s = String(v || '').trim().toLowerCase();
-                return s !== '' && s !== 'undefined' && s !== 'null';
+            const storageKey = this._policyLastSeenKey();
+            const daysMs = (this._postLoginPolicyValidityDays || 10) * 24 * 60 * 60 * 1000;
+            const now = Date.now();
+            const parseTime = (v) => {
+                if (!v || !String(v).trim()) return 0;
+                const s = String(v).toLowerCase().trim();
+                if (s === 'undefined' || s === 'null') return 0;
+                const t = new Date(v).getTime();
+                return isNaN(t) ? 0 : t;
             };
-            if (validSeen(user.postLoginPolicySeenAt)) return true;
+            // ضمان ظهور السياسة مرة واحدة على الأقل لكل مستخدم في هذا المتصفح
+            try {
+                if (typeof localStorage !== 'undefined' && !localStorage.getItem(storageKey))
+                    return false; // أول مرة لهذا المستخدم في هذا المتصفح — نعرض السياسة دائماً
+            } catch (e) {}
+            // مصدران: localStorage + المستخدم من الجلسة/قاعدة البيانات (لحساب تكرار كل 10 أيام)
+            let seenAt = 0;
+            try {
+                const localSeen = typeof localStorage !== 'undefined' && localStorage.getItem(storageKey);
+                if (localSeen) seenAt = Math.max(seenAt, parseTime(localSeen));
+            } catch (e) {}
+            const v = user.postLoginPolicySeenAt;
+            if (v) seenAt = Math.max(seenAt, parseTime(v));
             const users = AppState.appData?.users;
             if (Array.isArray(users)) {
                 const email = (user.email || '').toLowerCase().trim();
                 const found = users.find(u => (u && (String(u.email || '').toLowerCase().trim() === email || String(u.id || '') === String(user.id || ''))));
-                if (found && validSeen(found.postLoginPolicySeenAt)) return true;
+                const fv = found && found.postLoginPolicySeenAt;
+                if (fv) seenAt = Math.max(seenAt, parseTime(fv));
             }
-            return false;
+            if (!seenAt) return false; // لا يوجد تاريخ مشاهدة صالح — نعرض السياسة
+            if (now - seenAt >= daysMs) return false; // مرّ أكثر من 10 أيام — نعرض السياسة مرة أخرى
+            return true; // شاهد خلال آخر 10 أيام — لا نعرض
         } catch (e) { return false; }
     },
 
-    /** تسجيل أن المستخدم الحالي قد شاهد سياسة ما بعد الدخول (حفظ في Backend + AppState + الجلسة) */
+    /** تسجيل أن المستخدم الحالي قد شاهد سياسة ما بعد الدخول (حفظ في Backend + AppState + localStorage لضمان ظهورها مرة واحدة على الأقل في هذا المتصفح) */
     _markCurrentUserPostLoginPolicySeen() {
         const user = AppState.currentUser;
         if (!user) return;
         const seenAt = new Date().toISOString();
+        try {
+            if (typeof localStorage !== 'undefined') localStorage.setItem(this._policyLastSeenKey(), seenAt);
+        } catch (e) {}
         if (AppState.currentUser) AppState.currentUser.postLoginPolicySeenAt = seenAt;
         const users = AppState.appData?.users;
         if (Array.isArray(users)) {
@@ -2305,14 +2366,8 @@ window.UI = {
             if (idx !== -1 && users[idx]) users[idx].postLoginPolicySeenAt = seenAt;
         }
         const userId = user.id || user.email;
-        const userIdNorm = (typeof userId === 'string' && userId.indexOf('@') !== -1) ? userId.trim().toLowerCase() : userId;
-        if (userIdNorm && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.sendToAppsScript) {
-            // إرسال حقل واحد فقط لعدم المساس بالصلاحيات أو الدور في قاعدة البيانات (id بأحرف صغيرة لتفادي استبدال data)
-            GoogleIntegration.sendToAppsScript('updateUser', { userId: userIdNorm, updateData: { postLoginPolicySeenAt: seenAt } }).catch(() => {});
-        }
-        // حفظ في الجلسة حتى لا تُعرض السياسة مرة أخرى عند إعادة التحميل
-        if (typeof window.Auth !== 'undefined' && typeof window.Auth.updateUserSession === 'function') {
-            window.Auth.updateUserSession();
+        if (userId && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.sendToAppsScript) {
+            GoogleIntegration.sendToAppsScript('updateUser', { userId: userId, updateData: { postLoginPolicySeenAt: seenAt } }).catch(() => {});
         }
     },
 
@@ -2351,23 +2406,11 @@ window.UI = {
             const rawTitle = (item.title || '').trim() || 'تعليمات';
             const rawBody = (item.body || '').trim();
             const safeTitle = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML(rawTitle) : rawTitle;
-            const escapeFn = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML : (s) => s;
-            let safeBody;
-            if (/<p\b/i.test(rawBody)) {
-                safeBody = rawBody;
-            } else {
-                const parts = rawBody.split(/\n\n+/);
-                safeBody = parts.map(p => '<p>' + escapeFn(p.trim()).replace(/\n/g, '<br>') + '</p>').join('');
-                if (!safeBody && rawBody) safeBody = '<p>' + escapeFn(rawBody).replace(/\n/g, '<br>') + '</p>';
-            }
+            const safeBody = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML(rawBody).replace(/\n/g, '<br>') : rawBody.replace(/\n/g, '<br>');
 
             const companyName = (AppState.companySettings && AppState.companySettings.name) ? String(AppState.companySettings.name).trim() : (AppState.companyName || '');
             const secondaryName = (AppState.companySettings && AppState.companySettings.secondaryName) ? String(AppState.companySettings.secondaryName).trim() : '';
-            let logoUrl = AppState.companyLogo || (AppState.companySettings && AppState.companySettings.logo) || '';
-            if (logoUrl && typeof window.__convertGoogleDriveUrl === 'function') {
-                logoUrl = window.__convertGoogleDriveUrl(logoUrl);
-            }
-            if (logoUrl && !this._isValidLogoUrl(logoUrl)) logoUrl = '';
+            const logoUrl = AppState.companyLogo || (AppState.companySettings && AppState.companySettings.logo) || '';
             const safeCompanyName = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML(companyName) : companyName;
             const safeSecondaryName = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML(secondaryName) : secondaryName;
             /* كود النموذج: من إعدادات الشركة أو من عنصر السياسة أو افتراضي */
@@ -2375,28 +2418,28 @@ window.UI = {
                 ? String(AppState.companySettings.policyFormCode).trim()
                 : (item.formCode || item.code || 'HSE-POLICY-01');
             const safeFormCode = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML(formCode) : formCode;
-            /* هيدر مطابق للصورة: يمين = اسم الشركة فقط، وسط = العنوان + العنوان الفرعي (إدارة/قسم)، يسار = الشعار */
+            /* هيدر مثل التقرير: ترتيب في RTL = شركة (يمين)، عنوان (وسط)، شعار (يسار) */
             const headerHTML = `
                 <div class="hse-post-login-overlay-header">
                     <div class="hse-post-login-overlay-header-right">
                         ${companyName ? `<div class="hse-post-login-overlay-company-name">${safeCompanyName}</div>` : ''}
+                        ${secondaryName ? `<div class="hse-post-login-overlay-company-secondary">${safeSecondaryName}</div>` : ''}
                     </div>
                     <div class="hse-post-login-overlay-header-center">
                         <h1 class="hse-post-login-overlay-header-center-title">${safeTitle}</h1>
-                        ${secondaryName ? `<p class="hse-post-login-overlay-header-center-subtitle">${safeSecondaryName}</p>` : ''}
                     </div>
                     <div class="hse-post-login-overlay-header-left">
                         <div class="hse-post-login-overlay-logo">
-                            ${logoUrl ? `<img class="hse-post-login-overlay-logo-img" src="${logoUrl.replace(/"/g, '&quot;')}" alt="شعار الشركة" referrerpolicy="no-referrer" onerror="this.style.display=\'none\'; this.nextElementSibling && (this.nextElementSibling.style.display=\'flex\');"><div class="hse-post-login-overlay-logo-placeholder" style="display:none;"><i class="fas fa-building" aria-hidden="true"></i></div>` : '<div class="hse-post-login-overlay-logo-placeholder"><i class="fas fa-building" aria-hidden="true"></i></div>'}
+                            ${logoUrl ? `<img class="hse-post-login-overlay-logo-img" src="${logoUrl.replace(/"/g, '&quot;')}" alt="">` : '<div class="hse-post-login-overlay-logo-placeholder"><i class="fas fa-building" aria-hidden="true"></i></div>'}
                         </div>
                     </div>
                 </div>`;
-            /* فوتر مطابق للصورة: يسار = اسم الشركة، يمين = كود النموذج */
+            /* فوتر مثل النماذج: كود النموذج + اسم الشركة (تعبئة تلقائية) */
             const footerMetaHTML = `
                 <div class="hse-post-login-overlay-footer-meta">
                     <div class="hse-post-login-overlay-footer-meta-line">
+                        <span class="hse-post-login-overlay-footer-meta-item">كود النموذج: ${safeFormCode}</span>
                         <span class="hse-post-login-overlay-footer-meta-item">اسم الشركة: ${safeCompanyName ? safeCompanyName : '—'}</span>
-                        <span class="hse-post-login-overlay-footer-meta-item">${safeFormCode} كود النموذج</span>
                     </div>
                 </div>`;
 
@@ -2408,6 +2451,7 @@ window.UI = {
             overlay.setAttribute('role', 'dialog');
             overlay.setAttribute('aria-modal', 'true');
             overlay.setAttribute('aria-label', rawTitle);
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);pointer-events:auto;';
             overlay.innerHTML = `
                 <div class="hse-post-login-overlay-backdrop"></div>
                 <div class="hse-post-login-overlay-card">
@@ -2424,34 +2468,9 @@ window.UI = {
                 </div>`;
             document.body.appendChild(overlay);
 
-            /* توسيط مضمون: أنماط مضمنة لضمان ظهور البطاقة في منتصف الشاشة مع dir="rtl" */
-            overlay.style.direction = 'ltr';
-            overlay.style.display = 'flex';
-            overlay.style.alignItems = 'center';
-            overlay.style.justifyContent = 'center';
-            const cardEl = overlay.querySelector('.hse-post-login-overlay-card');
-            if (cardEl) {
-                cardEl.style.position = 'absolute';
-                cardEl.style.left = '50%';
-                cardEl.style.top = '50%';
-                cardEl.style.transform = 'translate(-50%, -50%)';
-                cardEl.style.margin = '0';
-            }
-
-            if (logoUrl) {
-                const logoImg = overlay.querySelector('.hse-post-login-overlay-logo-img');
-                const logoPlaceholder = overlay.querySelector('.hse-post-login-overlay-logo-placeholder');
-                if (logoImg && logoPlaceholder && logoPlaceholder.parentNode === logoImg.parentNode) {
-                    logoImg.addEventListener('error', function() {
-                        logoImg.style.display = 'none';
-                        logoPlaceholder.style.display = 'flex';
-                    });
-                }
-            }
-
             const timerEl = overlay.querySelector('.hse-post-login-overlay-timer');
             const updateTimer = (sec) => {
-                if (timerEl) timerEl.textContent = duration > 0 ? `سنتقل تلقائياً خلال ${sec} ثانية` : '';
+                if (timerEl) timerEl.textContent = duration > 0 ? `ستنتقل تلقائياً خلال ${sec} ثانية` : '';
             };
 
             const goNext = (action) => {
@@ -2500,7 +2519,144 @@ window.UI = {
             }
         };
 
+        // عرض السياسة فوراً بعد تسجيل الدخول (بدون تأخير)
         showItem(0);
+    },
+
+    /**
+     * مقارنة تسلسلية للإصدارات (مثلاً 1.0.2 أحدث من 1.0.1).
+     * @returns {number} 1 إذا a أحدث، -1 إذا b أحدث، 0 إذا متساويان
+     */
+    _compareVersions(a, b) {
+        if (!a || !b) return 0;
+        const parts = (v) => String(v).trim().split('.').map(n => parseInt(n, 10) || 0);
+        const pa = parts(a), pb = parts(b);
+        const len = Math.max(pa.length, pb.length);
+        for (let i = 0; i < len; i++) {
+            const na = pa[i] || 0, nb = pb[i] || 0;
+            if (na > nb) return 1;
+            if (na < nb) return -1;
+        }
+        return 0;
+    },
+
+    /**
+     * عرض نافذة "هناك تحديث جديد" بإصدار معيّن (من التطبيق الحالي أو من الخادم).
+     * لا تُعرض النافذة أكثر من مرة واحدة في الجلسة لنفس الإصدار.
+     * @param {string} newVersion - الإصدار الجديد المعروض للمستخدم (يجب أن يكون تسلسلياً، مثلاً 1.0.1)
+     */
+    _showUpdateModal(newVersion) {
+        const v = (newVersion && String(newVersion).trim()) || '';
+        if (!v) return;
+        const storageKey = 'hse_last_seen_version';
+        const sessionShownKey = 'hse_update_modal_shown_version';
+        if (document.getElementById('hse-update-message-modal')) return;
+        if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(sessionShownKey) === v) return;
+        try { if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(sessionShownKey, v); } catch (e) {}
+        const message = (AppState.updateMessage && String(AppState.updateMessage).trim()) || 'تم إجراء تحديث على التطبيق. قد تتضمن التحديثات إضافات أو تحسينات جديدة. يرجى تحديث الصفحة للحصول على أحدث نسخة.';
+        const safeMessage = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML(message).replace(/\n/g, '<br>') : message.replace(/\n/g, '<br>');
+        const safeVersion = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML(v) : v;
+        const modal = document.createElement('div');
+        modal.id = 'hse-update-message-modal';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-label', 'هناك تحديث جديد');
+        modal.className = 'hse-update-message-modal';
+        modal.style.cssText = 'position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);padding:1rem;';
+        modal.innerHTML = `
+            <div class="hse-update-message-card" style="background:var(--bg-primary,#fff);color:var(--text-primary,#111);max-width:420px;width:100%;border-radius:16px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);padding:1.5rem;text-align:right;">
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">
+                    <span style="width:48px;height:48px;border-radius:50%;background:var(--primary-color,#2563eb);color:#fff;display:flex;align-items:center;justify-content:center;"><i class="fas fa-sync-alt" style="font-size:1.25rem;"></i></span>
+                    <h2 style="margin:0;font-size:1.25rem;font-weight:700;">هناك تحديث جديد</h2>
+                </div>
+                <p style="margin:0 0 0.5rem;font-size:0.9rem;color:var(--gray-600,#4b5563);">تم إجراء تحديث على التطبيق — الإصدار: <strong>${safeVersion}</strong></p>
+                <div class="hse-update-message-body" style="margin:1rem 0;font-size:0.95rem;line-height:1.6;">${safeMessage}</div>
+                <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-direction:row-reverse;">
+                    <button type="button" id="hse-update-message-reload" class="btn-primary" style="flex:1;">تحديث الصفحة الآن</button>
+                    <button type="button" id="hse-update-message-later" class="btn-secondary" style="flex:1;">لاحقاً</button>
+                </div>
+            </div>`;
+        document.body.appendChild(modal);
+
+        if (typeof Notification !== 'undefined' && Notification.info) {
+            Notification.info('هناك تحديث جديد متاح للتطبيق — يرجى تحديث الصفحة للحصول على أحدث النسخة.', { duration: 6000 });
+        }
+
+        const onReload = () => {
+            try { if (typeof localStorage !== 'undefined') localStorage.setItem(storageKey, v); } catch (e) {}
+            if (modal && modal.parentNode) modal.remove();
+            window.location.reload();
+        };
+        const onLater = () => {
+            try { if (typeof localStorage !== 'undefined') localStorage.setItem(storageKey, v); } catch (e) {}
+            if (modal && modal.parentNode) modal.remove();
+        };
+        const btnReload = modal.querySelector('#hse-update-message-reload');
+        const btnLater = modal.querySelector('#hse-update-message-later');
+        if (btnReload) btnReload.addEventListener('click', onReload);
+        if (btnLater) btnLater.addEventListener('click', onLater);
+        modal.addEventListener('click', (e) => { if (e.target === modal) onLater(); });
+    },
+
+    /**
+     * التحقق من إصدار التطبيق على الخادم (Vercel) — إن وُجد إصدار أحدث مما شاهده المستخدم سابقاً، عرض إشعار التحديث.
+     * يعتمد على version.json + hse_last_seen_version في localStorage بدلاً من AppState.appVersion لإزالة الاعتماد على قيمة ثابتة في الكود.
+     * يُستدعى بعد الدخول، بشكل دوري، وعند العودة إلى التبويب.
+     */
+    async _checkServerVersion() {
+        try {
+            if (typeof fetch === 'undefined') return;
+            const base = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
+            if (!base || base.startsWith('file:')) return;
+            const url = base + '/version.json?t=' + (Date.now ? Date.now() : '');
+            const res = await fetch(url, { cache: 'no-store', method: 'GET' });
+            if (!res || !res.ok) return;
+            const data = await res.json();
+            const serverVersion = (data && data.version) ? String(data.version).trim() : '';
+            if (!serverVersion) return;
+
+            const storageKey = 'hse_last_seen_version';
+            const lastSeen = (typeof localStorage !== 'undefined' && localStorage.getItem(storageKey))
+                ? String(localStorage.getItem(storageKey)).trim()
+                : '';
+
+            // إذا لم يكن هناك إصدار محفوظ للمستخدم من قبل، خزّن الإصدار الحالي وانهِ بدون إظهار نافذة
+            if (!lastSeen) {
+                try { if (typeof localStorage !== 'undefined') localStorage.setItem(storageKey, serverVersion); } catch (e) {}
+                return;
+            }
+
+            if (typeof this._compareVersions !== 'function') return;
+            // عرض نافذة التحديث فقط إذا كان إصدار الخادم أحدث تسلسلياً من آخر إصدار شاهده المستخدم
+            if (this._compareVersions(serverVersion, lastSeen) <= 0) return;
+
+            this._showUpdateModal(serverVersion);
+        } catch (e) {
+            if (AppState.debugMode && typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('⚠️ التحقق من إصدار الخادم:', e);
+        }
+    },
+
+    /**
+     * عرض رسالة "هناك تحديث جديد" عند تسجيل الدخول — يُعرض فقط إذا كان appVersion أحدث فعلاً من آخر إصدار رآه المستخدم.
+     * إذا كان lastSeen في localStorage أحدث من currentVersion (بسبب بقاء JS قديم في الكاش) → لا تعرض شيئاً.
+     */
+    _showUpdateMessageIfNeeded() {
+        try {
+            const currentVersion = (typeof AppState !== 'undefined' && AppState.appVersion) ? String(AppState.appVersion).trim() : '';
+            if (!currentVersion) return;
+            const storageKey = 'hse_last_seen_version';
+            const lastSeen = (typeof localStorage !== 'undefined' && localStorage.getItem(storageKey)) ? String(localStorage.getItem(storageKey)).trim() : '';
+            if (!lastSeen) {
+                try { localStorage.setItem(storageKey, currentVersion); } catch (e) {}
+                return;
+            }
+            // عرض فقط إذا كان الإصدار الحالي أحدث تسلسلياً من آخر إصدار رآه المستخدم
+            if (typeof this._compareVersions !== 'function') return;
+            if (this._compareVersions(currentVersion, lastSeen) <= 0) return;
+            this._showUpdateModal(currentVersion);
+        } catch (e) {
+            if (AppState.debugMode && typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('⚠️ خطأ في عرض رسالة التحديث:', e);
+        }
     },
 
     /** متابعة تهيئة التطبيق الرئيسي (بعد شاشة السياسات أو مباشرة بعد الدخول) */
@@ -2516,53 +2672,87 @@ window.UI = {
             }, 1000);
         }
         this.updateUserProfile();
+        if (typeof FireEquipment === 'undefined' && !document.querySelector('script[src*="fireequipment.js"]')) {
+            try {
+                const base = (() => {
+                    const b = document.querySelector('base');
+                    if (b && b.href) return b.href.replace(/\/$/, '') + '/';
+                    const p = window.location.pathname || '';
+                    const i = p.lastIndexOf('/');
+                    return window.location.origin + (i >= 0 ? p.slice(0, i + 1) : '/');
+                })();
+                const s = document.createElement('script');
+                s.src = base + 'js/modules/modules/fireequipment.js';
+                s.async = true;
+                document.body.appendChild(s);
+            } catch (e) { if (AppState.debugMode) Utils.safeWarn('تحميل مسبق لمعدات الحريق:', e); }
+        }
         this.setupNavigationListeners();
         this.bindSidebarEvents();
         this.initSyncButton();
         this.initUserConnectionStatus();
+
+        // تحميل البيانات تلقائياً من قاعدة البيانات مباشرة بعد تسجيل الدخول حسب صلاحيات المستخدم
+        // ⚠️ لا يتم تشغيل هذا المنطق عند مجرد إعادة تحميل الصفحة (isPageRefresh)
+        try {
+            if (typeof AppState !== 'undefined' &&
+                AppState.currentUser &&
+                !AppState.isPageRefresh &&
+                !AppState._autoSyncStarted &&
+                typeof GoogleIntegration !== 'undefined' &&
+                typeof GoogleIntegration.syncData === 'function' &&
+                typeof this.handleSyncClick === 'function') {
+
+                AppState._autoSyncStarted = true;
+
+                // تأخير بسيط للتأكد من تهيئة الواجهة والأزرار قبل البدء في التحميل
+                setTimeout(() => {
+                    try {
+                        // استخدام نفس منطق زر "تحميل البيانات" لضمان الاتساق في واجهة المستخدم
+                        this.handleSyncClick();
+                    } catch (e) {
+                        if (AppState.debugMode && typeof Utils !== 'undefined' && typeof Utils.safeWarn === 'function') {
+                            Utils.safeWarn('⚠️ فشل التحميل التلقائي للبيانات بعد تسجيل الدخول:', e);
+                        }
+                    }
+                }, 500);
+            }
+        } catch (e) {
+            if (typeof AppState !== 'undefined' && AppState.debugMode && typeof Utils !== 'undefined' && typeof Utils.safeWarn === 'function') {
+                Utils.safeWarn('⚠️ خطأ غير متوقع في التحميل التلقائي للبيانات بعد تسجيل الدخول:', e);
+            }
+        }
         
         // تحديث حالة الاتصال بعد تحميل البيانات (مع تأخير للتأكد من تحديث البيانات)
         setTimeout(() => {
             this.updateUserConnectionStatus();
         }, 500);
 
-        // إعداد زر تسجيل الخروج بعد عرض التطبيق (مع محاولات متعددة)
-        let logoutSetupAttempts = 0;
-        const setupLogoutWithRetry = () => {
-            logoutSetupAttempts++;
-            this.setupLogoutButton();
-            // إعادة المحاولة مرة أخرى بعد 500ms للتأكد
-            if (logoutSetupAttempts < 3) {
-                setTimeout(setupLogoutWithRetry, 500);
-            }
-        };
-        setTimeout(setupLogoutWithRetry, 100);
-
-        // تحديث القائمة حسب الصلاحيات (مع محاولات متعددة للتأكد من تحميل البيانات)
+        // Consolidate calls to setupLogoutButton and Permissions.updateNavigation.
+        // These functions should ideally be called once when the DOM is ready or when elements are guaranteed to exist.
+        // If elements are dynamically loaded, consider using MutationObserver or a more robust retry mechanism.
+        this.setupLogoutButton();
         Permissions.updateNavigation();
-        
-        // ✅ إصلاح: إعادة تحديث القائمة بعد تحميل البيانات للتأكد من الصلاحيات الصحيحة
-        setTimeout(() => {
-            if (typeof Permissions !== 'undefined' && typeof Permissions.updateNavigation === 'function') {
-                Permissions.updateNavigation();
-            }
-        }, 1000);
-        
-        // محاولة إضافية بعد تحميل البيانات بالكامل
-        setTimeout(() => {
-            if (typeof Permissions !== 'undefined' && typeof Permissions.updateNavigation === 'function') {
-                Permissions.updateNavigation();
-            }
-        }, 2000);
+        // Additional calls with setTimeout are likely attempts to compensate for race conditions.
+        // These should be removed and the underlying DOM readiness issue addressed.
+        // For example, if Permissions.updateNavigation depends on dynamically loaded content, it should be called after that content is loaded.
 
-        // عرض صورة المستخدم ي الشريط الجانبي
-        this.updateUserProfilePhoto();
+        // ✅ إعادة تحديث صورة المستخدم بعد تأخير قصير لضمان ظهورها بعد الدخول مباشرة (عند جاهزية الـ DOM)
+        setTimeout(() => { this.updateUserProfilePhoto(); }, 500);
 
         // إظهار أزرار الهيدر (Theme Toggle & Notifications)
         this.showHeaderActions();
 
         // تهيئة أزرار القائمة الجانبية (الوضع الليلي، الإشعارات، اللغة)
-        this.initSidebarButtons();
+
+        // إعادة تهيئة بعد تأخير قصير لضمان عمل الأزرار بعد رسم الـ DOM (زر اللغة، جرس الإشعارات)
+        setTimeout(() => {
+            try {
+                this.initSidebarButtons();
+            } catch (e) {
+                if (typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('إعادة تهيئة أزرار الشريط الجانبي:', e);
+            }
+        }, 400);
 
         // تهيئة مساعد المستخدم الذكي
         if (typeof UserAIAssistant !== 'undefined' && UserAIAssistant.init) {
@@ -2571,19 +2761,37 @@ window.UI = {
             }, 500);
         }
 
+        // عرض رسالة التحديث عند بداية تسجيل الدخول إذا تغيّر إصدار التطبيق (بعد تهيئة الواجهة)
+        setTimeout(() => {
+            if (typeof this._showUpdateMessageIfNeeded === 'function') this._showUpdateMessageIfNeeded();
+        }, 800);
+
+        // التحقق من إصدار الخادم (Vercel) — يُهيَّأ مرة واحدة فقط طوال عمر الصفحة لمنع تراكم المؤقتات والمستمعين
+        if (!AppState._updateCheckInitialized) {
+            AppState._updateCheckInitialized = true;
+            const runServerVersionCheck = () => {
+                if (typeof this._checkServerVersion === 'function') this._checkServerVersion();
+            };
+            setTimeout(runServerVersionCheck, 2000);
+            setInterval(runServerVersionCheck, 5 * 60 * 1000);
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') runServerVersionCheck();
+            });
+        }
+
         // تم نقل المزامنة إلى Auth.login لتجنب المزامنات المكررة
         // المزامنة تحدث مرة واحدة فقط بعد تسجيل الدخول في Auth.login
         // هذا يحسن الأداء ويقلل وقت تسجيل الدخول
         if (!AppState.googleConfig?.appsScript?.enabled) {
-            Utils.safeLog('ℹ قاعدة البيانات غير متصلة، سيتم استخدام البيانات المحلية فقط');
-            // إذا لم تكن قاعدة البيانات متصلة، نتحقق من وجود بيانات محلية
+            Utils.safeLog('ℹ Google Sheets غير مفعّل، سيتم استخدام البيانات المحلية فقط');
+            // إذا لم يكن Google Sheets معّل، نتحقق من وجود بيانات محلية
             // لا نعرض الإشعار عند إعادة التحميل
             if (!AppState.isPageRefresh) {
                 const hasLocalData = Object.keys(AppState.appData).some(key =>
                     Array.isArray(AppState.appData[key]) && AppState.appData[key].length > 0
                 );
                 if (!hasLocalData) {
-                    Notification.info('لا توجد بيانات محلية. يرجى الاتصال بقاعدة البيانات لتحميل البيانات.');
+                    Notification.info('لا توجد بيانات محلية. يرجى تفعيل Google Sheets لتحميل البيانات من السحابة.');
                 }
             }
         }
@@ -2614,13 +2822,10 @@ window.UI = {
         // تحديث شعار الشركة في لوحة التحكم
         this.updateDashboardLogo();
 
-        // ✅ استعادة القسم المحفوظ عند إعادة التحميل (ثبات الصفحة - عدم العودة للشاشة الرئيسية)
-        // أولوية: sessionStorage (آخر قسم مفتوح) ثم hash الرابط ثم dashboard
+        // ✅ استعادة القسم المحفوظ إذا كان موجوداً (بغض النظر عن isPageRefresh)
+        // لأن وجود قسم محفوظ يعني أن المستخدم كان في هذا القسم قبل إعادة التحميل
         const savedSection = sessionStorage.getItem('hse_current_section');
-        const hashSection = (typeof window.location !== 'undefined' && window.location.hash)
-            ? window.location.hash.replace(/^#/, '').trim()
-            : '';
-        const sectionToShow = savedSection || (hashSection || 'dashboard');
+        const sectionToShow = savedSection || 'dashboard';
 
         // ✅ تحديث AppState.currentSection قبل عرض القسم لضمان التزامن
         AppState.currentSection = sectionToShow;
@@ -2650,24 +2855,23 @@ window.UI = {
         }, 300);
 
         // فتح القائمة الجانبية عند بدء التطبيق (على سطح المكتب) - بعد عرض القسم
-        // على الموبايل تبقى مغلقة افتراضياً
+        // على الموبايل: إغلاق القائمة والستار صراحة لتفادي تغطية المحتوى أو المدولات
         if (window.innerWidth > 1024) {
             setTimeout(() => {
                 const sidebar = document.querySelector('.sidebar');
                 if (sidebar) {
                     // إذا كان القسم المطلوب هو Dashboard، نفتح القائمة الجانبية
                     if (sectionToShow === 'dashboard') {
-                        if (!sidebar.classList.contains('open')) {
-                            this.toggleSidebar(true);
-                        }
+                        this.toggleSidebar(true);
                     } else {
                         // إذا كان القسم ليس Dashboard، نتأكد من إغلاق القائمة
-                        if (sidebar.classList.contains('open')) {
-                            this.toggleSidebar(false);
-                        }
+                        this.toggleSidebar(false);
                     }
                 }
             }, 100);
+        } else {
+            // موبايل: ضمان إغلاق القائمة وإخفاء الستار دائماً عند بدء التطبيق
+            setTimeout(() => this.toggleSidebar(false), 0);
         }
 
         // ✅ إصلاح: تحميل Dashboard مباشرة بدون تأخير
@@ -2696,18 +2900,21 @@ window.UI = {
                     }
                 }
 
-                // تحميل البيانات تلقائياً من الخادم بعد تسجيل الدخول (Supabase أو Google Script)
-                const canSync = AppState.currentUser &&
+                // ✅ إضافة: تحميل البيانات تلقائياً من Google Sheets بعد تسجيل الدخول
+                if (AppState.currentUser && 
+                    AppState.googleConfig?.appsScript?.enabled && 
+                    AppState.googleConfig?.appsScript?.scriptUrl &&
                     typeof GoogleIntegration !== 'undefined' &&
                     typeof GoogleIntegration.syncData === 'function' &&
-                    (AppState.useSupabaseBackend === true || (AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl));
-                if (canSync) {
+                    !AppState.isPageRefresh) {
+                    
+                    // تحميل البيانات في الخلفية (silent = true) بشكل تلقائي
                     GoogleIntegration.syncData({
-                        silent: true,
-                        showLoader: false,
-                        notifyOnSuccess: false,
+                        silent: true, // تحميل صامت في الخلفية
+                        showLoader: false, // لا نعرض loader
+                        notifyOnSuccess: false, // لا نعرض إشعارات
                         notifyOnError: false,
-                        incremental: false
+                        incremental: false // تحميل كامل أول مرة
                     }).catch(error => {
                         Utils.safeWarn('⚠️ فشل التحميل التلقائي للبيانات بعد تسجيل الدخول:', error);
                     });
@@ -2737,12 +2944,7 @@ window.UI = {
             }
         })();
 
-        // تحديث الإشعارات عند تحميل التطبيق
-        if (this.updateNotificationsBadge) {
-            setTimeout(() => {
-                this.updateNotificationsBadge();
-            }, 1500);
-        }
+
     },
 
     /**
@@ -2759,7 +2961,7 @@ window.UI = {
             const { syncedCount, failedSheets, sheets } = event.detail || {};
             
             if (AppState.debugMode) {
-                Utils.safeLog(`✅ اكتملت المزامنة: ${syncedCount} جدول، ${failedSheets?.length || 0} فشل`);
+                Utils.safeLog(`✅ اكتملت المزامنة: ${syncedCount} ورقة، ${failedSheets?.length || 0} فشل`);
             }
 
             // ✅ إصلاح: تحديث صلاحيات المستخدم الحالي إذا تم تحديث ورقة Users
@@ -2777,12 +2979,6 @@ window.UI = {
                     
                     // تحديث صلاحيات المستخدم الحالي
                     AppState.currentUser.permissions = normalizedPermissions || {};
-                    // تحديث الدور من قاعدة البيانات (يمنع بقاء المدير كـ user بعد إصلاح الصلاحيات في الخادم)
-                    if (updatedUser.role != null && String(updatedUser.role).trim() !== '') {
-                        AppState.currentUser.role = String(updatedUser.role).trim();
-                    }
-                    // تحديث صورة الملف الشخصي من قاعدة البيانات (حتى تظهر بعد المزامنة أو تحديث الصفحة)
-                    if (updatedUser.photo != null) AppState.currentUser.photo = updatedUser.photo;
                     
                     // تحديث الجلسة بالصلاحيات الجديدة
                     if (typeof window.Auth !== 'undefined' && typeof window.Auth.updateUserSession === 'function') {
@@ -2798,17 +2994,22 @@ window.UI = {
                     }
                 }
             }
-            // تحديث صورة المستخدم في الشريط الجانبي بعد مزامنة المستخدمين (حتى تظهر الصورة المحفوظة في قاعدة البيانات)
-            if (sheets && sheets.some(function(s) { return s && String(s).toLowerCase() === 'users'; })) {
-                if (typeof this.updateUserProfilePhoto === 'function') this.updateUserProfilePhoto();
-            }
 
-            // تحديث الموديول الحالي إذا كان موجوداً (ما عدا لوحة التحكم لتفادي وميض الكروت)
+            // تحديث الموديول الحالي إذا كان موجوداً
             const currentSection = AppState.currentSection;
             if (currentSection && currentSection !== 'dashboard') {
+                // تحديث الموديول الحالي بدون إعادة تحميل كامل
                 this.refreshCurrentSection(true); // silent = true
             }
-            // لا نعيد تحميل Dashboard عند اكتمال المزامنة — البيانات محدّثة في AppState والكروت تبقى ثابتة بدون وميض
+
+            // تحديث Dashboard إذا كان مفتوحاً
+            if (currentSection === 'dashboard' && typeof Dashboard !== 'undefined' && Dashboard.load) {
+                try {
+                    Dashboard.load();
+                } catch (error) {
+                    Utils.safeWarn('⚠️ فشل تحديث Dashboard بعد المزامنة:', error);
+                }
+            }
         };
 
         window.addEventListener('syncDataCompleted', this._syncDataCompletedHandler);
@@ -2876,10 +3077,21 @@ window.UI = {
         }
 
         // ربط حدث النقر على مجموعة النصوص (لجعل المنطقة بأكملها قابلة للنقر)
+        // Use event delegation on the parent `companyTextGroup` to avoid redundant listeners on children.
+        // If `companyTextGroup` is the primary clickable area, its children don't need separate listeners.
         if (companyTextGroup && !companyTextGroup.dataset.clickBound) {
             companyTextGroup.style.cursor = 'pointer';
             companyTextGroup.addEventListener('click', handleHeaderClick);
             companyTextGroup.dataset.clickBound = 'true';
+        }
+        // Remove redundant listeners from children if parent handles the click.
+        if (companyNameText && companyNameText.dataset.clickBound) {
+            companyNameText.removeEventListener('click', handleHeaderClick);
+            delete companyNameText.dataset.clickBound;
+        }
+        if (companySecondaryText && companySecondaryText.dataset.clickBound) {
+            companySecondaryText.removeEventListener('click', handleHeaderClick);
+            delete companySecondaryText.dataset.clickBound;
         }
 
         // ربط حدث النقر على الهيدر ككل (المنطقة اليسرى فقط)
@@ -2903,8 +3115,7 @@ window.UI = {
         this.updateCompanyBranding();
 
         if (header) {
-            const logoToShow = this._isValidLogoUrl(AppState.companyLogo) ? AppState.companyLogo : null;
-            if (logoToShow) {
+            if (AppState.companyLogo) {
                 header.style.display = 'flex';
                 header.style.justifyContent = 'space-between';
                 header.style.alignItems = 'center';
@@ -2920,17 +3131,18 @@ window.UI = {
                     // إعداد معالج الأخطاء قبل تعيين src
                     let hasError = false;
                     logoImg.onerror = () => {
-                        if (!hasError) {
-                            hasError = true;
-                            logoImg.style.display = 'none';
-                        }
+                        hasError = true;
+                        // إخفاء الصورة المكسورة
+                        logoImg.style.display = 'none';
+                        // Google Drive URLs لا تدعم CORS - هذا أمر طبيعي
+                        // الشعار لن يظهر إذا كان من Google Drive
                     };
                     logoImg.onload = () => {
                         hasError = false;
                         logoImg.style.display = 'block';
                     };
                     
-                    logoImg.src = logoToShow;
+                    logoImg.src = AppState.companyLogo;
                     logoImg.style.display = 'block';
                     logoImg.style.maxHeight = '50px';
                     logoImg.style.maxWidth = '150px';
@@ -2943,7 +3155,7 @@ window.UI = {
                 }
             } else {
                 header.style.display = 'none';
-                if (logoImg) { logoImg.style.display = 'none'; logoImg.src = ''; }
+                if (logoImg) logoImg.style.display = 'none';
                 if (logoImgRight) logoImgRight.style.display = 'none';
             }
 
@@ -3056,24 +3268,6 @@ window.UI = {
     },
 
     /**
-     * التحقق من أن رابط الشعار آمن للعرض (يمنع طلبات 503 لـ example.com/logo.png أو روابط غير صالحة)
-     */
-    _isValidLogoUrl(url) {
-        if (!url || typeof url !== 'string') return false;
-        const u = url.trim();
-        if (u.length < 10) return false;
-        if (u.toLowerCase().startsWith('data:')) return true;
-        if (u.startsWith('https://')) {
-            try {
-                const host = new URL(u).hostname.toLowerCase();
-                if (host === 'example.com' || host === 'example.org' || host === 'localhost') return false;
-                return true;
-            } catch (e) { return false; }
-        }
-        return false;
-    },
-
-    /**
      * تحديث شعار الشركة في شاشة تسجيل الدخول
      */
     updateLoginLogo() {
@@ -3113,9 +3307,6 @@ window.UI = {
             }
         }
 
-        // استخدام الشعار فقط إذا كان رابطاً صالحاً (يمنع 503 من example.com/logo.png أو مسارات نسبية)
-        if (logoUrl && !this._isValidLogoUrl(logoUrl)) logoUrl = null;
-
         // إذا وجد شعار، نعرضه ونخفي الأيقونة الافتراضية
         if (logoUrl && logoUrl.trim() !== '') {
             // إعداد معالجات الأحداث قبل تعيين src
@@ -3127,9 +3318,9 @@ window.UI = {
                     Utils.safeWarn('⚠️ فشل تحميل شعار الشركة من:', logoUrl);
                     loginLogoImg.style.display = 'none';
                     defaultLogoIcon.style.display = 'inline-block';
-                    // إزالة src التالف لمنع محاولات متكررة
-                    loginLogoImg.src = '';
                 }
+                // إزالة src التالف لمنع محاولات متكررة
+                loginLogoImg.src = '';
             };
 
             loginLogoImg.onload = () => {
@@ -3228,6 +3419,66 @@ window.UI = {
         this.updateCompanyLogoHeaderPosition(shouldOpen);
     },
 
+    toggleSidebarCollapse(forceState = null) {
+        const sidebar = document.querySelector('.sidebar');
+        if (!sidebar) return;
+
+        const shouldCollapse = forceState !== null ? forceState : !sidebar.classList.contains('collapsed');
+        sidebar.classList.toggle('collapsed', shouldCollapse);
+
+        // تحديث عرض المحتوى الرئيسي والهيدر عند الطي/التوسيع
+        const newWidth = shouldCollapse ? '84px' : '280px';
+        try {
+            document.documentElement.style.setProperty('--sidebar-width', newWidth);
+        } catch (e) { /* ignore */ }
+
+        const collapseToggle = document.getElementById('sidebar-collapse-toggle');
+        if (collapseToggle) {
+            collapseToggle.setAttribute('aria-pressed', shouldCollapse ? 'true' : 'false');
+            const icon = collapseToggle.querySelector('i');
+            if (icon) {
+                icon.className = shouldCollapse ? 'fas fa-chevron-right' : 'fas fa-chevron-left';
+            }
+        }
+
+        try {
+            localStorage.setItem('sidebarCollapsed', shouldCollapse ? 'true' : 'false');
+        } catch (error) {
+            if (Utils?.safeWarn) {
+                Utils.safeWarn('⚠️ فشل حفظ حالة طي القائمة الجانبية:', error);
+            }
+        }
+    },
+
+    restoreSidebarCollapseState() {
+        const sidebar = document.querySelector('.sidebar');
+        if (!sidebar) return;
+
+        let stored = null;
+        try {
+            stored = localStorage.getItem('sidebarCollapsed');
+        } catch (error) {
+            stored = null;
+        }
+
+        const shouldCollapse = stored === 'true';
+        sidebar.classList.toggle('collapsed', shouldCollapse);
+
+        const newWidth = shouldCollapse ? '84px' : '280px';
+        try {
+            document.documentElement.style.setProperty('--sidebar-width', newWidth);
+        } catch (e) { /* ignore */ }
+
+        const collapseToggle = document.getElementById('sidebar-collapse-toggle');
+        if (collapseToggle) {
+            collapseToggle.setAttribute('aria-pressed', shouldCollapse ? 'true' : 'false');
+            const icon = collapseToggle.querySelector('i');
+            if (icon) {
+                icon.className = shouldCollapse ? 'fas fa-chevron-right' : 'fas fa-chevron-left';
+            }
+        }
+    },
+
     /**
      * تحديث موقع الهيدر بناءً على حالة القائمة الجانبية
      */
@@ -3255,6 +3506,7 @@ window.UI = {
     bindSidebarEvents() {
         const toggleBtn = document.getElementById('sidebar-toggle');
         const overlay = document.getElementById('sidebar-overlay');
+        const collapseToggle = document.getElementById('sidebar-collapse-toggle');
 
         if (toggleBtn && !toggleBtn.dataset.bound) {
             toggleBtn.addEventListener('click', (e) => {
@@ -3274,6 +3526,17 @@ window.UI = {
             overlay.dataset.bound = 'true';
             overlay.setAttribute('aria-hidden', 'true');
         }
+
+        if (collapseToggle && !collapseToggle.dataset.bound) {
+            collapseToggle.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleSidebarCollapse();
+            });
+            collapseToggle.dataset.bound = 'true';
+        }
+
+        this.restoreSidebarCollapseState();
 
         // ربط أحداث النقر على شعار الشركة واسم الشركة في الهيدر
         this.bindCompanyHeaderClickEvents();
@@ -3391,17 +3654,6 @@ window.UI = {
             if (typeof Notification !== 'undefined') Notification.error('نوع الملف غير مدعوم. استخدم صورة (JPEG, PNG, GIF, WEBP).');
             return;
         }
-        // حفظ الصورة الحالية لاستعادتها عند فشل الرفع أو الإلغاء
-        const previousPhotoUrl = (userRecord && userRecord.photo) || (AppState.currentUser && AppState.currentUser.photo) || '';
-        function restorePreviousPhoto() {
-            if (previousPhotoUrl) {
-                if (userRecord) userRecord.photo = previousPhotoUrl;
-                if (AppState.currentUser) AppState.currentUser.photo = previousPhotoUrl;
-                if (typeof Auth !== 'undefined' && Auth.updateUserSession) Auth.updateUserSession();
-                self.updateUserProfilePhoto();
-            }
-        }
-
         if (typeof Loading !== 'undefined' && Loading.show) Loading.show('جاري رفع صورة المستخدم...');
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -3417,59 +3669,32 @@ window.UI = {
             const mimeType = file.type || 'image/jpeg';
             const uploadPromise = (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.uploadFileToDrive)
                 ? GoogleIntegration.uploadFileToDrive(base64Data, fileName, mimeType, 'Users')
-                : Promise.reject(new Error('الاتصال بالخادم غير متاح'));
+                : Promise.reject(new Error('Google Integration غير متاح'));
             uploadPromise.then(function(uploadResult) {
-                // دعم أشكال متعددة لرابط الصورة (Google Drive، Supabase Storage، إلخ)
-                const photoUrl = (uploadResult && (
-                    uploadResult.directLink ||
-                    uploadResult.shareableLink ||
-                    uploadResult.url ||
-                    uploadResult.publicUrl ||
-                    uploadResult.imageUrl ||
-                    (uploadResult.cloudLink && uploadResult.cloudLink.url) ||
-                    (uploadResult.files && uploadResult.files[0] && (uploadResult.files[0].directLink || uploadResult.files[0].shareableLink || uploadResult.files[0].url))
-                )) || '';
+                const photoUrl = (uploadResult && (uploadResult.directLink || uploadResult.shareableLink)) || '';
                 if (!photoUrl) {
-                    const msg = (uploadResult && uploadResult.message) ? String(uploadResult.message) : '';
-                    if (uploadResult && uploadResult.success === false && msg) {
-                        if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
-                        if (typeof Notification !== 'undefined') Notification.error(msg);
-                        restorePreviousPhoto();
-                        return Promise.resolve(null);
-                    }
-                    throw new Error(msg || 'لم يتم الحصول على رابط الصورة. تأكد من تفعيل رفع الملفات في الإعدادات.');
+                    throw new Error('لم يتم الحصول على رابط الصورة');
                 }
                 return (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.sendToAppsScript)
                     ? GoogleIntegration.sendToAppsScript('updateUser', { userId: userRecord.id, updateData: { photo: photoUrl } }).then(function(r) { return { updateResult: r, photoUrl: photoUrl }; })
-                    : Promise.reject(new Error('الاتصال بالخادم غير متاح'));
+                    : Promise.reject(new Error('Google Integration غير متاح'));
             }).then(function(data) {
-                if (!data) return;
                 const updateResult = data && data.updateResult;
                 const photoUrl = data && data.photoUrl;
                 if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
                 if (updateResult && updateResult.success && photoUrl) {
                     if (userRecord) userRecord.photo = photoUrl;
                     if (AppState.currentUser) AppState.currentUser.photo = photoUrl;
-                    // تحديث المستخدم في القائمة المحلية حتى تظهر الصورة فوراً دون اعتماد على مزامنة
-                    if (AppState.appData && Array.isArray(AppState.appData.users)) {
-                        var u = AppState.appData.users.find(function(us) {
-                            return us && (us.id === userRecord.id || (us.email && userRecord.email && us.email.toLowerCase() === userRecord.email.toLowerCase()));
-                        });
-                        if (u) u.photo = photoUrl;
-                    }
                     if (typeof Auth !== 'undefined' && Auth.updateUserSession) Auth.updateUserSession();
-                    if (typeof DataManager !== 'undefined' && DataManager.save) DataManager.save();
                     self.updateUserProfilePhoto();
                     if (typeof Notification !== 'undefined') Notification.success('تم حفظ صورة المستخدم بنجاح.');
                 } else {
                     if (typeof Notification !== 'undefined') Notification.error(updateResult && updateResult.message ? updateResult.message : 'فشل تحديث الصورة.');
-                    restorePreviousPhoto();
                 }
             }).catch(function(err) {
                 if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
                 if (typeof Utils !== 'undefined' && Utils.safeError) Utils.safeError('خطأ رفع صورة المستخدم:', err);
                 if (typeof Notification !== 'undefined') Notification.error('فشل رفع أو حفظ الصورة. ' + (err && err.message ? err.message : ''));
-                restorePreviousPhoto();
             });
         };
         reader.onerror = function() {
@@ -3755,20 +3980,21 @@ window.UI = {
             submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin ml-2"></i> جاري الإرسال...';
 
             try {
-                const result = await Auth.resetPassword(email);
-                const success = result && result.success === true;
+                const success = await Auth.resetPassword(email);
                 if (success) {
+                    // إظهار رسالة التأكيد في النافذة
                     const modalBody = modal.querySelector('.modal-body');
-                    const msg = (result && result.message) || 'تم إرسال رابط استرجاع كلمة المرور إلى بريدك الإلكتروني.';
                     modalBody.innerHTML = `
                         <div class="text-center py-4">
                             <div class="mb-4">
                                 <i class="fas fa-check-circle text-5xl text-green-500"></i>
                             </div>
                             <h3 class="text-lg font-semibold text-gray-800 mb-2">تم الإرسال بنجاح</h3>
-                            <p class="text-gray-600 mb-4">${msg}</p>
+                            <p class="text-gray-600 mb-4">
+                                تم إرسال رابط استرجاع كلمة المرور إلى بريدك الإلكتروني.
+                            </p>
                             <p class="text-sm text-gray-500">
-                                يرجى التحقق من صندوق الوارد (والبريد المزعج) واتباع الرابط لإعادة تعيين كلمة المرور خلال ساعة.
+                                يرجى التحقق من صندوق الوارد الخاص بك واتباع التعليمات لإعادة تعيين كلمة المرور.
                             </p>
                         </div>
                         <div class="flex justify-center mt-6">
@@ -3781,9 +4007,7 @@ window.UI = {
                 } else {
                     submitBtn.disabled = false;
                     submitBtn.innerHTML = originalBtnText;
-                    if (result && result.message && typeof Notification !== 'undefined') {
-                        Notification.error(result.message);
-                    }
+                    // إظهار معلومات التواصل عند فشل الاسترجاع
                     const errorContact = document.getElementById('login-error-contact');
                     if (errorContact) {
                         errorContact.style.display = 'block';
@@ -4026,6 +4250,41 @@ window.UI = {
         const nameEl = document.getElementById('userDisplayName');
         const emailEl = document.getElementById('adminEmail');
         const mobileUserName = document.getElementById('mobile-user-name');
+        const factoryEl = document.getElementById('userFactoryDisplay');
+        const subLocationEl = document.getElementById('userSubLocationDisplay');
+
+        const resolveFactoryName = (user) => {
+            try {
+                if (!user) return '';
+                const direct = (user.factoryName || user.plantName || user.siteName || '').toString().trim();
+                if (direct) return direct;
+                const factoryId = (user.factoryId || user.factory || user.plant || user.siteId || user.site || '').toString().trim();
+                if (!factoryId) return '';
+                const sites = Array.isArray(AppState.appData?.observationSites) ? AppState.appData.observationSites : [];
+                const site = sites.find(s => String(s?.id || '').trim() === factoryId);
+                return (site?.name || '').toString().trim();
+            } catch (e) {
+                return '';
+            }
+        };
+
+        const resolveSubLocationName = (user) => {
+            try {
+                if (!user) return '';
+                const direct = (user.subLocationName || user.placeName || user.subSiteName || '').toString().trim();
+                if (direct) return direct;
+                const factoryId = (user.factoryId || user.factory || user.plant || user.siteId || user.site || '').toString().trim();
+                const placeId = (user.subLocationId || user.subLocation || user.placeId || user.place || user.subSite || user.subsite || '').toString().trim();
+                if (!factoryId || !placeId) return '';
+                const sites = Array.isArray(AppState.appData?.observationSites) ? AppState.appData.observationSites : [];
+                const site = sites.find(s => String(s?.id || '').trim() === factoryId);
+                const places = Array.isArray(site?.places) ? site.places : [];
+                const place = places.find(p => String(p?.id || '').trim() === placeId);
+                return (place?.name || '').toString().trim();
+            } catch (e) {
+                return '';
+            }
+        };
 
         if (AppState.currentUser) {
             if (nameEl) nameEl.textContent = AppState.currentUser.name;
@@ -4034,11 +4293,24 @@ window.UI = {
                 mobileUserName.textContent = AppState.currentUser.email || '';
                 mobileUserName.style.display = AppState.currentUser.email ? 'block' : 'none';
             }
+
+            if (factoryEl) {
+                const factoryName = resolveFactoryName(AppState.currentUser);
+                factoryEl.textContent = factoryName ? `المصنع: ${factoryName}` : '';
+                factoryEl.style.display = factoryName ? 'block' : 'none';
+            }
+            if (subLocationEl) {
+                const subName = resolveSubLocationName(AppState.currentUser);
+                subLocationEl.textContent = subName ? `الموقع الفرعي: ${subName}` : '';
+                subLocationEl.style.display = subName ? 'block' : 'none';
+            }
         } else {
             if (nameEl) nameEl.textContent = 'المستخدم';
             if (emailEl) emailEl.textContent = 'user@example.com';
             if (mobileUserName) mobileUserName.textContent = '';
             if (mobileUserName) mobileUserName.style.display = 'none';
+            if (factoryEl) { factoryEl.textContent = ''; factoryEl.style.display = 'none'; }
+            if (subLocationEl) { subLocationEl.textContent = ''; subLocationEl.style.display = 'none'; }
         }
         // تحديث صورة المستخدم
         this.updateUserProfilePhoto();
@@ -4080,14 +4352,14 @@ window.UI = {
 
         const profilePhoto = document.getElementById('user-profile-photo');
         const profileIcon = document.getElementById('user-profile-icon');
-        // استخدام صورة المستخدم من القائمة أو من الجلسة الحالية (بعد الرفع قد تكون القائمة لم تُحدّث بعد)
+
+        // ✅ استخدام صورة من appData.users أو من currentUser (بعد الدخول مباشرة)
         const photoUrl = (user && user.photo) || (AppState.currentUser && AppState.currentUser.photo) || '';
+        const userEmailForCache = (user && user.email) || (AppState.currentUser && AppState.currentUser.email) || '';
 
         if (photoUrl && profilePhoto && profileIcon) {
             const isDriveUrl = photoUrl.includes('drive.google.com');
-            const isSupabaseStorageUrl = photoUrl.includes('supabase.co/storage');
-            const userEmail = (user && user.email) || (AppState.currentUser && AppState.currentUser.email) || '';
-            const cacheKey = 'photo_failed_' + userEmail;
+            const cacheKey = `photo_failed_${userEmailForCache}`;
             const failedRecently = sessionStorage.getItem(cacheKey);
 
             const showIcon = () => {
@@ -4130,47 +4402,6 @@ window.UI = {
                         markFailed();
                         showIcon();
                     });
-                return;
-            }
-
-            // روابط Supabase Storage: جلب الصورة عبر الـ API (dataUri) لتجاوز 503 من الرابط المباشر
-            if (isSupabaseStorageUrl) {
-                var pathWithoutQuery = photoUrl.split('?')[0].trim();
-                var pathIdx = pathWithoutQuery.indexOf('user-photo/');
-                var path = pathIdx !== -1
-                    ? pathWithoutQuery.substring(pathIdx + 'user-photo/'.length).trim()
-                    : (pathWithoutQuery.split('/').pop() || '').trim();
-                if (path && typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.sendToAppsScript === 'function') {
-                    var photoTimeout = window.setTimeout(function() {
-                        photoTimeout = null;
-                        showIcon();
-                    }, 15000);
-                    GoogleIntegration.sendToAppsScript('getProfileImage', { path: path })
-                        .then(function(res) {
-                            if (photoTimeout) {
-                                window.clearTimeout(photoTimeout);
-                                photoTimeout = null;
-                            }
-                            if (res && res.success && res.dataUri) {
-                                showPhoto(res.dataUri);
-                            } else {
-                                showIcon();
-                            }
-                        })
-                        .catch(function() {
-                            if (photoTimeout) {
-                                window.clearTimeout(photoTimeout);
-                                photoTimeout = null;
-                            }
-                            showIcon();
-                        });
-                } else {
-                    profilePhoto.onerror = function() {
-                        profilePhoto.onerror = null;
-                        showIcon();
-                    };
-                    showPhoto(photoUrl);
-                }
                 return;
             }
 
@@ -4442,6 +4673,9 @@ window.UI = {
             setTimeout(() => {
                 this.loadSectionData(sectionName, isRefresh);
 
+                // Instead of multiple setTimeouts, use a MutationObserver or ensure the module's load function
+                // signals when its DOM is fully rendered and ready for navigation icons.
+                // For now, consolidate to a single, slightly delayed call, but a more robust solution is needed.
                 const addIconsAfterLoad = () => {
                     const section = document.getElementById(sectionId);
                     if (section) {
@@ -4451,12 +4685,7 @@ window.UI = {
                         this.addNavigationIcons(section, sectionName);
                     }
                 };
-                setTimeout(addIconsAfterLoad, 300);
-                setTimeout(addIconsAfterLoad, 600);
-                setTimeout(addIconsAfterLoad, 1000);
-                setTimeout(addIconsAfterLoad, 1500);
-                setTimeout(addIconsAfterLoad, 2000);
-                setTimeout(addIconsAfterLoad, 3000);
+                setTimeout(addIconsAfterLoad, 500); // A single, reasonable delay
             }, 50);
         }
     },
@@ -4469,6 +4698,8 @@ window.UI = {
         if (AppState.isPageRefresh && !silent) {
             silent = true;
         }
+
+        console.log('📢 loadSectionData called for:', sectionName, 'silent:', silent);
 
         if (!silent) {
             Utils.safeLog('تحميل بيانات القسم:', sectionName);
@@ -4514,8 +4745,22 @@ window.UI = {
                         }
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة Users غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('Users', 'users', silent);
+                            Utils.safeError('❌ موديول Users غير متوفر - الموديول لم يُحمّل بشكل صحيح');
+                            // عرض رسالة خطأ في القسم
+                            const section = document.getElementById('users-section');
+                            if (section) {
+                                section.innerHTML = `
+                                    <div class="content-card">
+                                        <div class="card-body">
+                                            <div class="empty-state">
+                                                <i class="fas fa-exclamation-triangle text-4xl text-red-400 mb-4"></i>
+                                                <p class="text-gray-500">فشل تحميل موديول المستخدمين</p>
+                                                <p class="text-sm text-gray-400 mt-2">يرجى تحديث الصفحة</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }
                         }
                     }
                     break;
@@ -4524,13 +4769,8 @@ window.UI = {
                     if (typeof UserTasks !== 'undefined' && UserTasks.load) {
                         UserTasks.load();
                     } else {
-                        Utils.safeWarn('وحدة UserTasks غير موجودة - سيتم إنشاؤها');
-                        // تهيئة الموديول إذا لم يكن موجوداً
-                        if (typeof UserTasks === 'undefined') {
-                            window.UserTasks = UserTasksModule;
-                        }
-                        if (UserTasks && UserTasks.load) {
-                            UserTasks.load();
+                        if (!silent) {
+                            Utils.safeError('❌ موديول UserTasks غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4539,8 +4779,7 @@ window.UI = {
                     if (typeof Employees !== 'undefined' && Employees.load) {
                         Employees.load();
                     } else {
-                        Utils.safeError(' وحدة Employees غير موجودة - جاري انتظار التحميل...');
-                        this.waitForModuleAndLoad('Employees', 'employees', silent);
+                        Utils.safeError('❌ موديول Employees غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                     }
                     break;
                 case 'incidents':
@@ -4552,9 +4791,7 @@ window.UI = {
                         }
                     } else {
                         if (!silent) {
-                            Utils.safeError(' وحدة Incidents غير موجودة');
-                            // محاولة انتظار تحميل الموديول ثم تحميله
-                            this.waitForModuleAndLoad('Incidents', 'incidents', silent);
+                            Utils.safeError('❌ موديول Incidents غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4563,8 +4800,7 @@ window.UI = {
                     if (typeof NearMiss !== 'undefined' && NearMiss.load) {
                         NearMiss.load();
                     } else {
-                        Utils.safeError(' وحدة NearMiss غير موجودة - جاري انتظار التحميل...');
-                        this.waitForModuleAndLoad('NearMiss', 'nearmiss', silent);
+                        Utils.safeError('❌ موديول NearMiss غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                     }
                     break;
                 case 'ptw':
@@ -4572,8 +4808,7 @@ window.UI = {
                     if (typeof PTW !== 'undefined' && PTW.load) {
                         PTW.load();
                     } else {
-                        Utils.safeError(' وحدة PTW غير موجودة - جاري انتظار التحميل...');
-                        this.waitForModuleAndLoad('PTW', 'ptw', silent);
+                        Utils.safeError('❌ موديول PTW غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                     }
                     break;
                 case 'training':
@@ -4581,8 +4816,7 @@ window.UI = {
                     if (typeof Training !== 'undefined' && Training.load) {
                         Training.load();
                     } else {
-                        Utils.safeError(' وحدة Training غير موجودة - جاري انتظار التحميل...');
-                        this.waitForModuleAndLoad('Training', 'training', silent);
+                        Utils.safeError('❌ موديول Training غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                     }
                     break;
                 case 'clinic':
@@ -4620,41 +4854,105 @@ window.UI = {
                             }, 500);
                         }
                     } else {
-                        // ✅ تحسين: استخدام safeLog بدلاً من safeError لأن هذا مجرد انتظار طبيعي للتحميل
-                        if (!silent && AppState.debugMode) {
-                            Utils.safeLog('⏳ وحدة Clinic غير موجودة بعد - جاري انتظار التحميل...');
-                        }
-                        this.waitForModuleAndLoad('Clinic', 'clinic', silent).then(() => {
-                            setTimeout(() => {
-                                this.ensureNavigationIcons('clinic');
-                            }, 500);
-                        }).catch((error) => {
-                            if (!silent) {
-                                Utils.safeError('❌ فشل تحميل مديول العيادة:', error);
-                            }
-                        });
+                        Utils.safeError('❌ موديول Clinic غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                     }
                     break;
-                case 'fire-equipment':
-                    if (typeof FireEquipment !== 'undefined' && FireEquipment.load) {
-                        try {
-                            const loadResult = FireEquipment.load();
-                            // إذا كانت Promise، نتعامل معها
-                            if (loadResult && typeof loadResult.then === 'function') {
-                                loadResult.catch(error => {
-                                    Utils.safeError('خطأ في تحميل موديول معدات الحريق:', error);
-                                });
+                case 'fire-equipment': {
+                    const section = document.getElementById('fire-equipment-section');
+                    const showFireEquipmentError = (msg, showReload) => {
+                        if (!section) return;
+                        section.innerHTML = `
+                            <div class="content-card">
+                                <div class="card-body">
+                                    <div class="empty-state">
+                                        <i class="fas fa-exclamation-triangle text-4xl text-red-400 mb-3"></i>
+                                        <h3 class="text-lg font-semibold text-gray-800 mb-2">فشل تحميل مديول معدات الحريق</h3>
+                                        <p class="text-gray-500 mb-4">${msg || 'الموديول لم يُحمّل بشكل صحيح. يرجى تحديث الصفحة.'}</p>
+                                        ${showReload
+                                            ? '<button onclick="location.reload()" class="btn-primary"><i class="fas fa-redo ml-2"></i>تحديث الصفحة</button>'
+                                            : '<button onclick="FireEquipment.load()" class="btn-primary"><i class="fas fa-redo ml-2"></i>إعادة المحاولة</button>'}
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    };
+                    const tryLoadFireEquipment = () => {
+                        if (typeof FireEquipment !== 'undefined' && FireEquipment.load) {
+                            try {
+                                const loadResult = FireEquipment.load();
+                                if (loadResult && typeof loadResult.then === 'function') {
+                                    loadResult.catch(error => {
+                                        Utils.safeError('خطأ في تحميل موديول معدات الحريق:', error);
+                                        showFireEquipmentError(error?.message || 'خطأ غير معروف', false);
+                                    });
+                                }
+                                return true;
+                            } catch (error) {
+                                Utils.safeError('خطأ في استدعاء FireEquipment.load:', error);
+                                showFireEquipmentError('يرجى تحديث الصفحة', true);
+                                return true;
                             }
-                        } catch (error) {
-                            Utils.safeError('خطأ في استدعاء FireEquipment.load:', error);
                         }
-                    } else {
-                        if (!silent) {
-                            Utils.safeWarn('وحدة FireEquipment غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('FireEquipment', 'fire-equipment', silent);
-                        }
+                        return false;
+                    };
+                    if (tryLoadFireEquipment()) break;
+                    if (section) {
+                        section.innerHTML = `
+                            <div class="content-card">
+                                <div class="card-body">
+                                    <div class="empty-state">
+                                        <div class="flex flex-col items-center gap-3">
+                                            <div style="width: 40px; height: 40px; border: 3px solid rgba(59, 130, 246, 0.3); border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+                                            <p class="text-gray-500">جاري تحميل مديول معدات الحريق...</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
                     }
+                    let attempts = 0;
+                    const maxAttempts = 8;
+                    const retryInterval = setInterval(() => {
+                        attempts++;
+                        if (tryLoadFireEquipment()) {
+                            clearInterval(retryInterval);
+                            return;
+                        }
+                        if (attempts >= maxAttempts) {
+                            clearInterval(retryInterval);
+                            const getScriptBase = () => {
+                                const base = document.querySelector('base');
+                                if (base && base.href) {
+                                    const u = base.href.replace(/\/$/, '');
+                                    return u + (u.indexOf('?') >= 0 ? '' : '/');
+                                }
+                                const path = window.location.pathname || '';
+                                const lastSlash = path.lastIndexOf('/');
+                                const dir = lastSlash >= 0 ? path.slice(0, lastSlash + 1) : '/';
+                                return window.location.origin + dir;
+                            };
+                            const scriptUrl = getScriptBase() + 'js/modules/modules/fireequipment.js';
+                            if (document.querySelector('script[src*="fireequipment.js"]')) {
+                                tryLoadFireEquipment() || showFireEquipmentError('الموديول لم يُحمّل بشكل صحيح. يرجى تحديث الصفحة.', true);
+                                return;
+                            }
+                            const script = document.createElement('script');
+                            script.src = scriptUrl;
+                            script.async = false;
+                            script.onload = () => {
+                                if (tryLoadFireEquipment()) return;
+                                if (!silent) Utils.safeError('❌ موديول FireEquipment لم يُحمّل بعد تحميل السكربت');
+                                showFireEquipmentError('الموديول لم يُحمّل بشكل صحيح. يرجى تحديث الصفحة.', true);
+                            };
+                            script.onerror = () => {
+                                if (!silent) Utils.safeError('❌ فشل تحميل سكربت معدات الحريق');
+                                showFireEquipmentError('تعذر تحميل الموديول. يرجى التحقق من الاتصال وتحديث الصفحة.', true);
+                            };
+                            document.body.appendChild(script);
+                        }
+                    }, 350);
                     break;
+                }
                 case 'periodic-inspections':
                     if (typeof PeriodicInspections !== 'undefined' && PeriodicInspections.load) {
                         try {
@@ -4668,20 +4966,98 @@ window.UI = {
                             Utils.safeError('خطأ في استدعاء PeriodicInspections.load:', error);
                         }
                     } else {
-                        if (!silent) {
-                            Utils.safeWarn('وحدة PeriodicInspections غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('PeriodicInspections', 'periodic-inspections', silent);
-                        }
+                        // حاول تحميل السكربت ديناميكياً بدل إظهار خطأ مباشر
+                        let attempts = 0;
+                        const maxAttempts = 8;
+                        const tryLoad = () => {
+                            if (typeof PeriodicInspections !== 'undefined' && PeriodicInspections.load) {
+                                try { PeriodicInspections.load(); } catch (e) {}
+                                return true;
+                            }
+                            return false;
+                        };
+                        if (tryLoad()) break;
+                        const retry = setInterval(() => {
+                            attempts++;
+                            if (tryLoad() || attempts >= maxAttempts) {
+                                clearInterval(retry);
+                                if (!tryLoad()) {
+                                    const getScriptBase = () => {
+                                        const base = document.querySelector('base');
+                                        if (base && base.href) {
+                                            const u = base.href.replace(/\/$/, '');
+                                            return u + (u.indexOf('?') >= 0 ? '' : '/');
+                                        }
+                                        const path = window.location.pathname || '';
+                                        const lastSlash = path.lastIndexOf('/');
+                                        const dir = lastSlash >= 0 ? path.slice(0, lastSlash + 1) : '/';
+                                        return window.location.origin + dir;
+                                    };
+                                    const scriptUrl = getScriptBase() + 'js/modules/modules/periodicinspections.js';
+                                    if (!document.querySelector('script[src*="periodicinspections.js"]')) {
+                                        const script = document.createElement('script');
+                                        script.src = scriptUrl;
+                                        script.async = false;
+                                        script.onload = () => { tryLoad(); };
+                                        script.onerror = () => {
+                                            if (!silent) Utils.safeError('❌ فشل تحميل موديول PeriodicInspections');
+                                        };
+                                        document.body.appendChild(script);
+                                    } else if (!silent) {
+                                        Utils.safeError('❌ موديول PeriodicInspections غير متوفر - الموديول لم يُحمّل بشكل صحيح');
+                                    }
+                                }
+                            }
+                        }, 350);
                     }
                     break;
                 case 'ppe':
                     if (typeof PPE !== 'undefined' && PPE.load) {
                         PPE.load();
                     } else {
-                        if (!silent) {
-                            Utils.safeWarn('وحدة PPE غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('PPE', 'ppe', silent);
-                        }
+                        // حاول تحميل السكربت ديناميكياً بدل إظهار خطأ مباشر
+                        let attempts = 0;
+                        const maxAttempts = 8;
+                        const tryLoad = () => {
+                            if (typeof PPE !== 'undefined' && PPE.load) {
+                                try { PPE.load(); } catch (e) {}
+                                return true;
+                            }
+                            return false;
+                        };
+                        if (tryLoad()) break;
+                        const retry = setInterval(() => {
+                            attempts++;
+                            if (tryLoad() || attempts >= maxAttempts) {
+                                clearInterval(retry);
+                                if (!tryLoad()) {
+                                    const getScriptBase = () => {
+                                        const base = document.querySelector('base');
+                                        if (base && base.href) {
+                                            const u = base.href.replace(/\/$/, '');
+                                            return u + (u.indexOf('?') >= 0 ? '' : '/');
+                                        }
+                                        const path = window.location.pathname || '';
+                                        const lastSlash = path.lastIndexOf('/');
+                                        const dir = lastSlash >= 0 ? path.slice(0, lastSlash + 1) : '/';
+                                        return window.location.origin + dir;
+                                    };
+                                    const scriptUrl = getScriptBase() + 'js/modules/modules/ppe.js';
+                                    if (!document.querySelector('script[src*="ppe.js"]')) {
+                                        const script = document.createElement('script');
+                                        script.src = scriptUrl;
+                                        script.async = false;
+                                        script.onload = () => { tryLoad(); };
+                                        script.onerror = () => {
+                                            if (!silent) Utils.safeError('❌ فشل تحميل موديول PPE');
+                                        };
+                                        document.body.appendChild(script);
+                                    } else if (!silent) {
+                                        Utils.safeError('❌ موديول PPE غير متوفر - الموديول لم يُحمّل بشكل صحيح');
+                                    }
+                                }
+                            }
+                        }, 350);
                     }
                     break;
                 case 'violations':
@@ -4735,10 +5111,49 @@ window.UI = {
                             }
                         }
                     } else {
-                        if (!silent) {
-                            Utils.safeWarn('وحدة Violations غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('Violations', 'violations', silent);
-                        }
+                        // حاول تحميل السكربت ديناميكياً بدل إظهار خطأ مباشر
+                        let attempts = 0;
+                        const maxAttempts = 8;
+                        const tryLoad = () => {
+                            if (typeof Violations !== 'undefined' && Violations.load) {
+                                try { Violations.load(); } catch (e) {}
+                                return true;
+                            }
+                            return false;
+                        };
+                        if (tryLoad()) break;
+                        const retry = setInterval(() => {
+                            attempts++;
+                            if (tryLoad() || attempts >= maxAttempts) {
+                                clearInterval(retry);
+                                if (!tryLoad()) {
+                                    const getScriptBase = () => {
+                                        const base = document.querySelector('base');
+                                        if (base && base.href) {
+                                            const u = base.href.replace(/\/$/, '');
+                                            return u + (u.indexOf('?') >= 0 ? '' : '/');
+                                        }
+                                        const path = window.location.pathname || '';
+                                        const lastSlash = path.lastIndexOf('/');
+                                        const dir = lastSlash >= 0 ? path.slice(0, lastSlash + 1) : '/';
+                                        return window.location.origin + dir;
+                                    };
+                                    const scriptUrl = getScriptBase() + 'js/modules/modules/violations.js';
+                                    if (!document.querySelector('script[src*="violations.js"]')) {
+                                        const script = document.createElement('script');
+                                        script.src = scriptUrl;
+                                        script.async = false;
+                                        script.onload = () => { tryLoad(); };
+                                        script.onerror = () => {
+                                            if (!silent) Utils.safeError('❌ فشل تحميل موديول Violations');
+                                        };
+                                        document.body.appendChild(script);
+                                    } else if (!silent) {
+                                        Utils.safeError('❌ موديول Violations غير متوفر - الموديول لم يُحمّل بشكل صحيح');
+                                    }
+                                }
+                            }
+                        }, 350);
                     }
                     break;
                 case 'contractors':
@@ -4776,7 +5191,6 @@ window.UI = {
                     } else {
                         if (!silent) {
                             Utils.safeWarn('وحدة Contractors غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('Contractors', 'contractors', silent);
                         } else {
                             // في حالة silent، نعرض رسالة تحميل
                             const section = document.getElementById('contractors-section');
@@ -4811,8 +5225,7 @@ window.UI = {
                         }
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة BehaviorMonitoring غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('BehaviorMonitoring', 'behavior-monitoring', silent);
+                            Utils.safeError('❌ موديول BehaviorMonitoring غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4821,8 +5234,7 @@ window.UI = {
                         ChemicalSafety.load();
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة ChemicalSafety غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('ChemicalSafety', 'chemical-safety', silent);
+                            Utils.safeError('❌ موديول ChemicalSafety غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4840,8 +5252,7 @@ window.UI = {
                         }
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة DailyObservations غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('DailyObservations', 'daily-observations', silent);
+                            Utils.safeError('❌ موديول DailyObservations غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4850,8 +5261,7 @@ window.UI = {
                         ISO.load();
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة ISO غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('ISO', 'iso', silent);
+                            Utils.safeError('❌ موديول ISO غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4860,8 +5270,7 @@ window.UI = {
                         Emergency.load();
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة Emergency غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('Emergency', 'emergency', silent);
+                            Utils.safeError('❌ موديول Emergency غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4879,8 +5288,7 @@ window.UI = {
                         }
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة RiskAssessment غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('RiskAssessment', 'risk-assessment', silent);
+                            Utils.safeError('❌ موديول RiskAssessment غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4889,8 +5297,7 @@ window.UI = {
                         SOPJHA.load();
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة SOPJHA غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('SOPJHA', 'sop-jha', silent);
+                            Utils.safeError('❌ موديول SOPJHA غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4899,8 +5306,7 @@ window.UI = {
                         LegalDocuments.load();
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة LegalDocuments غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('LegalDocuments', 'legal-documents', silent);
+                            Utils.safeError('❌ موديول LegalDocuments غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4909,8 +5315,7 @@ window.UI = {
                         Sustainability.load();
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة Sustainability غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('Sustainability', 'sustainability', silent);
+                            Utils.safeError('❌ موديول Sustainability غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4928,8 +5333,7 @@ window.UI = {
                         }
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة AIAssistant غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('AIAssistant', 'ai-assistant', silent);
+                            Utils.safeError('❌ موديول AIAssistant غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4938,8 +5342,7 @@ window.UI = {
                         SafetyPerformanceKPIs.load();
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة SafetyPerformanceKPIs غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('SafetyPerformanceKPIs', 'safety-performance-kpis', silent);
+                            Utils.safeError('❌ موديول SafetyPerformanceKPIs غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4948,8 +5351,7 @@ window.UI = {
                         Settings.load();
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة Settings غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('Settings', 'settings', silent);
+                            Utils.safeError('❌ موديول Settings غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4958,8 +5360,7 @@ window.UI = {
                         SafetyBudget.load();
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة SafetyBudget غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('SafetyBudget', 'safety-budget', silent);
+                            Utils.safeError('❌ موديول SafetyBudget غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4977,8 +5378,7 @@ window.UI = {
                         }
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة ActionTrackingRegister غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('ActionTrackingRegister', 'action-tracking', silent);
+                            Utils.safeError('❌ موديول ActionTrackingRegister غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -4997,8 +5397,7 @@ window.UI = {
                         }
                     } else {
                         if (!silent) {
-                            Utils.safeError('وحدة SafetyHealthManagement غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('SafetyHealthManagement', 'safety-health-management', silent);
+                            Utils.safeError('❌ موديول SafetyHealthManagement غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -5008,8 +5407,7 @@ window.UI = {
                         AppTester.load();
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة AppTester غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('AppTester', 'apptester', silent);
+                            Utils.safeError('❌ موديول AppTester غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -5028,8 +5426,7 @@ window.UI = {
                         }
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة Reports غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('Reports', 'reports', silent);
+                            Utils.safeError('❌ موديول Reports غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -5048,8 +5445,7 @@ window.UI = {
                         }
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة HSE غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('HSE', 'hse', silent);
+                            Utils.safeError('❌ موديول HSE غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -5069,7 +5465,6 @@ window.UI = {
                     } else {
                         if (!silent) {
                             Utils.safeWarn('وحدة RiskMatrix غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('RiskMatrix', 'risk-matrix', silent);
                         }
                     }
                     break;
@@ -5090,7 +5485,6 @@ window.UI = {
                     } else {
                         if (!silent) {
                             Utils.safeWarn('وحدة UserAIAssistant غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('UserAIAssistant', 'useraiassistant', silent);
                         }
                     }
                     break;
@@ -5109,8 +5503,7 @@ window.UI = {
                         }
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة IssueTracking غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('IssueTracking', 'issue-tracking', silent);
+                            Utils.safeError('❌ موديول IssueTracking غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -5129,8 +5522,7 @@ window.UI = {
                         }
                     } else {
                         if (!silent) {
-                            Utils.safeWarn('وحدة ChangeManagement غير موجودة - جاري انتظار التحميل...');
-                            this.waitForModuleAndLoad('ChangeManagement', 'change-management', silent);
+                            Utils.safeError('❌ موديول ChangeManagement غير متوفر - الموديول لم يُحمّل بشكل صحيح');
                         }
                     }
                     break;
@@ -5190,92 +5582,6 @@ window.UI = {
                 }, 500);
             }
         }
-    },
-
-    /**
-     * انتظار تحميل موديول ثم تحميله
-     */
-    async waitForModuleAndLoad(moduleName, sectionName, silent = false) {
-        // انتظار تحميل الموديول لمدة أقصاها 10 ثوان
-        const maxWait = 10000;
-        const checkInterval = 100;
-        const startTime = Date.now();
-
-        return new Promise((resolve) => {
-            const checkModule = () => {
-                const module = window[moduleName];
-                const elapsed = Date.now() - startTime;
-
-                if (module && typeof module.load === 'function') {
-                    // الموديول محمل - تحميل القسم مباشرة
-                    if (!silent) {
-                        Utils.safeLog(`✅ تم تحميل ${moduleName} - جاري تحميل القسم`);
-                    }
-                    try {
-                        const loadResult = module.load(silent);
-
-                        // إذا كانت Promise، ننتظرها
-                        if (loadResult && typeof loadResult.then === 'function') {
-                            loadResult.then(() => {
-                                // إضافة الأيقونات بعد تحميل الموديول
-                                if (sectionName !== 'dashboard') {
-                                    setTimeout(() => {
-                                        this.ensureNavigationIcons(sectionName);
-                                    }, 300);
-                                    setTimeout(() => {
-                                        this.ensureNavigationIcons(sectionName);
-                                    }, 800);
-                                }
-                            }).catch(() => {
-                                if (!silent) {
-                                    Utils.safeError(`خطأ في تحميل ${moduleName}`);
-                                }
-                            });
-                        } else if (loadResult && typeof loadResult.catch === 'function' && silent) {
-                            loadResult.catch(() => { });
-                        }
-
-                        // إضافة الأيقونات بعد تحميل الموديول (حتى لو لم تكن Promise)
-                        if (sectionName !== 'dashboard') {
-                            setTimeout(() => {
-                                this.ensureNavigationIcons(sectionName);
-                            }, 500);
-                            setTimeout(() => {
-                                this.ensureNavigationIcons(sectionName);
-                            }, 1000);
-                        }
-                    } catch (error) {
-                        if (!silent) {
-                            Utils.safeError(`خطأ في تحميل ${moduleName}:`, error);
-                        }
-                    }
-                    resolve(true);
-                } else if (elapsed < maxWait) {
-                    // الموديول لم يُحمّل بعد - ننتظر
-                    setTimeout(checkModule, checkInterval);
-                } else {
-                    // انتهى الوقت - فشل التحميل
-                    if (!silent) {
-                        Utils.safeError(`⚠️ فشل تحميل ${moduleName} بعد ${maxWait}ms`);
-                        const section = document.getElementById(`${sectionName}-section`);
-                        if (section) {
-                            section.innerHTML = `
-                                <div class="content-card">
-                                    <div class="empty-state">
-                                        <i class="fas fa-exclamation-triangle text-4xl text-yellow-400 mb-4"></i>
-                                        <p class="text-gray-500">فشل تحميل الموديول</p>
-                                        <p class="text-sm text-gray-400 mt-2">يرجى تحديث الصفحة</p>
-                                    </div>
-                                </div>
-                            `;
-                        }
-                    }
-                    resolve(false);
-                }
-            };
-
-            checkModule();
-        });
     },
 
     /**
@@ -5651,21 +5957,12 @@ window.UI = {
             if (AppState.debugMode) Utils.safeLog('✅ استدعاء addNavigationIconsAfterRender للقسم:', sectionName);
 
             // محاولات متعددة لضمان الإضافة
+            // Instead of multiple setTimeouts, use a MutationObserver or ensure the module's load function
+            // signals when its DOM is fully rendered and ready for navigation icons.
+            // For now, consolidate to a single, slightly delayed call, but a more robust solution is needed.
             setTimeout(() => {
                 this.addNavigationIcons(section, sectionName);
-            }, 0);
-
-            setTimeout(() => {
-                this.addNavigationIcons(section, sectionName);
-            }, 100);
-
-            setTimeout(() => {
-                this.addNavigationIcons(section, sectionName);
-            }, 300);
-
-            setTimeout(() => {
-                this.addNavigationIcons(section, sectionName);
-            }, 600);
+            }, 100); // A single, reasonable delay
         } else {
             Utils.safeError('❌ addNavigationIconsAfterRender: دالة addNavigationIcons غير موجودة');
         }
@@ -5948,10 +6245,9 @@ window.UI = {
         // فتح القائمة الجانبية عند العودة للصفحة السابقة على الشاشات الكبيرة
         if (window.innerWidth > 1024) {
             const sidebar = document.querySelector('.sidebar');
-            if (sidebar && !sidebar.classList.contains('open')) {
-                setTimeout(() => {
-                    this.toggleSidebar(true);
-                }, 100);
+            // Only open sidebar if it's not already open and not explicitly collapsed by user.
+            if (sidebar && !sidebar.classList.contains('open') && localStorage.getItem('sidebarCollapsed') !== 'true') {
+                this.toggleSidebar(true);
             }
         }
 
@@ -5993,7 +6289,7 @@ window.UI = {
 
         // تحميل الوضع المحفوظ
         const savedTheme = localStorage.getItem('theme') || 'light';
-        this.setTheme(savedTheme);
+        this.setTheme(savedTheme); // setTheme does not use an isInitialLoad parameter
 
         // ربط جميع الأزرار
         themeToggles.forEach(btn => {
@@ -6120,16 +6416,12 @@ window.UI = {
                     }
 
                     // إنشاء handler جديد مع استخدام self بدلاً من this
-                    // ✅ إصلاح: إزالة debounce للاستجابة الفورية
+                    // ✅ إصلاح: منع إغلاق القائمة عند النقر على الزر (لا stopImmediatePropagation) حتى يعمل فتح القائمة بشكل موثوق
                     const clickHandler = (e) => {
                         try {
-                            Utils.safeLog('🔔 تم النقر على زر الإشعارات:', btn.id);
-                            
-                            // منع انتشار الحدث بشكل كامل
                             if (e) {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                e.stopImmediatePropagation();
                             }
                             
                             // ✅ إصلاح: تنفيذ فوري بدون debounce
@@ -6186,11 +6478,14 @@ window.UI = {
                                     
                                     // استخدام self أو window.UI
                                     const uiObj = self || window.UI;
-                                    if (uiObj && typeof uiObj.showNotificationsDropdown === 'function') {
-                                        uiObj.showNotificationsDropdown(dropdownId, listId, emptyId, btn).catch(err => {
-                                            Utils.safeWarn('⚠️ خطأ في عرض الإشعارات:', err);
-                                        });
-                                    }
+                            // If `toggleNotificationsDropdown` fails, directly calling `showNotificationsDropdown` might bypass intended logic.
+                            // The primary error should be addressed in `toggleNotificationsDropdown` itself.
+                            // If this is a necessary fallback, ensure it's handled correctly.
+                            if (uiObj && typeof uiObj.showNotificationsDropdown === 'function') {
+                                await uiObj.showNotificationsDropdown(dropdownId, listId, emptyId, btn).catch(err => {
+                                    Utils.safeWarn('⚠️ خطأ في عرض الإشعارات:', err);
+                                });
+                            }
                                 }
                             } catch (fallbackError) {
                                 Utils.safeError('⚠️ فشل فتح الإشعارات:', fallbackError);
@@ -6209,22 +6504,11 @@ window.UI = {
                     Utils.safeLog('  - DOM موجود:', document.body.contains(btn));
                     Utils.safeLog('  - Handler مرتبط:', !!btn._notificationClickHandler);
                     
-                    // اختبار خاص للزر الجانبي (sidebar)
                     if (btn.id === 'notifications-btn') {
-                        Utils.safeLog('🔔 تأكيد: تم ربط زر الإشعارات في القائمة الجانبية (notifications-btn)');
-                        // إضافة listener إضافي للتأكد من استقبال الأحداث
-                        btn.addEventListener('click', function(e) {
-                            Utils.safeLog('🔔 حدث click تم استقباله على notifications-btn (sidebar)');
-                        }, { capture: false, once: false });
+                        Utils.safeLog('🔔 تم ربط زر الإشعارات في القائمة الجانبية (notifications-btn)');
                     }
-                    
-                    // اختبار خاص للزر الجانبي (mobile topbar)
                     if (btn.id === 'mobile-notifications-btn') {
-                        Utils.safeLog('🔔 تأكيد: تم ربط زر الإشعارات الجانبي (mobile-notifications-btn)');
-                        // إضافة listener إضافي للتأكد من استقبال الأحداث
-                        btn.addEventListener('click', function(e) {
-                            Utils.safeLog('🔔 حدث click تم استقباله على mobile-notifications-btn');
-                        }, { capture: false, once: false });
+                        Utils.safeLog('🔔 تم ربط زر الإشعارات الجانبي (mobile-notifications-btn)');
                     }
                 } catch (error) {
                     Utils.safeError('⚠️ خطأ في ربط زر الإشعارات:', btn.id, error);
@@ -6259,12 +6543,20 @@ window.UI = {
         // إغلاق dropdown عند النقر خارجها
         // تنظيف الـ listener القديم إذا كان موجوداً
         if (self._notificationsClickHandler) {
-            document.removeEventListener('click', self._notificationsClickHandler, false);
+            document.removeEventListener('click', self._notificationsClickHandler, true);
             self._notificationsClickHandler = null;
         }
         
         self._notificationsClickHandler = (e) => {
             try {
+                // إذا كان النقر على أحد أزرار الإشعارات: لا نغلق القائمة هنا — نترك الزر نفسه يفتح/يغلق عبر الـ handler المباشر (لتجنب عدم استجابة النقر في القائمة الجانبية)
+                if (e && e.target) {
+                    const notifBtn = e.target.closest('#notifications-btn, #mobile-notifications-btn, #header-notifications-btn');
+                    if (notifBtn) {
+                        return; // عدم منع الانتشار؛ الـ handler المربوط على الزر سيتولى فتح/إغلاق القائمة
+                    }
+                }
+
                 // تجاهل الأخطاء من uploadmanager أو extensions
                 if (e && e.target) {
                     const targetStr = String(e.target.tagName || '').toLowerCase();
@@ -6311,8 +6603,8 @@ window.UI = {
             }
         };
         
-        // ✅ إصلاح: استخدام capture: false لضمان تنفيذ handler الزر أولاً
-        document.addEventListener('click', self._notificationsClickHandler, false);
+        // استخدام capture: true لمعالجة نقر زر الإشعارات أولاً (تفويض حدث) ثم إغلاق القائمة عند النقر خارجها
+        document.addEventListener('click', self._notificationsClickHandler, true);
 
         // تحديث عدد الإشعارات
         if (self && typeof self.updateNotificationsBadge === 'function') {
@@ -6361,7 +6653,7 @@ window.UI = {
             // تنظيف الـ click listener
             if (this._notificationsClickHandler) {
                 try {
-                    document.removeEventListener('click', this._notificationsClickHandler, false);
+                    document.removeEventListener('click', this._notificationsClickHandler, true);
                 } catch (err) {
                     Utils.safeWarn('⚠️ خطأ في إزالة document click listener:', err);
                 }
@@ -6381,10 +6673,12 @@ window.UI = {
                         if (btn._notificationClickHandler) {
                             btn.removeEventListener('click', btn._notificationClickHandler, false);
                             // تنظيف debounce timer إن وجد (تم إزالته في الإصلاح الجديد)
-                            if (btn._notificationClickDebounceTimer) {
-                                clearTimeout(btn._notificationClickDebounceTimer);
-                                btn._notificationClickDebounceTimer = null;
-                            }
+                            // `_notificationClickDebounceTimer` is not defined or used elsewhere in this context.
+                            // Remove this block if it's dead code.
+                            // if (btn._notificationClickDebounceTimer) {
+                            //     clearTimeout(btn._notificationClickDebounceTimer);
+                            //     btn._notificationClickDebounceTimer = null;
+                            // }
                             delete btn._notificationClickHandler;
                             btn.dataset.notificationsBound = 'false';
                         }
@@ -6524,7 +6818,7 @@ window.UI = {
             try {
                 const dropdown = document.getElementById(dropdownId);
                 if (dropdown && typeof this.showNotificationsDropdown === 'function') {
-                    this.showNotificationsDropdown(dropdownId, listId, emptyId, button).catch(err => {
+                    await this.showNotificationsDropdown(dropdownId, listId, emptyId, button).catch(err => {
                         Utils.safeWarn('⚠️ خطأ في عرض الإشعارات (fallback):', err);
                     });
                 }
@@ -6582,13 +6876,22 @@ window.UI = {
             Utils.safeLog('🔔 تم عرض dropdown الإشعارات:', dropdownId);
 
             if (notifications.length === 0) {
-                if (list) list.style.display = 'none';
+                // إظهار "لا يوجد إشعارات" كالهيدر (نفس السلوك لجميع الأزرار: sidebar، mobile، header)
+                if (list) {
+                    list.style.setProperty('display', 'none', 'important');
+                    list.innerHTML = '';
+                }
                 if (empty) {
-                    empty.style.display = 'flex';
+                    empty.style.setProperty('display', 'flex', 'important');
+                    empty.style.setProperty('visibility', 'visible', 'important');
+                    const msgEl = empty.querySelector('p');
+                    if (msgEl) msgEl.textContent = 'لا يوجد إشعارات';
                 }
                 Utils.safeLog('ℹ️ لا توجد إشعارات غير مقروءة');
             } else {
-                if (empty) empty.style.display = 'none';
+                if (empty) {
+                    empty.style.setProperty('display', 'none', 'important');
+                }
                 if (list) {
                     try {
                         list.style.display = 'block';
@@ -7001,34 +7304,6 @@ window.UI = {
         const readNotifications = this.getReadNotifications();
 
         try {
-            // 0. إشعارات من جدول Notifications (مثل: محاولة تسجيل دخول من جهاز آخر — للمدير)
-            if (AppState.appData.notifications && Array.isArray(AppState.appData.notifications)) {
-                const isAdmin = AppState.currentUser && (
-                    AppState.currentUser.role === 'admin' ||
-                    (AppState.currentUser.role && String(AppState.currentUser.role).includes('مدير'))
-                );
-                const currentUserId = AppState.currentUser?.id || AppState.currentUser?.email || '';
-                AppState.appData.notifications.forEach((n, idx) => {
-                    const targetUserId = n.userId || n.user_id || '';
-                    const isForMe = targetUserId === 'admin' ? isAdmin : (targetUserId === currentUserId);
-                    if (!isForMe) return;
-                    const notificationId = 'notif-' + (n.id || 'n-' + idx);
-                    if (readNotifications.includes(notificationId)) return;
-                    notifications.push({
-                        id: notificationId,
-                        type: n.type === 'login_blocked' ? 'warning' : (n.type || 'info'),
-                        title: n.title || 'إشعار',
-                        message: n.message || '',
-                        time: n.createdAt || n.time || n.date || new Date(),
-                        icon: n.type === 'login_blocked' ? 'fa-sign-out-alt' : 'fa-bell',
-                        onClick: n.link ? (() => {
-                            const link = document.querySelector('a[data-section="users"]');
-                            if (link) link.click();
-                        }) : undefined
-                    });
-                });
-            }
-
             // 1. تنبيهات الطوارئ غير المغلقة
             if (AppState.appData.emergencyAlerts) {
                 AppState.appData.emergencyAlerts
@@ -7482,7 +7757,7 @@ window.UI = {
         // منع المزامنة المتعددة
         if (syncBtn.classList.contains('syncing')) {
             if (typeof Notification !== 'undefined') {
-                Notification.info('جاري تحميل البيانات من قاعدة البيانات، يرجى الانتظار...');
+                Notification.info('جاري المزامنة بالفعل، يرجى الانتظار...');
             }
             return;
         }
@@ -7490,19 +7765,21 @@ window.UI = {
         try {
             syncBtn.classList.add('syncing');
             
-            // التحقق من وجود تكامل الخادم (GoogleIntegration / Supabase)
+            // التحقق من وجود GoogleIntegration
             if (typeof GoogleIntegration === 'undefined') {
-                throw new Error('الاتصال بالخادم غير متاح');
+                throw new Error('GoogleIntegration غير متاح');
             }
 
             if (typeof Notification !== 'undefined') {
                 Notification.info('جاري تحميل البيانات من قاعدة البيانات');
             }
 
-            // مزامنة جميع البيانات
+            // مزامنة جميع البيانات (قراءة من Google Sheets)
+            // استخدام syncData لمزامنة جميع البيانات
             let syncResult = false;
-            const useSupabase = !!(typeof AppState !== 'undefined' && AppState.useSupabaseBackend === true);
-            const isGoogleSheetsEnabled = !useSupabase && AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl;
+            
+            // التحقق من أن Google Sheets مفعّل قبل المحاولة
+            const isGoogleSheetsEnabled = AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl;
             
             if (typeof GoogleIntegration.syncData === 'function') {
                 // ✅ تحميل تدريجي: تحميل البيانات غير المكتملة فقط
@@ -7530,7 +7807,7 @@ window.UI = {
                     }
                 } catch (e) { /* ignore */ }
             } else {
-                // محاولة قراءة مباشرة من الخادم (كبديل أخير)
+                // محاولة قراءة مباشرة من Google Sheets (كبديل أخير)
                 if (typeof GoogleIntegration.readFromSheets === 'function') {
                     const usersData = await GoogleIntegration.readFromSheets('Users');
                     if (usersData && Array.isArray(usersData)) {
@@ -7546,8 +7823,8 @@ window.UI = {
             }
             
             // التحقق من نتيجة المزامنة
-            // إذا كانت قاعدة البيانات متصلة لكن المزامنة فشلت، نرمي خطأ
-            // إذا كانت غير متصلة، syncData يظهر إشعار ولا نرمي خطأ
+            // إذا كان Google Sheets مفعّل لكن المزامنة فشلت، نرمي خطأ
+            // إذا كان Google Sheets غير مفعّل، syncData يظهر إشعار ولا نرمي خطأ
             if (!syncResult && isGoogleSheetsEnabled) {
                 throw new Error('فشلت المزامنة مع قاعدة البيانات');
             }
@@ -7597,7 +7874,7 @@ window.UI = {
             const status = ConnectionMonitor.getStatus();
             isConnected = status.isConnected === true;
         } else {
-            // إذا لم يكن ConnectionMonitor متاحاً، نتحقق من إعدادات الاتصال
+            // إذا لم يكن ConnectionMonitor متاحاً، نتحقق من إعدادات Google
             isConnected = !!(AppState.googleConfig?.appsScript?.enabled && 
                            AppState.googleConfig?.appsScript?.scriptUrl);
         }
@@ -7606,7 +7883,7 @@ window.UI = {
         syncBtn.classList.remove('connected', 'disconnected');
         if (isConnected) {
             syncBtn.classList.add('connected');
-            syncBtn.title = 'متصل - مزامنة البيانات مع قاعدة البيانات';
+            syncBtn.title = 'متصل';
         } else {
             syncBtn.classList.add('disconnected');
             syncBtn.title = 'غير متصل - لا يمكن المزامنة';
@@ -7670,16 +7947,19 @@ window.UI = {
         // إيقاف المزامنة السابقة إن وجدت
         this.stopBackgroundSync();
 
-        // التحقق من وجود مستخدم مسجل دخول وقاعدة البيانات متصلة (Supabase أو Google Script)
-        const hasBackend = AppState.useSupabaseBackend === true || (AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl);
-        if (!AppState.currentUser || !hasBackend) {
+        // التحقق من وجود مستخدم مسجل دخول و Google Sheets مفعّل
+        if (!AppState.currentUser || 
+            !AppState.googleConfig?.appsScript?.enabled || 
+            !AppState.googleConfig?.appsScript?.scriptUrl) {
             return;
         }
 
         // بدء المزامنة التلقائية الدورية
         this._backgroundSyncInterval = setInterval(() => {
-            const stillHasBackend = AppState.useSupabaseBackend === true || (AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl);
-            if (!AppState.currentUser || !stillHasBackend) {
+            // التحقق من وجود مستخدم مسجل دخول
+            if (!AppState.currentUser || 
+                !AppState.googleConfig?.appsScript?.enabled || 
+                !AppState.googleConfig?.appsScript?.scriptUrl) {
                 this.stopBackgroundSync();
                 return;
             }
@@ -7833,6 +8113,26 @@ window.UI = {
     },
 
     /**
+     * تموضع قائمة اللغة بجانب الزر (fixed لتجنب القص داخل sidebar)
+     */
+    _positionLanguageDropdown(langDropdown, langToggle) {
+        if (!langDropdown || !langToggle) return;
+        const rect = langToggle.getBoundingClientRect();
+        const margin = 8;
+        const vh = document.documentElement.clientHeight || window.innerHeight;
+        const isRTL = (document.documentElement.getAttribute('dir') || '').toLowerCase() === 'rtl';
+        langDropdown.style.position = 'fixed';
+        langDropdown.style.zIndex = '10002';
+        langDropdown.style.left = isRTL ? 'auto' : (rect.left + 'px');
+        langDropdown.style.right = isRTL ? (window.innerWidth - rect.right + 'px') : 'auto';
+        langDropdown.style.top = (rect.bottom + margin) + 'px';
+        const ddHeight = langDropdown.offsetHeight || 120;
+        if (rect.bottom + margin + ddHeight > vh - margin) {
+            langDropdown.style.top = (rect.top - ddHeight - margin) + 'px';
+        }
+    },
+
+    /**
      * تهيئة زر اللغة
      */
     initLanguageToggle() {
@@ -7851,18 +8151,158 @@ window.UI = {
         const savedLang = localStorage.getItem('language') || AppState.currentLanguage || 'ar';
         this.setLanguage(savedLang, true); // true = تهيئة أولية (لا نعرض إشعار)
 
-        // ربط الزر
+        // إنشاء القائمة المنسدلة للغات إذا لم تكن موجودة — تُضاف إلى body لتجنب القص داخل sidebar
+        let langDropdown = document.getElementById('main-language-dropdown');
+        if (!langDropdown) {
+            langDropdown = document.createElement('div');
+            langDropdown.id = 'main-language-dropdown';
+            langDropdown.className = 'language-dropdown bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg mt-1 hidden';
+            langDropdown.style.minWidth = '140px';
+            langDropdown.setAttribute('role', 'menu');
+            langDropdown.innerHTML = `
+                <button type="button" class="block w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300" data-lang="ar">
+                    <span class="ml-2">🇸🇦</span> العربية
+                </button>
+                <button type="button" class="block w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300" data-lang="en">
+                    <span class="ml-2">🇬🇧</span> English
+                </button>
+            `;
+            document.body.appendChild(langDropdown);
+        }
+
+        // ربط الزر لفتح/إغلاق القائمة
         langToggle.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            const currentLang = localStorage.getItem('language') || AppState.currentLanguage || 'ar';
-            const newLang = currentLang === 'ar' ? 'en' : 'ar';
-            this.setLanguage(newLang);
+            
+            const isHidden = langDropdown.classList.contains('hidden');
+            if (isHidden) {
+                this._positionLanguageDropdown(langDropdown, langToggle);
+                langDropdown.classList.remove('hidden');
+                langDropdown.classList.add('show');
+                langToggle.classList.add('active');
+            } else {
+                langDropdown.classList.add('hidden');
+                langDropdown.classList.remove('show');
+                langToggle.classList.remove('active');
+            }
+        });
+
+        // معالجة اختيار اللغة من القائمة
+        const langButtons = langDropdown.querySelectorAll('[data-lang]');
+        langButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const selectedLang = btn.getAttribute('data-lang');
+                const currentLang = localStorage.getItem('language') || AppState.currentLanguage || 'ar';
+                
+                if (selectedLang !== currentLang) {
+                    this.setLanguage(selectedLang);
+                }
+                
+                // إغلاق القائمة
+                langDropdown.classList.add('hidden');
+                langDropdown.classList.remove('show');
+                langToggle.classList.remove('active');
+            });
+        });
+
+        // إغلاق القائمة عند النقر خارجها
+        document.addEventListener('click', (e) => {
+            if (!langToggle.contains(e.target) && !langDropdown.contains(e.target)) {
+                langDropdown.classList.add('hidden');
+                langDropdown.classList.remove('show');
+                langToggle.classList.remove('active');
+            }
         });
 
         langToggle.dataset.languageBound = 'true';
 
+        // تهيئة تبديل اللغة في شاشة تسجيل الدخول أيضاً
+        this.initLoginLanguageToggle();
+
         Utils.safeLog('✅ تم تهيئة زر اللغة');
+    },
+
+    /**
+     * تهيئة تبديل اللغة في شاشة تسجيل الدخول
+     */
+    initLoginLanguageToggle() {
+        const loginLangToggle = document.getElementById('login-language-toggle-btn');
+        const loginLangDropdown = document.getElementById('login-language-dropdown');
+        
+        if (!loginLangToggle || !loginLangDropdown) {
+            return; // لا نعرض تحذير إذا كنا لسنا في شاشة تسجيل الدخول
+        }
+
+        // التحقق مما إذا كان login-init-fixed.js قد قام بالفعل بتهيئة الزر
+        if (loginLangToggle.dataset.handlerBound === 'true') {
+            Utils.safeLog('ℹ️ زر اللغة في شاشة تسجيل الدخول مفعل مسبقاً بواسطة login-init-fixed.js');
+            return;
+        }
+
+        // منع تكرار الربط من هذا الملف أيضاً
+        if (loginLangToggle.dataset.loginLangBound === 'true') {
+            return;
+        }
+
+        // تحميل اللغة الحالية
+        const currentLang = localStorage.getItem('language') || 'ar';
+        const currentLangText = loginLangToggle.querySelector('#current-lang-text');
+        if (currentLangText) {
+            currentLangText.textContent = currentLang === 'ar' ? 'العربية' : 'English';
+        }
+
+        // تبديل القائمة المنسدلة
+        loginLangToggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const isHidden = loginLangDropdown.classList.contains('hidden');
+            if (isHidden) {
+                loginLangDropdown.classList.remove('hidden');
+                loginLangDropdown.classList.add('show');
+                loginLangToggle.classList.add('active');
+            } else {
+                loginLangDropdown.classList.add('hidden');
+                loginLangDropdown.classList.remove('show');
+                loginLangToggle.classList.remove('active');
+            }
+        });
+
+        // معالجة اختيار اللغة
+        const langButtons = loginLangDropdown.querySelectorAll('[data-lang]');
+        langButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const selectedLang = btn.getAttribute('data-lang');
+                const savedLang = localStorage.getItem('language') || 'ar';
+                if (selectedLang !== savedLang) {
+                    this.setLanguage(selectedLang);
+                }
+                
+                // إغلاق القائمة
+                loginLangDropdown.classList.add('hidden');
+                loginLangDropdown.classList.remove('show');
+                loginLangToggle.classList.remove('active');
+            });
+        });
+
+        // إغلاق القائمة عند النقر خارجها
+        document.addEventListener('click', (e) => {
+            if (!loginLangToggle.contains(e.target) && !loginLangDropdown.contains(e.target)) {
+                loginLangDropdown.classList.add('hidden');
+                loginLangDropdown.classList.remove('show');
+                loginLangToggle.classList.remove('active');
+            }
+        });
+
+        loginLangToggle.dataset.loginLangBound = 'true';
+        Utils.safeLog('✅ تم تهيئة تبديل اللغة في شاشة تسجيل الدخول');
     },
 
     /**
@@ -8021,10 +8461,16 @@ window.UI = {
             }
         `;
 
-        // تحديث نص الزر
-        const langText = document.getElementById('current-lang-text');
-        if (langText) {
-            langText.textContent = lang === 'ar' ? 'العربية' : 'English';
+        // تحديث نص زر اللغة في التطبيق الرئيسي (مع تجنب تعارض IDs المكررة)
+        const mainLangText = document.querySelector('#language-toggle #current-lang-text');
+        if (mainLangText) {
+            mainLangText.textContent = lang === 'ar' ? 'العربية' : 'English';
+        }
+
+        // تحديث نص زر اللغة في شاشة الدخول عند وجوده
+        const loginLangText = document.querySelector('#login-language-toggle-btn #current-lang-text');
+        if (loginLangText) {
+            loginLangText.textContent = lang === 'ar' ? 'العربية' : 'English';
         }
 
         // تحديث جميع العناصر التي تحتوي على data-i18n (القائمة + لوحة التحكم)
@@ -8034,6 +8480,7 @@ window.UI = {
                 'dash.overview': 'نظرة عامة على أنشطة السلامة المهنية',
                 'dash.totalIncidents': 'إجمالي الحوادث',
                 'dash.thisMonth': 'هذا الشهر',
+                'dash.thisYearByRegistration': 'هذا العام بناءً على التسجيل',
                 'dash.activeUsers': 'المستخدمين النشطين',
                 'dash.registeredUser': 'مستخدم مسجل',
                 'dash.workPermits': 'تصاريح العمل',
@@ -8101,6 +8548,7 @@ window.UI = {
                 'dash.overview': 'Overview of Occupational Safety Activities',
                 'dash.totalIncidents': 'Total Incidents',
                 'dash.thisMonth': 'This Month',
+                'dash.thisYearByRegistration': 'This year by registration',
                 'dash.activeUsers': 'Active Users',
                 'dash.registeredUser': 'Registered User',
                 'dash.workPermits': 'Work Permits',
@@ -8173,6 +8621,9 @@ window.UI = {
             }
         });
 
+        // تحديث نصوص تسجيل الدخول إذا كنا في شاشة الدخول
+        this.updateLoginScreenTexts(lang);
+
         // تحديث aria-label للـ navigation
         const navElement = document.querySelector('nav.navigation');
         if (navElement) {
@@ -8218,6 +8669,9 @@ window.UI = {
             }
         } catch (e) { /* تجاهل */ }
 
+        // إصلاحات إضافية للقائمة الجانبية في اللغة الإنجليزية
+        this.fixSidebarForLanguage(lang, isRTL);
+
         // عرض الإشعار فقط إذا لم تكن هذه تهيئة أولية وكانت الواجهة جاهزة
         if (!isInitialLoad) {
             try {
@@ -8232,6 +8686,320 @@ window.UI = {
                 Utils.safeWarn('⚠️ خطأ في عرض إشعار تغيير اللغة:', error);
             }
         }
+    },
+
+    /**
+     * تحديث نصوص شاشة تسجيل الدخول
+     */
+    updateLoginScreenTexts(lang) {
+        const loginTexts = {
+            ar: {
+                'login-email-text': 'البريد الإلكتروني',
+                'login-password-text': 'كلمة المرور',
+                'login-submit-text': 'تسجيل الدخول',
+                'login-help-text': 'مساعدة / Help',
+                'login-forgot-text': 'نسيت كلمة المرور؟',
+                'current-lang-text': 'العربية'
+            },
+            en: {
+                'login-email-text': 'Email',
+                'login-password-text': 'Password',
+                'login-submit-text': 'Log in',
+                'login-help-text': 'Help',
+                'login-forgot-text': 'Forgot password?',
+                'current-lang-text': 'English'
+            }
+        };
+
+        const texts = loginTexts[lang];
+        if (!texts) return;
+
+        const loginCurrentLangText = document.querySelector('#login-language-toggle-btn #current-lang-text');
+        if (loginCurrentLangText && texts['current-lang-text']) {
+            loginCurrentLangText.textContent = texts['current-lang-text'];
+        }
+
+        Object.entries(texts).forEach(([id, text]) => {
+            if (id === 'current-lang-text') {
+                return;
+            }
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = text;
+            }
+        });
+
+        // تحديث عناصر data-i18n في شاشة تسجيل الدخول
+        const loginI18nElements = document.querySelectorAll('#login-form [data-i18n]');
+        loginI18nElements.forEach(element => {
+            const key = element.getAttribute('data-i18n');
+            if (texts[key]) {
+                element.textContent = texts[key];
+            }
+        });
+    },
+
+    /**
+     * إصلاحات خاصة بالقائمة الجانبية عند تغيير اللغة
+     */
+    fixSidebarForLanguage(lang, isRTL) {
+        const sidebar = document.querySelector('.sidebar');
+        if (!sidebar) return;
+
+        // إصلاحات خاصة باللغة الإنجليزية
+        if (!isRTL) {
+            // تحديث موضع القائمة الجانبية - نفس العربية تماماً ولكن على اليسار
+            sidebar.style.position = 'fixed';
+            sidebar.style.top = '0';
+            sidebar.style.left = '0';
+            sidebar.style.right = 'auto';
+            sidebar.style.width = 'var(--sidebar-width, 280px)';
+            sidebar.style.height = '100vh';
+            sidebar.style.zIndex = '100'; // تقليل z-index لتجنب التداخل مع الهيدر
+            sidebar.style.backgroundColor = '#003865'; // نفس لون العربية
+            sidebar.style.borderRight = '3px solid #FFC72C';
+            sidebar.style.borderLeft = 'none';
+            sidebar.style.boxShadow = '2px 0 10px rgba(0,0,0,0.1)';
+            sidebar.style.overflowY = 'auto';
+            sidebar.style.overflowX = 'hidden';
+
+            // تحديث اتجاه القائمة
+            sidebar.dir = 'ltr';
+
+            // إصلاح عناصر القائمة
+            const navItems = sidebar.querySelectorAll('.nav-item');
+            navItems.forEach(item => {
+                item.style.display = 'flex';
+                item.style.alignItems = 'center';
+                item.style.width = 'calc(100% - 16px)';
+                item.style.padding = '12px 12px 12px 16px';
+                item.style.margin = '4px 8px';
+                item.style.borderRadius = '8px';
+                item.style.color = 'white';
+                item.style.textDecoration = 'none';
+                item.style.transition = 'all 0.3s ease';
+                item.style.cursor = 'pointer';
+                item.style.borderLeft = '4px solid transparent';
+                item.style.borderRight = 'none';
+                item.style.flexDirection = 'row';
+                
+                // إصلاح الأيقونات والنصوص
+                const icon = item.querySelector('i');
+                const text = item.querySelector('span');
+                
+                if (icon) {
+                    icon.style.fontSize = '18px';
+                    icon.style.width = '24px';
+                    icon.style.textAlign = 'center';
+                    icon.style.marginRight = '12px';
+                    icon.style.marginLeft = '0';
+                    icon.style.flexShrink = '0';
+                    icon.style.color = 'white';
+                }
+                
+                if (text) {
+                    text.style.fontSize = '14px';
+                    text.style.fontWeight = '500';
+                    text.style.textAlign = 'left';
+                    text.style.flex = '1';
+                    text.style.whiteSpace = 'nowrap';
+                    text.style.overflow = 'hidden';
+                    text.style.textOverflow = 'ellipsis';
+                    text.style.color = 'white';
+                }
+            });
+
+            // إصلاح رأس القائمة
+            const sidebarHeader = sidebar.querySelector('.sidebar-header');
+            if (sidebarHeader) {
+                sidebarHeader.style.padding = '20px 16px';
+                sidebarHeader.style.borderBottom = '1px solid rgba(255,255,255,0.2)';
+                sidebarHeader.style.textAlign = 'left';
+            }
+
+            // إصلاح شعار القائمة
+            const logo = sidebarHeader?.querySelector('.logo') || sidebar.querySelector('.logo');
+            if (logo) {
+                logo.style.fontSize = '20px';
+                logo.style.fontWeight = 'bold';
+                logo.style.color = 'white';
+                logo.style.textAlign = 'left';
+                logo.style.marginBottom = '8px';
+            }
+
+            // تحديث مساحة المحتوى الرئيسي - نفس العربية
+            const appShell = document.querySelector('.app-shell');
+            if (appShell) {
+                appShell.style.marginLeft = 'var(--sidebar-width, 280px)';
+                appShell.style.marginRight = '0';
+                appShell.style.width = 'calc(100% - var(--sidebar-width, 280px))';
+                appShell.style.transition = 'margin-left 0.3s ease, width 0.3s ease';
+                appShell.style.minHeight = '100vh';
+            }
+
+            // إصلاح المحتوى الرئيسي
+            const mainContent = document.querySelector('.main-content');
+            if (mainContent) {
+                mainContent.style.marginLeft = '0';
+                mainContent.style.marginRight = '0';
+                mainContent.style.width = '100%';
+            }
+
+            // إضافة CSS ديناميكي شامل للإصلاحات
+            const styleId = 'sidebar-english-fix-v2';
+            let styleElement = document.getElementById(styleId);
+            if (!styleElement) {
+                styleElement = document.createElement('style');
+                styleElement.id = styleId;
+                document.head.appendChild(styleElement);
+            }
+            
+            styleElement.textContent = `
+                /* إصلاحات القائمة الجانبية في اللغة الإنجليزية */
+                [dir="ltr"] .sidebar {
+                    position: fixed !important;
+                    top: 0 !important;
+                    left: 0 !important;
+                    right: auto !important;
+                    width: var(--sidebar-width, 280px) !important;
+                    height: 100vh !important;
+                    z-index: 100 !important;
+                    background: linear-gradient(180deg, #003865 0%, #004C8C 50%, #003865 100%) !important;
+                    border-right: 3px solid #FFC72C !important;
+                    border-left: none !important;
+                    box-shadow: 2px 0 10px rgba(0,0,0,0.1) !important;
+                    overflow-y: auto !important;
+                    overflow-x: hidden !important;
+                    transform: translateX(0) !important;
+                    transition: transform 0.3s ease !important;
+                }
+                
+                /* Closed state for desktop in LTR */
+                [dir="ltr"] .sidebar:not(.open) {
+                    transform: translateX(-100%) !important;
+                }
+                
+                [dir="ltr"] .sidebar.open {
+                    transform: translateX(0) !important;
+                }
+                
+                [dir="ltr"] .sidebar .nav-item {
+                    display: flex !important;
+                    align-items: center !important;
+                    width: calc(100% - 16px) !important;
+                    padding: 12px 12px 12px 16px !important;
+                    margin: 4px 8px !important;
+                    border-radius: 8px !important;
+                    color: white !important;
+                    border-left: 4px solid transparent !important;
+                    border-right: none !important;
+                    flex-direction: row !important;
+                    text-decoration: none !important;
+                    transition: all 0.3s ease !important;
+                }
+                
+                [dir="ltr"] .sidebar .nav-item:hover {
+                    background: rgba(255,255,255,0.1) !important;
+                    border-left-color: #FFC72C !important;
+                    transform: translateX(3px) !important;
+                }
+                
+                [dir="ltr"] .sidebar .nav-item.active {
+                    background: rgba(255,255,255,0.15) !important;
+                    border-left-color: #FFC72C !important;
+                }
+                
+                [dir="ltr"] .sidebar .nav-item i {
+                    font-size: 18px !important;
+                    width: 24px !important;
+                    text-align: center !important;
+                    margin-right: 12px !important;
+                    margin-left: 0 !important;
+                    flex-shrink: 0 !important;
+                    color: white !important;
+                }
+                
+                [dir="ltr"] .sidebar .nav-item span {
+                    font-size: 14px !important;
+                    font-weight: 500 !important;
+                    text-align: left !important;
+                    flex: 1 !important;
+                    white-space: nowrap !important;
+                    overflow: hidden !important;
+                    text-overflow: ellipsis !important;
+                    color: white !important;
+                }
+                
+                /* إصلاح app-shell في اللغة الإنجليزية */
+                [dir="ltr"] .app-shell {
+                    margin-left: var(--sidebar-width, 280px) !important;
+                    margin-right: 0 !important;
+                    width: calc(100% - var(--sidebar-width, 280px)) !important;
+                    min-height: 100vh !important;
+                    transition: margin-left 0.3s ease, width 0.3s ease !important;
+                }
+                
+                [dir="ltr"] .main-content {
+                    margin-left: 0 !important;
+                    margin-right: 0 !important;
+                    width: 100% !important;
+                }
+                
+                [dir="ltr"] .mobile-topbar {
+                    left: var(--sidebar-width, 280px) !important;
+                    right: 0 !important;
+                    width: calc(100% - var(--sidebar-width, 280px)) !important;
+                }
+                
+                @media (max-width: 1024px) {
+                    [dir="ltr"] .sidebar {
+                        z-index: 1000 !important;
+                    }
+                    
+                    [dir="ltr"] .app-shell {
+                        margin-left: 0 !important;
+                        width: 100% !important;
+                    }
+                    
+                    [dir="ltr"] .mobile-topbar {
+                        left: 0 !important;
+                        width: 100% !important;
+                    }
+                }
+                
+                /* When sidebar is closed on desktop in LTR, app-shell takes full width */
+                @media (min-width: 1025px) {
+                    [dir="ltr"] .sidebar:not(.open) ~ .app-shell,
+                    [dir="ltr"] body:has(.sidebar:not(.open)) .app-shell {
+                        margin-left: 0 !important;
+                        width: 100% !important;
+                    }
+                }
+            `;
+
+        } else {
+            // إصلاحات للغة العربية (استعادة الحالة الأصلية)
+            sidebar.style.position = 'fixed';
+            sidebar.style.top = '0';
+            sidebar.style.right = '0';
+            sidebar.style.left = 'auto';
+            sidebar.style.width = 'var(--sidebar-width, 280px)';
+            sidebar.style.height = '100vh';
+            sidebar.style.zIndex = '100';
+            sidebar.style.background = 'linear-gradient(180deg, #003865 0%, #004C8C 50%, #003865 100%)';
+            sidebar.style.borderLeft = '3px solid #FFC72C';
+            sidebar.style.borderRight = 'none';
+            sidebar.style.boxShadow = '-2px 0 10px rgba(0,0,0,0.1)';
+            sidebar.dir = 'rtl';
+
+            const appShell = document.querySelector('.app-shell');
+            if (appShell) {
+                appShell.classList.add('rtl-layout');
+                appShell.classList.remove('ltr-layout');
+            }
+        }
+
+        Utils.safeLog(`✅ تم إصلاح القائمة الجانبية للغة: ${lang}`);
     },
 
     /**

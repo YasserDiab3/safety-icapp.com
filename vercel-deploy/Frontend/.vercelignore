@@ -1,0 +1,10 @@
+# لا تحميل node_modules — سيتم تثبيتها أثناء البناء إن لزم
+node_modules
+# ملفات التطوير والتوثيق الاختيارية
+*.md
+!README.md
+.git
+.env.local
+.env.*.local
+*.log
+.DS_Store

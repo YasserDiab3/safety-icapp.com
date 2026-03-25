@@ -1,9 +1,6 @@
 # ملفات غير مطلوبة للنشر على Netlify
 # Files not needed for Netlify deployment
 
-# ===== صفحة توليد المفتاح (لا تُنشر على الموقع المباشر) =====
-generate-api-secret.html
-
 # ===== ملفات التوثيق (Documentation Files) =====
 # هذه الملفات للتوثيق فقط ولا تحتاج للنشر
 *.md

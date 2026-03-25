@@ -1,4 +1,4 @@
-﻿/**
+/**
  * PTW Module
  * تم استخراجه من app-modules.js
  */
@@ -220,7 +220,7 @@ const PTW = {
             'أعمال في الأماكن المغلقة': 'CSW',
             'أعمال أخرى': 'OTW'
         };
-        return prefixes[workType] || 'PTW';
+        return prefixes[workType] || 'PTW'; // Consider if different work types sharing a prefix should have separate sequential IDs.
     },
 
     /**
@@ -235,6 +235,9 @@ const PTW = {
             if (!p.id) return false;
             // إذا كان workType فارغاً، نستخدم جميع التصاريح التي تبدأ بـ PTW_ أو لا تحتوي على workType
             if (!workType || workType.trim() === '') {
+                // If no specific workType is provided, consider if all generic PTWs should be grouped.
+                // Current logic groups PTWs with no workType or those starting with 'PTW_'.
+                // This might lead to incorrect sequential IDs if 'PTW_' is a generic prefix and specific work types should have their own sequences.
                 return !p.workType || p.workType.trim() === '' || p.id.startsWith('PTW_');
             }
             if (!p.workType) return false;
@@ -248,6 +251,8 @@ const PTW = {
             if (ptw.id && ptw.id.includes('_')) {
                 const parts = ptw.id.split('_');
                 if (parts.length > 1) {
+                    // Assuming the numeric part is always the last segment after the last underscore.
+                    // This might be fragile if ID formats vary or contain non-numeric last segments.
                     const num = parseInt(parts[parts.length - 1]);
                     if (!isNaN(num) && num > lastNumber) {
                         lastNumber = num;
@@ -292,6 +297,32 @@ const PTW = {
             Utils.safeWarn('⚠️ خطأ في الحصول على قائمة المواقع:', error);
             return [];
         }
+    },
+
+    /** إعادة تعبئة قوائم الموقع/المكان الفرعي عند اكتمال تحميل إعدادات النماذج (استدعاء تلقائي من حدث formSettingsUpdated) */
+    refreshSiteDropdowns() {
+        try {
+            const sites = this.getSiteOptions();
+            const esc = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML : (s) => String(s == null ? '' : s);
+            const opts = (empty) => '<option value="">' + (empty || 'اختر الموقع') + '</option>' + (sites || []).map(s => '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>').join('');
+            const locationIds = ['manual-permit-location', 'ptw-filter-location', 'ptw-location', 'analysis-location'];
+            locationIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el && el.tagName === 'SELECT') { const v = el.value; el.innerHTML = opts('اختر الموقع'); if (v) el.value = esc(v); }
+            });
+            const subIds = ['manual-permit-sublocation', 'ptw-filter-sublocation', 'ptw-sublocation'];
+            subIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el && el.tagName === 'SELECT') {
+                    const locId = (document.getElementById('ptw-location') || document.getElementById('manual-permit-location') || {}).value;
+                    const places = this.getPlaceOptions(locId);
+                    const ph = 'اختر المكان الفرعي';
+                    const v = el.value;
+                    el.innerHTML = '<option value="">' + ph + '</option>' + (places || []).map(p => '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>').join('');
+                    if (v) el.value = esc(v);
+                }
+            });
+        } catch (e) { if (typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('⚠️ PTW.refreshSiteDropdowns:', e); }
     },
 
     /**
@@ -443,7 +474,7 @@ const PTW = {
     /**
      * حفظ بيانات السجل
      * @param {Object} options - خيارات الحفظ
-     * @param {boolean} options.skipSync - تجاهل المزامنة مع قاعدة البيانات (مفيد عند التحميل الأولي)
+     * @param {boolean} options.skipSync - تجاهل المزامنة مع Google Sheets (مفيد عند التحميل الأولي)
      */
     async saveRegistryData(options = {}) {
         try {
@@ -457,7 +488,7 @@ const PTW = {
             // تحديث عرض السجل إذا كان مرئياً
             this.refreshRegistryViewIfVisible();
 
-            // المزامنة مع قاعدة البيانات (فقط إذا لم يتم تخطي المزامنة)
+            // المزامنة مع Google Sheets (فقط إذا لم يتم تخطي المزامنة)
             if (!skipSync && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                 await GoogleIntegration.autoSave('PTWRegistry', this.registryData);
             }
@@ -593,26 +624,28 @@ const PTW = {
 
             // استخراج supervisor1 و supervisor2 كـ strings فقط (وليس objects)
             let supervisor1 = 'غير محدد';
-            if (permit.approvals && permit.approvals[0]) {
-                const approver1 = permit.approvals[0].approver;
+            const supervisor1Approval = permit.approvals?.find(a => a.role === 'مسؤول الجهة الطالبة' || a.role === 'مدير منطقة الأعمال'); // Example: find by specific role
+            if (supervisor1Approval) {
+                const approver1 = supervisor1Approval.approver;
                 if (typeof approver1 === 'string') {
                     supervisor1 = approver1;
                 } else if (typeof approver1 === 'object' && approver1) {
-                    supervisor1 = approver1.name || approver1.email || approver1.id || permit.approvals[0].role || 'غير محدد';
+                    supervisor1 = approver1.name || approver1.email || approver1.id || supervisor1Approval.role || 'غير محدد';
                 } else {
-                    supervisor1 = permit.approvals[0].role || 'غير محدد';
+                    supervisor1 = supervisor1Approval.role || 'غير محدد';
                 }
             }
 
             let supervisor2 = 'غير محدد';
-            if (permit.approvals && permit.approvals[1]) {
-                const approver2 = permit.approvals[1].approver;
+            const supervisor2Approval = permit.approvals?.find(a => a.role === 'مسؤول السلامة والصحة المهنية'); // Example: find by specific role
+            if (supervisor2Approval) {
+                const approver2 = supervisor2Approval.approver;
                 if (typeof approver2 === 'string') {
                     supervisor2 = approver2;
                 } else if (typeof approver2 === 'object' && approver2) {
-                    supervisor2 = approver2.name || approver2.email || approver2.id || permit.approvals[1].role || 'غير محدد';
+                    supervisor2 = approver2.name || approver2.email || approver2.id || supervisor2Approval.role || 'غير محدد';
                 } else {
-                    supervisor2 = permit.approvals[1].role || 'غير محدد';
+                    supervisor2 = supervisor2Approval.role || 'غير محدد';
                 }
             }
 
@@ -620,7 +653,8 @@ const PTW = {
                 id: Utils.generateId('REG'),
                 sequentialNumber: sequentialNumber,
                 permitId: permit.id,
-                openDate: permit.createdAt || permit.startDate || new Date().toISOString(),
+                // مواءمة تاريخ السجل مع تاريخ/وقت بدء العمل (نفس منطق عرض التصريح وليس تاريخ الإنشاء فقط)
+                openDate: permit.startDate || permit.createdAt || new Date().toISOString(),
                 permitType: permitType, // string دائماً
                 permitTypeDisplay: permitTypeDisplay,
                 requestingParty: String(permit.requestingParty || 'غير محدد').trim(),
@@ -635,7 +669,7 @@ const PTW = {
                 workDescription: String(permit.workDescription || 'غير محدد').trim(),
                 supervisor1: String(supervisor1).trim(),
                 supervisor2: String(supervisor2).trim(),
-                status: (permit.status === 'مغلق' || permit.status === 'مرفوض') ? 'مغلق' : 'مفتوح',
+                status: (permit.status === 'مغلق' || permit.status === 'مرفوض') ? 'مغلق' : (permit.status === 'اكتمل العمل بشكل آمن' || permit.status === 'إغلاق جبري' ? permit.status : 'مفتوح'),
                 closureDate: null,
                 closureReason: null,
                 createdAt: new Date().toISOString(),
@@ -761,16 +795,20 @@ const PTW = {
         entry.sublocation = permit.sublocationName || permit.sublocation ? String(permit.sublocationName || permit.sublocation).trim() : (entry.sublocation ? String(entry.sublocation).trim() : null);
         entry.timeFrom = permit.startDate || entry.timeFrom;
         entry.timeTo = permit.endDate || entry.timeTo;
+        if (permit.startDate) {
+            entry.openDate = permit.startDate;
+        }
         entry.totalTime = String(this.calculateTotalTime(permit.startDate, permit.endDate) || entry.totalTime || '').trim();
         entry.authorizedParty = String(permit.authorizedParty || entry.authorizedParty || 'غير محدد').trim();
         entry.workDescription = String(permit.workDescription || entry.workDescription || 'غير محدد').trim();
         entry.supervisor1 = String(supervisor1).trim();
         entry.supervisor2 = String(supervisor2).trim();
-        entry.status = (permit.status === 'مغلق' || permit.status === 'مرفوض') ? 'مغلق' : 'مفتوح';
+        const isClosedStatus = (s) => s === 'مغلق' || s === 'مرفوض' || s === 'اكتمل العمل بشكل آمن' || s === 'إغلاق جبري';
+        entry.status = (permit.status === 'مغلق' || permit.status === 'مرفوض') ? 'مغلق' : (permit.status === 'اكتمل العمل بشكل آمن' || permit.status === 'إغلاق جبري' ? permit.status : 'مفتوح');
         entry.updatedAt = new Date().toISOString();
 
-        // تحديث بيانات الإغلاق إذا كان مغلقاً
-        if (permit.status === 'مغلق' || permit.closureTime) {
+        // تحديث بيانات الإغلاق إذا كان مغلقاً (مغلق أو اكتمل العمل بشكل آمن أو إغلاق جبري)
+        if (isClosedStatus(permit.status) || permit.closureTime) {
             entry.closureDate = permit.closureTime || new Date().toISOString();
             entry.closureReason = permit.closureReason || 'تم الإغلاق';
             entry.totalTime = this.calculateTotalTime(entry.timeFrom, entry.closureDate);
@@ -840,23 +878,21 @@ const PTW = {
     },
 
     /**
-     * تحميل بيانات PTWRegistry من Backend (Supabase أو قاعدة البيانات)
+     * تحميل بيانات PTWRegistry من Backend
      */
     async loadRegistryFromBackend() {
         try {
-            const useSupabase = AppState.useSupabaseBackend === true;
-            const hasGoogle = AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl;
-            if (!GoogleIntegration || (!useSupabase && !hasGoogle)) {
+            if (!GoogleIntegration || !AppState.googleConfig?.appsScript?.enabled) {
                 return false;
             }
 
-            // محاولة تحميل من Backend (Supabase أو Google)
+            // محاولة تحميل من Backend إذا كان متاحاً
             try {
                 const result = await GoogleIntegration.sendRequest({
                     action: 'readFromSheet',
                     data: {
                         sheetName: 'PTWRegistry',
-                        spreadsheetId: AppState.googleConfig?.sheets?.spreadsheetId || null
+                        spreadsheetId: AppState.googleConfig.sheets.spreadsheetId
                     }
                 });
 
@@ -914,6 +950,13 @@ const PTW = {
     },
 
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
         // التحقق من وجود التبعيات المطلوبة
         if (typeof Utils === 'undefined') {
             console.error('Utils غير متوفر!');
@@ -941,7 +984,7 @@ const PTW = {
             // تحميل إحداثيات المواقع من MapCoordinatesManager (إذا كان متاحاً)
             if (typeof MapCoordinatesManager !== 'undefined' && MapCoordinatesManager.syncFromGoogleSheets) {
                 MapCoordinatesManager.syncFromGoogleSheets().then(() => {
-                    Utils.safeLog('✅ تم مزامنة إحداثيات المواقع من قاعدة البيانات');
+                    Utils.safeLog('✅ تم مزامنة إحداثيات المواقع من Google Sheets');
                 }).catch(error => {
                     Utils.safeWarn('⚠️ تعذر مزامنة إحداثيات المواقع:', error);
                 });
@@ -1244,13 +1287,17 @@ const PTW = {
                 mapContent.style.display = 'none';
                 mapContent.style.visibility = 'hidden';
                 mapContent.style.opacity = '0';
-                mapContent.style.position = 'absolute';
-                mapContent.style.left = '-9999px';
-                mapContent.style.width = '0';
-                mapContent.style.height = '0';
-                mapContent.style.overflow = 'hidden';
-                mapContent.style.pointerEvents = 'none';
-                mapContent.style.zIndex = '-1';
+                // Consider using a CSS class for hiding/showing to simplify style management
+                // e.g., mapContent.classList.add('hidden-map-tab');
+                // mapContent.classList.remove('hidden-map-tab');
+                // If absolute positioning is needed for layout, ensure it's managed carefully.
+                // mapContent.style.position = 'absolute';
+                // mapContent.style.left = '-9999px';
+                // mapContent.style.width = '0';
+                // mapContent.style.height = '0';
+                // mapContent.style.overflow = 'hidden';
+                // mapContent.style.pointerEvents = 'none';
+                // mapContent.style.zIndex = '-1';
                 // إيقاف أي عمليات تهيئة للخريطة
                 if (this.mapInitTimeout) {
                     clearTimeout(this.mapInitTimeout);
@@ -1573,9 +1620,14 @@ const PTW = {
                 allPermitsMap.set(permit.id, permit);
             }
         });
+        // Prioritize registry data for manual entries or if it's considered more authoritative
         permitsFromRegistry.forEach(permit => {
-            if (permit && permit.id && !allPermitsMap.has(permit.id)) {
-                allPermitsMap.set(permit.id, permit);
+            if (permit && permit.id) {
+                // If permit is already in map, decide which version to keep (e.g., registry version if it's a manual entry)
+                const existing = allPermitsMap.get(permit.id);
+                if (!existing || permit.isManualEntry) { // Example: Registry data takes precedence for manual entries
+                    allPermitsMap.set(permit.id, permit);
+                }
             }
         });
 
@@ -1700,6 +1752,9 @@ const PTW = {
                                 <i class="fas fa-calendar ml-2"></i>إلى تاريخ
                             </label>
                             <input type="date" id="registry-filter-date-to" class="form-input">
+                            <div id="registry-filter-count-wrapper" class="text-xs text-gray-600 mt-1">
+                                عدد التصاريح في الفترة: <span id="registry-filter-count">-</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1789,15 +1844,28 @@ const PTW = {
                 statusIcon = 'fa-clock';
             }
 
-            const formatDateTime = (dateStr) => {
+            /** تاريخ العمل: نفس مصدر تفاصيل التصريح (startDate المخزن في timeFrom) */
+            const workStartSource = entry.timeFrom || entry.openDate;
+            const registryDateStr = workStartSource && Utils.formatDate
+                ? Utils.formatDate(workStartSource)
+                : 'غير محدد';
+            const registryDateDisplay = !workStartSource || registryDateStr === '-' ? 'غير محدد' : registryDateStr;
+
+            /** وقت فقط — نفس أسلوب طباعة التصريح (من الساعة / إلى الساعة) */
+            const formatRegistryTime = (dateStr) => {
                 if (!dateStr || dateStr === 'غير محدد') return 'غير محدد';
                 try {
                     const date = new Date(dateStr);
-                    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-                } catch { return 'غير محدد'; }
+                    if (isNaN(date.getTime())) return 'غير محدد';
+                    return date.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: false });
+                } catch {
+                    return 'غير محدد';
+                }
             };
 
-            const timeToDisplay = entry.closureDate ? formatDateTime(entry.closureDate) : formatDateTime(entry.timeTo);
+            // «الوقت إلى» = نهاية مدة العمل المجدولة (endDate) كما في نموذج التصريح؛ وقت الإغلاق يُحسب في إجمالي الوقت فقط
+            const timeFromDisplay = formatRegistryTime(workStartSource);
+            const timeToDisplay = formatRegistryTime(entry.timeTo);
 
             // عرض أنواع التصريح (يمكن أن تكون مصفوفة أو نص)
             const permitTypeDisplay = this.getPermitTypeDisplay(entry);
@@ -1806,12 +1874,12 @@ const PTW = {
             tableHTML += `
                 <tr data-registry-id="${entry.id}">
                     <td class="font-bold text-blue-600">${entry.sequentialNumber}</td>
-                    <td>${formatDateTime(entry.openDate).split(' ')[0]}</td>
+                    <td>${Utils.escapeHTML(registryDateDisplay)}</td>
                     <td title="${Utils.escapeHTML(permitTypeDisplay)}">${Utils.escapeHTML(permitTypeShort)}</td>
                     <td>${Utils.escapeHTML(entry.requestingParty)}</td>
                     <td>${Utils.escapeHTML(entry.location)}</td>
-                    <td>${formatDateTime(entry.timeFrom)}</td>
-                    <td>${timeToDisplay}</td>
+                    <td>${Utils.escapeHTML(timeFromDisplay)}</td>
+                    <td>${Utils.escapeHTML(timeToDisplay)}</td>
                     <td class="font-semibold">${Utils.escapeHTML(entry.totalTime)}</td>
                     <td>${Utils.escapeHTML(entry.authorizedParty)}</td>
                     <td class="max-w-xs truncate" title="${Utils.escapeHTML(entry.workDescription)}">${Utils.escapeHTML(entry.workDescription).substring(0, 30)}...</td>
@@ -1826,23 +1894,13 @@ const PTW = {
                     <td>
                         <div class="flex items-center gap-1 flex-wrap">
                             ${entry.isManualEntry ? `
-                                <!-- أزرار التعديل والحذف للتصاريح اليدوية -->
-                                <button class="btn-icon btn-icon-primary" onclick="PTW.openManualPermitForm('${entry.id}')" title="تعديل التصريح">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                                <button class="btn-icon btn-icon-danger" onclick="PTW.deleteManualPermitEntry('${entry.id}')" title="حذف التصريح">
-                                    <i class="fas fa-trash"></i>
+                                <button class="btn btn-primary btn-sm" onclick="PTW.viewManualPermitDetails('${entry.id}')" title="عرض التفاصيل">
+                                    <i class="fas fa-eye ml-1"></i> عرض التفاصيل
                                 </button>
                             ` : `
-                                <!-- أزرار التصاريح العادية -->
-                                <button class="btn-icon btn-icon-info" onclick="PTW.viewRegistryDetails('${entry.permitId}')" title="عرض التفاصيل">
-                                    <i class="fas fa-eye"></i>
+                                <button class="btn btn-primary btn-sm" onclick="PTW.viewRegistryDetails('${entry.permitId}')" title="عرض التفاصيل">
+                                    <i class="fas fa-eye ml-1"></i> عرض التفاصيل
                                 </button>
-                                ${entry.status === 'مفتوح' ? `
-                                    <button class="btn-icon btn-icon-warning" onclick="PTW.closePermitFromRegistry('${entry.permitId}')" title="إغلاق التصريح">
-                                        <i class="fas fa-lock"></i>
-                                    </button>
-                                ` : ''}
                             `}
                         </div>
                     </td>
@@ -2736,9 +2794,9 @@ const PTW = {
                 resolved = true;
                 if (typeof google === 'undefined' || !google.maps) {
                     delete window[callbackName];
-                    reject(new Error('انتهت مهلة تحميل Google Maps API'));
+                    reject(new Error('انتهت مهلة تحميل Google Maps API (بعد 8 ثوانٍ)'));
                 }
-            }, 8000);
+            }, 8000); // Consider increasing timeout for slower networks or using a Promise.race pattern.
 
             document.head.appendChild(script);
         });
@@ -3546,7 +3604,7 @@ const PTW = {
             'CSP script-src': document.querySelector('meta[http-equiv="Content-Security-Policy"]') ? 'موجود' : 'غير موجود',
             'حاوية الخريطة': document.getElementById('ptw-map') ? 'موجودة' : 'غير موجودة',
             'الإحداثيات الافتراضية': JSON.stringify(this.getDefaultFactoryCoordinates()),
-            'عدد التصاريح المفتوحة': (AppState.appData?.ptw || []).filter(p => p.status !== 'مغلق' && p.status !== 'مرفوض').length
+            'عدد التصاريح المفتوحة': (AppState.appData?.ptw || []).filter(p => { const s = (p?.status || '').trim(); return s !== 'مغلق' && s !== 'مرفوض' && s !== 'اكتمل العمل بشكل آمن' && s !== 'إغلاق جبري'; }).length
         };
 
         const infoText = Object.entries(debugInfo)
@@ -3714,10 +3772,10 @@ const PTW = {
             window.DataManager.save();
         }
         
-        // حفظ في قاعدة البيانات إذا كان متاحاً
+        // حفظ في Google Sheets إذا كان متاحاً
         if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
             await GoogleIntegration.autoSave('PTW_MAP_SITES', sites).catch(err => {
-                Utils.safeWarn('⚠️ تعذر حفظ إعدادات المواقع في قاعدة البيانات:', err);
+                Utils.safeWarn('⚠️ تعذر حفظ إعدادات المواقع في Google Sheets:', err);
             });
         }
     },
@@ -4629,6 +4687,26 @@ const PTW = {
                             <p class="font-semibold" style="color: #000000;">${Utils.escapeHTML(registryEntry?.supervisor2 || '-')}</p>
                         </div>
                     </div>
+                    
+                    <!-- أزرار الإجراءات في أسفل النموذج -->
+                    <div class="mt-6 pt-4 border-t border-gray-200 flex flex-wrap gap-2 justify-center">
+                        <button class="btn-primary btn-sm" onclick="PTW.printPermit('${permitId}')">
+                            <i class="fas fa-print ml-1"></i> طباعة
+                        </button>
+                        ${isAdmin ? `
+                            <button class="btn-warning btn-sm" onclick="this.closest('.modal-overlay').remove(); PTW.editPTW('${permitId}')">
+                                <i class="fas fa-edit ml-1"></i> تعديل
+                            </button>
+                            <button class="btn-danger btn-sm" onclick="PTW.deletePermitFromRegistry('${permitId}'); this.closest('.modal-overlay').remove();">
+                                <i class="fas fa-trash ml-1"></i> حذف
+                            </button>
+                        ` : ''}
+                        ${isOpen ? `
+                            <button class="btn-secondary btn-sm" onclick="PTW.closePermitFromRegistry('${permitId}')">
+                                <i class="fas fa-lock ml-1"></i> إغلاق التصريح
+                            </button>
+                        ` : ''}
+                    </div>
                 </div>
                 
                 <div class="modal-footer border-t p-4 bg-gray-50 flex justify-center gap-2 form-actions-centered">
@@ -4685,18 +4763,6 @@ const PTW = {
                 </div>
                 
                 <div class="modal-body p-6">
-                    <!-- أزرار الإجراءات -->
-                    <div class="flex flex-wrap gap-2 mb-6 p-4 bg-gray-50 rounded-lg border">
-                        ${isAdmin ? `
-                            <button class="btn-warning btn-sm" onclick="this.closest('.modal-overlay').remove(); PTW.openManualPermitForm('${entry.id}')">
-                                <i class="fas fa-edit ml-1"></i> تعديل
-                            </button>
-                            <button class="btn-danger btn-sm" onclick="PTW.deleteManualPermitEntry('${entry.id}'); this.closest('.modal-overlay').remove();">
-                                <i class="fas fa-trash ml-1"></i> حذف
-                            </button>
-                        ` : ''}
-                    </div>
-                    
                     <!-- تفاصيل التصريح -->
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="space-y-3">
@@ -4752,6 +4818,24 @@ const PTW = {
                                 <p class="font-semibold" style="color: #000000;">${Utils.escapeHTML(entry.supervisor2 || '-')}</p>
                             </div>
                         </div>
+                    </div>
+                    
+                    <!-- أزرار الإجراءات في أسفل النموذج -->
+                    <div class="mt-6 pt-4 border-t border-gray-200 flex flex-wrap gap-2 justify-center">
+                        <button class="btn-primary btn-sm" onclick="PTW.printPermit('${entry.permitId || entry.id}')">
+                            <i class="fas fa-print ml-1"></i> طباعة
+                        </button>
+                        <button class="btn-success btn-sm" onclick="PTW.exportPDF('${entry.permitId || entry.id}')">
+                            <i class="fas fa-file-pdf ml-1"></i> تصدير PDF
+                        </button>
+                        ${isAdmin ? `
+                            <button class="btn-warning btn-sm" onclick="this.closest('.modal-overlay').remove(); PTW.openManualPermitForm('${entry.id}')">
+                                <i class="fas fa-edit ml-1"></i> تعديل
+                            </button>
+                            <button class="btn-danger btn-sm" onclick="PTW.deleteManualPermitEntry('${entry.id}'); this.closest('.modal-overlay').remove();">
+                                <i class="fas fa-trash ml-1"></i> حذف
+                            </button>
+                        ` : ''}
                     </div>
                 </div>
                 
@@ -5212,8 +5296,10 @@ const PTW = {
                         padding: 8px;
                         font-size: 11px;
                     }
+                    /* السماح باستمرار الأقسام الطويلة على صفحات A4 متعددة دون قص المحتوى */
                     .print-section {
-                        page-break-inside: avoid;
+                        page-break-inside: auto;
+                        break-inside: auto;
                         margin: 8px 0;
                     }
                     .print-section-title {
@@ -5457,20 +5543,108 @@ const PTW = {
     },
 
     /**
-     * طباعة التصريح
+     * تحويل سجل التصريح اليدوي (PTWRegistry) إلى شكل generatePrintContent — يحتوي كل الحقول المسجّلة يدوياً
      */
-    printPermit(permitId) {
-        const item = AppState.appData.ptw.find(i => i.id === permitId);
-        if (!item) {
-            Notification.error('لم يتم العثور على التصريح');
-            return;
+    formDataFromRegistryEntry(entry) {
+        if (!entry) return null;
+        const parseBool = (v) => v === true || v === 'true' || v === 1 || v === '1';
+        const closureStatusFromStatus = (s) => {
+            if (!s) return '';
+            if (s === 'اكتمل العمل بشكل آمن') return 'completed';
+            if (s === 'إغلاق جبري') return 'forced';
+            if (s === 'لم يكتمل العمل') return 'notCompleted';
+            return '';
+        };
+
+        let approvals = [];
+        if (Array.isArray(entry.manualApprovals) && entry.manualApprovals.length) {
+            approvals = entry.manualApprovals.map((a) => ({
+                role: a.role || '',
+                approver: a.name || a.approver || '',
+                status: 'approved',
+                date: a.date || '',
+                comments: [a.notes, a.signature ? `توقيع: ${a.signature}` : ''].filter(Boolean).join(' — ')
+            }));
         }
 
-        const registryEntry = this.registryData.find(r => r.permitId === permitId);
-        const formCode = item.isoCode || `PTW-${item.id?.substring(0, 8) || 'UNKNOWN'}`;
-        
-        // استخدام نفس دالة generatePrintContent ولكن ببيانات التصريح المحفوظ
-        const formData = {
+        const closureApproval = {
+            name1: '', name2: '', name3: '', name4: '',
+            signature1: '', signature2: '', signature3: '', signature4: ''
+        };
+        if (Array.isArray(entry.manualClosureApprovals) && entry.manualClosureApprovals.length) {
+            const m = entry.manualClosureApprovals;
+            if (m[0]) { closureApproval.name4 = m[0].name || ''; closureApproval.signature4 = m[0].signature || ''; }
+            if (m[1]) { closureApproval.name3 = m[1].name || ''; closureApproval.signature3 = m[1].signature || ''; }
+            if (m[2]) { closureApproval.name2 = m[2].name || ''; closureApproval.signature2 = m[2].signature || ''; }
+            if (m[3]) { closureApproval.name1 = m[3].name || ''; closureApproval.signature1 = m[3].signature || ''; }
+        }
+
+        const requiredPPE = Array.isArray(entry.requiredPPE) && entry.requiredPPE.length
+            ? entry.requiredPPE
+            : (entry.ppeNotes ? String(entry.ppeNotes).split(/[،,]/).map((s) => s.trim()).filter(Boolean) : []);
+
+        const hasRisk = entry.riskLikelihood || entry.riskConsequence || entry.riskLevel || entry.riskScore;
+        const riskAssessment = hasRisk ? {
+            likelihood: entry.riskLikelihood || '',
+            consequence: entry.riskConsequence || '',
+            riskLevel: entry.riskLevel || entry.riskScore || ''
+        } : {};
+
+        return {
+            id: entry.permitId || entry.id,
+            location: entry.location || '',
+            sublocation: entry.sublocation || '',
+            workDescription: entry.workDescription || '',
+            startDate: entry.timeFrom || entry.openDate || '',
+            endDate: entry.timeTo || '',
+            requestingParty: entry.requestingParty || '',
+            authorizedParty: entry.authorizedParty || '',
+            equipment: entry.equipment || '',
+            tools: entry.tools || entry.toolsList || '',
+            teamMembers: Array.isArray(entry.teamMembers) ? entry.teamMembers : [],
+            hotWorkDetails: Array.isArray(entry.hotWorkDetails) ? entry.hotWorkDetails : [],
+            hotWorkOther: entry.hotWorkOther || '',
+            confinedSpaceDetails: Array.isArray(entry.confinedSpaceDetails) ? entry.confinedSpaceDetails : [],
+            confinedSpaceOther: entry.confinedSpaceOther || '',
+            heightWorkDetails: Array.isArray(entry.heightWorkDetails) ? entry.heightWorkDetails : [],
+            heightWorkOther: entry.heightWorkOther || '',
+            electricalWorkType: entry.electricalWorkType || '',
+            coldWorkType: entry.coldWorkType || '',
+            otherWorkType: entry.otherWorkType || '',
+            excavationLength: entry.excavationLength || '',
+            excavationWidth: entry.excavationWidth || '',
+            excavationDepth: entry.excavationDepth || '',
+            soilType: entry.soilType || '',
+            preStartChecklist: parseBool(entry.preStartChecklist),
+            lotoApplied: parseBool(entry.lotoApplied),
+            governmentPermits: parseBool(entry.governmentPermits),
+            riskAssessmentAttached: parseBool(entry.riskAssessmentAttached),
+            gasTesting: parseBool(entry.gasTesting),
+            mocRequest: parseBool(entry.mocRequest),
+            requiredPPE,
+            riskAssessment,
+            riskNotes: entry.riskNotes || '',
+            approvals,
+            closureStatus: entry.closureStatus || closureStatusFromStatus(entry.status),
+            closureTime: entry.closureDate || entry.closureTime || '',
+            closureReason: entry.closureReason || '',
+            closureApproval,
+            permitDisclaimer: entry.permitDisclaimer || '',
+            createdAt: entry.createdAt || new Date().toISOString(),
+            updatedAt: entry.updatedAt || new Date().toISOString()
+        };
+    },
+
+    /**
+     * تجهيز بيانات التصريح لطباعة/تصدير PDF — مطابقة لحقول النموذج المحفوظ
+     */
+    getPermitFormDataForPrint(item) {
+        if (!item) return null;
+        if (Array.isArray(this.registryData)) {
+            const reg = this.registryData.find((r) => r.permitId === item.id && r.isManualEntry === true);
+            if (reg) return this.formDataFromRegistryEntry(reg);
+        }
+        return {
             id: item.id,
             location: item.siteName || item.location || '',
             sublocation: item.sublocationName || item.sublocation || '',
@@ -5506,7 +5680,9 @@ const PTW = {
             riskNotes: item.riskNotes || '',
             approvals: Array.isArray(item.approvals) ? item.approvals.map(a => ({
                 role: a.role || '',
-                approver: a.approver || '',
+                approver: typeof a.approver === 'object' && a.approver
+                    ? (a.approver.name || a.approver.email || a.approver.id || '')
+                    : (a.approver || ''),
                 status: a.status || 'pending',
                 date: a.date || '',
                 comments: a.comments || ''
@@ -5524,10 +5700,41 @@ const PTW = {
                 signature3: '',
                 signature4: ''
             },
+            permitDisclaimer: item.permitDisclaimer || '',
             createdAt: item.createdAt || new Date().toISOString(),
             updatedAt: item.updatedAt || new Date().toISOString()
         };
+    },
 
+    /**
+     * طباعة التصريح
+     */
+    printPermit(permitId) {
+        const reg = Array.isArray(this.registryData)
+            ? this.registryData.find((r) => r.permitId === permitId || r.id === permitId)
+            : null;
+        const effectiveId = reg?.permitId || permitId;
+        let item = AppState.appData.ptw.find((i) => i.id === effectiveId);
+        if (!item && reg && reg.isManualEntry) {
+            item = {
+                id: effectiveId,
+                isManualEntry: true,
+                createdAt: reg.createdAt,
+                updatedAt: reg.updatedAt,
+                startDate: reg.timeFrom,
+                endDate: reg.timeTo,
+                version: '1.0'
+            };
+        }
+        if (!item) {
+            Notification.error('لم يتم العثور على التصريح');
+            return;
+        }
+
+        const registryEntry = reg || this.registryData.find((r) => r.permitId === item.id);
+        const formCode = item.isoCode || `PTW-${item.id?.substring(0, 8) || 'UNKNOWN'}`;
+
+        const formData = this.getPermitFormDataForPrint(item);
         const content = this.generatePrintContent(formData);
 
         // إزالة QR code من الطباعة (includeQrInFooter = false)
@@ -5619,7 +5826,7 @@ const PTW = {
         // زر إضافة تصريح يدوي
         const addManualBtn = document.getElementById('ptw-registry-add-manual');
         if (addManualBtn) {
-            addManualBtn.onclick = () => this.openManualPermitForm().catch(() => {});
+            addManualBtn.onclick = () => this.openManualPermitForm();
         }
 
         // استيراد Excel
@@ -5669,6 +5876,7 @@ const PTW = {
         const dateToFilter = document.getElementById('registry-filter-date-to')?.value || '';
 
         const rows = document.querySelectorAll('[data-registry-id]');
+        let visibleCount = 0;
         rows.forEach(row => {
             let show = true;
             const rowText = row.textContent.toLowerCase();
@@ -5679,17 +5887,28 @@ const PTW = {
 
             if (searchTerm && !rowText.includes(searchTerm)) show = false;
             if (statusFilter && entry.status !== statusFilter) show = false;
+            const filterDateSource = entry.timeFrom || entry.openDate;
             if (dateFromFilter) {
-                const entryDate = new Date(entry.openDate).toISOString().split('T')[0];
-                if (entryDate < dateFromFilter) show = false;
+                const d = filterDateSource ? new Date(filterDateSource) : null;
+                const entryDate = d && !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : '';
+                if (!entryDate || entryDate < dateFromFilter) show = false;
             }
             if (dateToFilter) {
-                const entryDate = new Date(entry.openDate).toISOString().split('T')[0];
-                if (entryDate > dateToFilter) show = false;
+                const d = filterDateSource ? new Date(filterDateSource) : null;
+                const entryDate = d && !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : '';
+                if (!entryDate || entryDate > dateToFilter) show = false;
             }
 
             row.style.display = show ? '' : 'none';
+            if (show) {
+                visibleCount += 1;
+            }
         });
+
+        const countEl = document.getElementById('registry-filter-count');
+        if (countEl) {
+            countEl.textContent = String(visibleCount);
+        }
     },
 
     /**
@@ -5709,17 +5928,7 @@ const PTW = {
     /**
      * فتح نموذج إدخال تصريح يدوي
      */
-    async openManualPermitForm(entryId = null) {
-        try {
-            if (typeof Permissions !== 'undefined' && typeof Permissions.ensureFormSettingsState === 'function') {
-                await Permissions.ensureFormSettingsState();
-            }
-            if (typeof Contractors !== 'undefined' && typeof Contractors.ensureContractorsAndApprovedForModules === 'function') {
-                await Contractors.ensureContractorsAndApprovedForModules();
-            }
-        } catch (e) {
-            // متابعة عرض النموذج حتى مع فشل التحميل
-        }
+    openManualPermitForm(entryId = null) {
         const isEdit = entryId !== null;
         const existingEntry = entryId ? this.registryData.find(r => r.id === entryId) : null;
 
@@ -7256,7 +7465,7 @@ const PTW = {
 
             Notification.success(entryId ? 'تم تحديث التصريح بنجاح' : 'تم إضافة التصريح اليدوي بنجاح');
 
-            // المزامنة في الخلفية (بدون انتظار) — حفظ السجل + التصاريح + قاعدة البيانات
+            // المزامنة في الخلفية (بدون انتظار) — حفظ السجل + التصاريح + Google Sheets
             Promise.resolve().then(() => this.saveRegistryData()).then(() => {
                 if (typeof window.DataManager !== 'undefined' && window.DataManager.save) return window.DataManager.save();
             }).then(() => {
@@ -8122,6 +8331,9 @@ const PTW = {
                         <div class="ptw-filter-field">
                             <label class="ptw-filter-label" style="text-align: right;"><i class="fas fa-calendar-check ml-1"></i>إلى تاريخ</label>
                             <input type="date" id="ptw-filter-date-to" class="ptw-filter-input" style="direction: rtl;">
+                            <div class="text-xs text-gray-600 mt-1">
+                                عدد التصاريح في الفلتر: <span id="ptw-filter-count">-</span>
+                            </div>
                         </div>
                         <div class="ptw-filter-field">
                             <button id="ptw-reset-filters" class="ptw-filter-reset-btn" type="button"><i class="fas fa-redo ml-1"></i>إعادة التعيين</button>
@@ -8363,16 +8575,6 @@ const PTW = {
     },
 
     async renderForm(ptwData = null) {
-        try {
-            if (typeof Permissions !== 'undefined' && typeof Permissions.ensureFormSettingsState === 'function') {
-                await Permissions.ensureFormSettingsState();
-            }
-            if (typeof Contractors !== 'undefined' && typeof Contractors.ensureContractorsAndApprovedForModules === 'function') {
-                await Contractors.ensureContractorsAndApprovedForModules();
-            }
-        } catch (e) {
-            // متابعة عرض النموذج حتى مع فشل التحميل
-        }
         const isEdit = !!ptwData;
         const approvalPackage = this.prepareApprovalsForForm(ptwData);
         const approvals = approvalPackage.approvals || [];
@@ -9485,6 +9687,9 @@ const PTW = {
     currentEditId: null,
 
     async showForm(data = null) {
+        if (typeof Permissions !== 'undefined' && Permissions.ensureFormSettingsState) {
+            try { await Permissions.ensureFormSettingsState(); } catch (e) { /* ignore */ }
+        }
         this.currentEditId = data?.id || null;
 
         // التأكد من التبديل إلى تبويب التصاريح أولاً
@@ -9882,9 +10087,9 @@ const PTW = {
                         Utils.safeError('خطأ في إضافة السجل:', error);
                         return { success: false, error };
                     }),
-                // حفظ في قاعدة البيانات
+                // حفظ في Google Sheets
                 GoogleIntegration.autoSave('PTW', AppState.appData.ptw).catch(error => {
-                    Utils.safeError('خطأ في حفظ قاعدة البيانات:', error);
+                    Utils.safeError('خطأ في حفظ Google Sheets:', error);
                     return { success: false, error };
                 })
             ]).then((results) => {
@@ -10618,9 +10823,9 @@ const PTW = {
                 Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
             }
             
-            // حفظ في قاعدة البيانات في الخلفية
+            // حفظ في Google Sheets في الخلفية
             GoogleIntegration.autoSave('PTW', AppState.appData.ptw).catch(error => {
-                Utils.safeError('خطأ في حفظ قاعدة البيانات:', error);
+                Utils.safeError('خطأ في حفظ Google Sheets:', error);
             });
 
             if (action === 'approved') {
@@ -10758,279 +10963,6 @@ const PTW = {
         }
     },
 
-    // تصدير التصريح إلى PDF
-    async exportPDF(id) {
-        try {
-            const permit = AppState.appData.ptw.find(p => p.id === id);
-            if (!permit) {
-                Notification.error('التصريح غير موجود');
-                return;
-            }
-
-            Loading.show();
-
-            // إنشاء نافذة جديدة للطباعة
-            const printWindow = window.open('', '_blank');
-            if (!printWindow) {
-                Notification.error('تم حظر النافذة المنبثقة. يرجى السماح بالنوافذ المنبثقة.');
-                Loading.hide();
-                return;
-            }
-
-            // الحصول على معلومات الموقع والمكان الفرعي
-            const siteName = permit.siteName || this.getSiteOptions().find(s => s.id === permit.location || s.id === permit.siteId)?.name || permit.location || 'غير محدد';
-            const sublocationName = permit.sublocationName || this.getPlaceOptions(permit.location || permit.siteId || '').find(p => p.id === permit.sublocation)?.name || permit.sublocation || 'غير محدد';
-
-            // تنسيق التواريخ
-            const formatDate = (date) => {
-                if (!date) return 'غير محدد';
-                try {
-                    return new Date(date).toLocaleString('ar-SA', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    });
-                } catch {
-                    return date;
-                }
-            };
-
-            // بناء محتوى PDF
-            const htmlContent = `
-<!DOCTYPE html>
-<html dir="rtl" lang="ar">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تصريح عمل - ${permit.id}</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        @media print {
-            @page { margin: 1cm; size: A4; }
-            body { margin: 0; }
-            .no-print { display: none !important; }
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            background: #fff;
-            padding: 20px;
-        }
-        .header {
-            text-align: center;
-            border-bottom: 3px solid #003865;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
-        }
-        .header h1 {
-            color: #003865;
-            font-size: 28px;
-            margin-bottom: 5px;
-        }
-        .header .permit-id {
-            font-size: 16px;
-            color: #666;
-            font-weight: bold;
-        }
-        .section {
-            margin-bottom: 20px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 15px;
-            page-break-inside: avoid;
-        }
-        .section-title {
-            font-size: 18px;
-            font-weight: bold;
-            color: #003865;
-            margin-bottom: 15px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #003865;
-        }
-        .field-group {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-        .field {
-            padding: 10px;
-            background: #f9f9f9;
-            border-radius: 5px;
-        }
-        .field-label {
-            font-weight: bold;
-            color: #555;
-            font-size: 13px;
-            margin-bottom: 5px;
-        }
-        .field-value {
-            color: #000;
-            font-size: 14px;
-        }
-        .approval-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
-        .approval-table th,
-        .approval-table td {
-            border: 1px solid #ddd;
-            padding: 10px;
-            text-align: right;
-        }
-        .approval-table th {
-            background: #003865;
-            color: white;
-            font-weight: bold;
-        }
-        .status-badge {
-            display: inline-block;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-weight: bold;
-            font-size: 14px;
-        }
-        .status-approved { background: #10b981; color: white; }
-        .status-pending { background: #f59e0b; color: white; }
-        .status-rejected { background: #ef4444; color: white; }
-        .footer {
-            margin-top: 30px;
-            text-align: center;
-            font-size: 12px;
-            color: #666;
-            border-top: 2px solid #e0e0e0;
-            padding-top: 15px;
-        }
-        .print-btn {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            padding: 12px 24px;
-            background: #003865;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: bold;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        }
-        .print-btn:hover {
-            background: #004C8C;
-        }
-    </style>
-</head>
-<body>
-    <button class="print-btn no-print" onclick="window.print()">
-        <i class="fas fa-print"></i> طباعة
-    </button>
-
-    <div class="header">
-        <h1>تصريح عمل - Permit to Work</h1>
-        <div class="permit-id">رقم التصريح: ${permit.id}</div>
-        <div class="status-badge status-${permit.status === 'موافق عليه' ? 'approved' : permit.status === 'مرفوض' ? 'rejected' : 'pending'}">
-            ${permit.status || 'قيد المراجعة'}
-        </div>
-    </div>
-
-    <div class="section">
-        <div class="section-title">القسم الأول: بيانات التصريح الأساسية</div>
-        <div class="field-group">
-            <div class="field">
-                <div class="field-label">نوع العمل</div>
-                <div class="field-value">${permit.workType || 'غير محدد'}</div>
-            </div>
-            <div class="field">
-                <div class="field-label">الموقع / القسم</div>
-                <div class="field-value">${siteName}</div>
-            </div>
-            <div class="field">
-                <div class="field-label">المكان الفرعي</div>
-                <div class="field-value">${sublocationName}</div>
-            </div>
-            <div class="field">
-                <div class="field-label">تاريخ البدء</div>
-                <div class="field-value">${formatDate(permit.startDate)}</div>
-            </div>
-            <div class="field">
-                <div class="field-label">تاريخ الانتهاء</div>
-                <div class="field-value">${formatDate(permit.endDate)}</div>
-            </div>
-            <div class="field">
-                <div class="field-label">الجهة المصرح لها</div>
-                <div class="field-value">${permit.authorizedParty || 'غير محدد'}</div>
-            </div>
-        </div>
-        <div class="field">
-            <div class="field-label">وصف العمل</div>
-            <div class="field-value">${permit.workDescription || 'غير محدد'}</div>
-        </div>
-    </div>
-
-    ${permit.teamMembers && permit.teamMembers.length > 0 ? `
-    <div class="section">
-        <div class="section-title">القسم الثاني: القائمين بالعمل</div>
-        <div class="field-value">
-            ${permit.teamMembers.map((member, idx) => `${idx + 1}. ${member.name || 'غير محدد'}`).join('<br>')}
-        </div>
-    </div>
-    ` : ''}
-
-    ${permit.approvals && permit.approvals.length > 0 ? `
-    <div class="section">
-        <div class="section-title">دائرة الاعتمادات</div>
-        <table class="approval-table">
-            <thead>
-                <tr>
-                    <th>الدور</th>
-                    <th>المسؤول</th>
-                    <th>الحالة</th>
-                    <th>التاريخ</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${permit.approvals.map(approval => `
-                    <tr>
-                        <td>${approval.role || 'غير محدد'}</td>
-                        <td>${approval.approver || 'لم يتم التعيين'}</td>
-                        <td>
-                            <span class="status-badge status-${approval.status === 'approved' ? 'approved' : approval.status === 'rejected' ? 'rejected' : 'pending'}">
-                                ${approval.status === 'approved' ? 'موافق' : approval.status === 'rejected' ? 'مرفوض' : 'قيد الانتظار'}
-                            </span>
-                        </td>
-                        <td>${approval.date ? formatDate(approval.date) : 'غير محدد'}</td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    </div>
-    ` : ''}
-
-    <div class="footer">
-        <p>تم إنشاء هذا التقرير بتاريخ: ${new Date().toLocaleString('ar-SA')}</p>
-        <p>نظام إدارة السلامة المهنية - أمريكانا HSE</p>
-    </div>
-</body>
-</html>
-            `;
-
-            printWindow.document.write(htmlContent);
-            printWindow.document.close();
-
-            Loading.hide();
-            Notification.success('تم فتح نافذة الطباعة');
-
-        } catch (error) {
-            Utils.safeError('خطأ في تصدير PDF:', error);
-            Notification.error('حدث خطأ أثناء تصدير التصريح');
-            Loading.hide();
-        }
-    },
 
     async deletePTW(id) {
         if (!confirm('هل أنت متأكد من حذف هذا التصريح؟')) return;
@@ -11046,7 +10978,7 @@ const PTW = {
             } else {
                 Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
             }
-            // حظ تلقائي ي قاعدة البيانات
+            // حظ تلقائي ي Google Sheets
             await GoogleIntegration.autoSave('PTW', AppState.appData.ptw);
             Loading.hide();
             Notification.success('تم حذف التصريح بنجاح');
@@ -11072,7 +11004,22 @@ const PTW = {
     },
 
     async exportPDF(id) {
-        const item = AppState.appData.ptw.find(i => i.id === id);
+        const reg = Array.isArray(this.registryData)
+            ? this.registryData.find((r) => r.permitId === id || r.id === id)
+            : null;
+        const effectiveId = reg?.permitId || id;
+        let item = AppState.appData.ptw.find((i) => i.id === effectiveId);
+        if (!item && reg && reg.isManualEntry) {
+            item = {
+                id: effectiveId,
+                isManualEntry: true,
+                createdAt: reg.createdAt,
+                updatedAt: reg.updatedAt,
+                startDate: reg.timeFrom,
+                endDate: reg.timeTo,
+                version: '1.0'
+            };
+        }
         if (!item) {
             Notification.error('التصريح غير موجود');
             return;
@@ -11081,327 +11028,31 @@ const PTW = {
         try {
             Loading.show();
 
-            const formCode = item.isoCode || item.id?.substring(0, 12) || 'PTW-UNKNOWN';
-            const escape = (value) => Utils.escapeHTML(value || '');
-            const formatDate = (value) => value ? Utils.formatDate(value) : '-';
-            const formatTime = (value) => {
-                if (!value) return '-';
-                try {
-                    return new Date(value).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: false });
-                } catch (error) {
-                    return '-';
-                }
-            };
-            const placeholderLine = '<span class="placeholder-line"></span>';
-            const workType = item.workType || '';
-            const requiredPPE = Array.isArray(item.requiredPPE) ? item.requiredPPE : [];
-            const approvals = Array.isArray(item.approvals) ? item.approvals : [];
-            const permitUrl = `${window.location.origin}/ptw/${item.id}`;
-            const hotWorkDetails = Array.isArray(item.hotWorkDetails) ? item.hotWorkDetails : [];
-            const confinedSpaceDetails = Array.isArray(item.confinedSpaceDetails) ? item.confinedSpaceDetails : [];
-            const heightWorkDetails = Array.isArray(item.heightWorkDetails) ? item.heightWorkDetails : [];
-            const hotWorkOther = item.hotWorkOther || '';
-            const confinedSpaceOther = item.confinedSpaceOther || '';
-            const heightWorkOther = item.heightWorkOther || '';
+            const registryEntry = reg || this.registryData.find((r) => r.permitId === item.id);
+            const formCode = item.isoCode || `PTW-${item.id?.substring(0, 8) || 'UNKNOWN'}`;
+            const formData = this.getPermitFormDataForPrint(item);
+            const content = this.generatePrintContent(formData);
 
-            const isTrue = (value) => value === true || value === 'true' || value === 1 || value === '1';
-
-            const renderCheckItem = (label, selected = false, extra = '') => `
-                <div class="check-item ${selected ? 'is-checked' : ''}">
-                    <span class="check-symbol">${selected ? '✔' : ''}</span>
-                    <span>${label}</span>
-                    ${extra ? `<span class="check-extra">${extra}</span>` : ''}
-                            </div>
-            `;
-
-            const ppeIncludes = (keywords = []) => requiredPPE.some(p => keywords.some(k => (p || '').includes(k)));
-            const findApproval = (keywords = []) => approvals.find(a => keywords.some(k => (a.role || '').includes(k)));
-            const renderApprovalRow = (title, keywords = []) => {
-                const approval = findApproval(keywords);
-                return `
-                    <tr>
-                        <th>${title}</th>
-                        <td>${approval ? escape(approval.approver) : placeholderLine}</td>
-                        <td class="empty-cell">${approval && approval.signature ? escape(approval.signature) : ''}</td>
-                        <td>${approval && approval.date ? formatDate(approval.date) : placeholderLine}</td>
-                    </tr>
-                `;
-            };
-
-            const workerRows = Array.isArray(item.teamMembers) && item.teamMembers.length > 0
-                ? item.teamMembers.map(member => `
-                    <tr>
-                        <td>${escape(member.name || '')}</td>
-                        <td class="empty-cell">${member.signature ? escape(member.signature) : ''}</td>
-                    </tr>
-                `).join('')
-                : Array.from({ length: 6 }).map(() => `
-                    <tr>
-                        <td>${placeholderLine}</td>
-                        <td class="empty-cell"></td>
-                    </tr>
-                `).join('');
-
-            const closureStatus = item.closureStatus || (item.status === 'مغلق' ? 'completed' : '');
-
-            const content = `
-                <div class="permit-intro">
-                    تم إصدار هذا التصريح فقط للعمل الذي تم وصفه أدناه ولا يجوز تحت أي ظرف استخدامه لأي عمل آخر لم يتم وصفه. يجب الالتزام بمدة صلاحية التصريح للعمل المذكور وفي الموقع المحدد فقط.
-                </div>
-                <div class="permit-note">
-                    يعمل هذا التصريح وفق اشتراطات OSHA لضمان التحكم في المخاطر أثناء تنفيذ الأعمال غير الروتينية أو الأعمال ذات المخاطر العالية. يتحمل صاحب التصريح والجهات المعتمدة المسئولية الكاملة عن تطبيق إجراءات السلامة قبل وأثناء وبعد تنفيذ العمل.
-                </div>
-
-               <div class="permit-section">
-                    <h3 class="section-title">القسم الأول : بيانات التصريح الأساسية</h3>
-                    <table class="report-table permit-table">
-                        <tbody>
-                            <tr>
-                                <th>التاريخ</th>
-                                <td>${formatDate(item.startDate || item.createdAt)}</td>
-                                <th>الموقع / القسم</th>
-                                <td>${escape(item.siteName || item.location || '-')}</td>
-                            </tr>
-                            <tr>
-                                <th>المكان الفرعي</th>
-                                <td>${escape(item.sublocationName || item.sublocation || '-')}</td>
-                                <th>من الساعة</th>
-                                <td>${formatTime(item.startDate)}</td>
-                            </tr>
-                            <tr>
-                                <th>إلى الساعة</th>
-                                <td>${formatTime(item.endDate)}</td>
-                                <th>الجهة المصرح لها</th>
-                                <td>${escape(item.authorizedParty || '') || placeholderLine}</td>
-                            </tr>
-                            <tr>
-                                <th>الجهة الطالبة للتصريح</th>
-                                <td>${escape(item.requestingParty || '') || placeholderLine}</td>
-                                <th></th>
-                                <td></td>
-                            </tr>
-                            <tr>
-                                <th>وصف طبيعة العمل</th>
-                                <td colspan="3">${escape(item.workDescription || '') || placeholderLine}</td>
-                            </tr>
-                            <tr>
-                                <th>المعدة / المكينة / العملية</th>
-                                <td colspan="3">${escape(item.equipment || item.asset || '') || placeholderLine}</td>
-                            </tr>
-                            <tr>
-                                <th>الأدوات أو العدد (بعد فحصها وقبولها)</th>
-                                <td colspan="3">${escape(item.tools || item.toolsList || '') || placeholderLine}</td>
-                            </tr>
-                        </tbody>
-                        </table>
-
-                    <div class="permit-section">
-                        <h3 class="section-title">أسماء القائمين بالعمل</h3>
-                        <table class="report-table signature-table">
-                            <thead>
-                                <tr>
-                                    <th>الاسم</th>
-                                    <th>التوقيع</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                                ${workerRows}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div class="permit-section">
-                    <h3 class="section-title">القسم الثاني : تحديد نوع / طبيعة الأعمال والعناصر التفصيلية لتنفيذ العملية</h3>
-                    <div class="checklist-grid">
-                        <div class="checklist-group">
-                            <h4>أعمال ساخنة</h4>
-                            ${renderCheckItem('لحام', hotWorkDetails.includes('لحام'))}
-                            ${renderCheckItem('قطع', hotWorkDetails.includes('قطع'))}
-                            ${renderCheckItem('شرر / حرارة', hotWorkDetails.includes('شرر / حرارة'))}
-                            ${renderCheckItem('أخرى', !!hotWorkOther, hotWorkOther ? escape(hotWorkOther) : placeholderLine)}
-                        </div>
-                        <div class="checklist-group">
-                            <h4>أماكن مغلقة</h4>
-                            ${renderCheckItem('خزانات', confinedSpaceDetails.includes('خزانات'))}
-                            ${renderCheckItem('أنابيب', confinedSpaceDetails.includes('أنابيب'))}
-                            ${renderCheckItem('تنكات', confinedSpaceDetails.includes('تنكات'))}
-                            ${renderCheckItem('أخرى', !!confinedSpaceOther, confinedSpaceOther ? escape(confinedSpaceOther) : placeholderLine)}
-                        </div>
-                        <div class="checklist-group">
-                            <h4>عمل على ارتفاع</h4>
-                            ${renderCheckItem('سقالات', heightWorkDetails.includes('سقالات'))}
-                            ${renderCheckItem('سطح', heightWorkDetails.includes('سطح'))}
-                            ${renderCheckItem('سلة رافع', heightWorkDetails.includes('سلة رافع'))}
-                            ${renderCheckItem('أخرى', !!heightWorkOther, heightWorkOther ? escape(heightWorkOther) : placeholderLine)}
-                        </div>
-                    </div>
-                    <table class="report-table permit-table" style="margin-top: 18px;">
-                        <tbody>
-                            <tr>
-                                <th>أعمال حفر</th>
-                                <td colspan="3">
-                                    طول: ${escape(item.excavationLength || '') || placeholderLine} 
-                                    &nbsp;&nbsp; عرض: ${escape(item.excavationWidth || '') || placeholderLine}
-                                    &nbsp;&nbsp; عمق: ${escape(item.excavationDepth || '') || placeholderLine}
-                                    &nbsp;&nbsp; نوع التربة: ${escape(item.soilType || '') || placeholderLine}
-                                </td>
-                                </tr>
-                        </tbody>
-                        </table>
-                    <div class="checklist-grid">
-                        <div class="checklist-group">
-                            <h4>أعمال كهرباء</h4>
-                            ${renderCheckItem('نوع العمل', !!item.electricalWorkType, `${escape(item.electricalWorkType || '') || placeholderLine}`)}
-                        </div>
-                        <div class="checklist-group">
-                            <h4>أعمال على البارد</h4>
-                            ${renderCheckItem('نوع العمل', !!item.coldWorkType, `${escape(item.coldWorkType || '') || placeholderLine}`)}
-                        </div>
-                        <div class="checklist-group">
-                            <h4>أعمال أخرى</h4>
-                            ${renderCheckItem('نوع العمل', !!item.otherWorkType, `${escape(item.otherWorkType || '') || placeholderLine}`)}
-                        </div>
-                    </div>
-                </div>
-
-                <div class="permit-section">
-                    <h3 class="section-title">القسم الثالث : المتطلبات والمرفقات (إلزامية عند التحديد)</h3>
-                    <div class="checklist-grid">
-                        ${renderCheckItem('قائمة التحقق بقرار بدء العمل', isTrue(item.preStartChecklist))}
-                        ${renderCheckItem('تطبيق نظام العزل LOTO', isTrue(item.lotoApplied))}
-                        ${renderCheckItem('تصاريح جهات حكومية', isTrue(item.governmentPermits))}
-                        ${renderCheckItem('تحليل المخاطر ووسائل التحكم', isTrue(item.riskAssessmentAttached))}
-                        ${renderCheckItem('قياس الغازات', isTrue(item.gasTesting))}
-                        ${renderCheckItem('طلب تغيير فني MOC', isTrue(item.mocRequest))}
-                    </div>
-                </div>
-
-                <div class="permit-section">
-                    <h3 class="section-title">القسم الرابع : تحديد مهمات الوقاية / وسائل الوقاية الأخرى</h3>
-                    <div class="checklist-grid">
-                        ${renderCheckItem('حذاء سلامة', ppeIncludes(['حذاء', 'حذاء سلامة', 'أحذية']))}
-                        ${renderCheckItem('جوانتي سلامة', ppeIncludes(['جوانتي', 'قفازات']))}
-                        ${renderCheckItem('جوانتي أحماض', ppeIncludes(['أحماض']))}
-                        ${renderCheckItem('جوانتي كهربي', ppeIncludes(['كهرب']))}
-                        ${renderCheckItem('كمامة', ppeIncludes(['كمامة', 'قناع']))}
-                        ${renderCheckItem('سدادة أذن', ppeIncludes(['سدادات', 'أذن']))}
-                        ${renderCheckItem('كاتم أذن', ppeIncludes(['كاتم']))}
-                        ${renderCheckItem('بدلة كيميائية', ppeIncludes(['بدلة', 'كيمي']))}
-                        ${renderCheckItem('كشاف إنارة', ppeIncludes(['كشاف']))}
-                        ${renderCheckItem('واقي رأس', ppeIncludes(['خوذة', 'رأس']))}
-                        ${renderCheckItem('نظارة واقية', ppeIncludes(['نظارة', 'نظارات']))}
-                        ${renderCheckItem('وجه لحام', ppeIncludes(['لحام', 'درع']))}
-                        ${renderCheckItem('أذرع واقية', ppeIncludes(['أذرع']))}
-                        ${renderCheckItem('حزام أمان', ppeIncludes(['حزام', 'أمان']))}
-                        ${renderCheckItem('حبل سلامة', ppeIncludes(['حبل']))}
-                        ${renderCheckItem('جهاز تنفس', ppeIncludes(['تنفس', 'SCBA']))}
-                        ${renderCheckItem('سترة عاكسة', ppeIncludes(['عاكسة']))}
-                        ${renderCheckItem('شريط عاكس', ppeIncludes(['شريط']))}
-                        ${renderCheckItem('حواجز', ppeIncludes(['حاجز']))}
-                        ${renderCheckItem('أقماع مرور', ppeIncludes(['أقماع']))}
-                        ${renderCheckItem('وسائل اتصال', ppeIncludes(['لاسلكي', 'اتصال']))}
-                        ${renderCheckItem('بطانية حريق', ppeIncludes(['بطانية']))}
-                        ${renderCheckItem('أخرى', ppeIncludes(['أخرى']), placeholderLine)}
-                    </div>
-                </div>
-
-                <div class="permit-section">
-                    <h3 class="section-title">القسم الخامس : اعتماد التصريح (يشترط جميع التوقيعات لبدء العمل)</h3>
-                    <table class="report-table signature-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 25%;">الوظيفة</th>
-                                <th style="width: 35%;">الاسم</th>
-                                <th style="width: 20%;">التوقيع</th>
-                                <th style="width: 20%;">التاريخ</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${renderApprovalRow('مسئول الجهة الطالبة', ['مسئول الجهة الطالبة', 'مسؤول الجهة الطالبة', 'المشرف المباشر'])}
-                            ${renderApprovalRow('مدير منطقة الأعمال', ['مدير منطقة', 'منطقة الأعمال'])}
-                            ${renderApprovalRow('مدير / مهندس الصيانة', ['الصيانة', 'مهندس الصيانة'])}
-                            ${renderApprovalRow('مسئول السلامة والصحة المهنية', ['السلامة', 'الصحة المهنية'])}
-                        </tbody>
-                        </table>
-                </div>
-
-                <div class="permit-section">
-                    <h3 class="section-title">القسم السادس : إغلاق التصريح</h3>
-                    <div class="status-grid">
-                        <div class="status-item ${closureStatus === 'completed' ? 'is-checked' : ''}">
-                            <span class="check-symbol">${closureStatus === 'completed' ? '✔' : ''}</span>
-                            <span>اكتمل العمل بشكل آمن</span>
-                            </div>
-                        <div class="status-item ${closureStatus === 'notCompleted' ? 'is-checked' : ''}">
-                            <span class="check-symbol">${closureStatus === 'notCompleted' ? '✔' : ''}</span>
-                            <span>لم يكتمل العمل</span>
-                        </div>
-                        <div class="status-item ${closureStatus === 'forced' ? 'is-checked' : ''}">
-                            <span class="check-symbol">${closureStatus === 'forced' ? '✔' : ''}</span>
-                            <span>إغلاق جبري</span>
-                    </div>
-                    </div>
-                    <table class="report-table permit-table">
-                        <tbody>
-                            <tr>
-                                <th>الساعة</th>
-                                <td>${formatTime(item.closureTime || item.endDate)}</td>
-                                <th>السبب</th>
-                                <td>${escape(item.closureReason || '') || placeholderLine}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <div class="permit-section">
-                        <h3 class="section-title">القسم السادس : اعتماد إغلاق التصريح (يشترط جميع التوقيعات)</h3>
-                        <table class="report-table signature-table">
-                            <thead>
-                                <tr>
-                                    <th style="width: 25%;">الوظيفة</th>
-                                    <th style="width: 35%;">الاسم</th>
-                                    <th style="width: 20%;">التوقيع</th>
-                                    <th style="width: 20%;">التاريخ</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${renderApprovalRow('مسئول الجهة الطالبة', ['مسئول الجهة الطالبة', 'مسؤول الجهة الطالبة'])}
-                                ${renderApprovalRow('مدير منطقة الأعمال', ['مدير منطقة', 'منطقة الأعمال'])}
-                                ${renderApprovalRow('مدير / مهندس الصيانة', ['الصيانة', 'مهندس الصيانة'])}
-                                ${renderApprovalRow('مسئول السلامة والصحة المهنية', ['السلامة', 'الصحة المهنية'])}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="notes-block">
-                        تم متابعة العمل حتى النهاية وتم فحص موقع العمل والمناطق المجاورة والتأكد من خلوها من الأخطار المحتملة بعد الانتهاء من العمل.
-                    </div>
-                </div>
-            `;
-
-            const htmlContent = FormHeader.generatePDFHTML(
-                formCode,
-                'تصريح عمل',
-                content,
-                false,
-                true,
-                {
-                    version: item.version || '1.0',
-                    releaseDate: item.startDate || item.createdAt,
-                    revisionDate: item.updatedAt || item.endDate || item.startDate,
-                    qrData: {
-                        type: 'PTW',
-                        id: item.id,
-                        code: formCode,
-                        url: permitUrl
-                    }
-                },
-                item.createdAt || item.startDate,
-                item.updatedAt || item.endDate || item.createdAt
-            );
+            const htmlContent = typeof FormHeader !== 'undefined' && typeof FormHeader.generatePDFHTML === 'function'
+                ? FormHeader.generatePDFHTML(
+                    formCode,
+                    `تصريح عمل #${registryEntry?.sequentialNumber || item.id?.substring(0, 8)}`,
+                    content,
+                    false,
+                    false,
+                    {
+                        version: item.version || '1.0',
+                        releaseDate: item.startDate || item.createdAt,
+                        revisionDate: item.updatedAt || item.endDate || item.startDate,
+                        'رقم التصريح': registryEntry?.sequentialNumber || item.id?.substring(0, 8)
+                    },
+                    item.createdAt || item.startDate,
+                    item.updatedAt || item.endDate || item.createdAt
+                )
+                : `<html><body>${content}</body></html>`;
 
             const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
             const url = URL.createObjectURL(blob);
-
-            // تح ي ناذة جديدة للطباعة/الحظ كـ PDF
             const printWindow = window.open(url, '_blank');
             if (printWindow) {
                 printWindow.onload = () => {
@@ -11410,18 +11061,18 @@ const PTW = {
                         setTimeout(() => {
                             URL.revokeObjectURL(url);
                             Loading.hide();
-                            Notification.success('تم تح التصريح للطباعة/الحظ كـ PDF');
+                            Notification.success('تم فتح التصريح للطباعة أو الحفظ كملف PDF');
                         }, 1000);
                     }, 500);
                 };
             } else {
                 Loading.hide();
-                Notification.error('يرجى السماح للنافذة المنبثقة لعرض التصريح');
+                Notification.error('يرجى السماح للنوافذ المنبثقة لعرض التصريح');
             }
         } catch (error) {
             Loading.hide();
-            Utils.safeError('خطأ ي تصدير PDF:', error);
-            Notification.error('فشل تصدير PDF: ' + error.message);
+            Utils.safeError('خطأ في تصدير PDF:', error);
+            Notification.error('فشل تصدير PDF: ' + (error.message || ''));
         }
     },
 
@@ -11921,6 +11572,8 @@ const PTW = {
                     const requiredApprovals = approvals.filter(a => a.required !== false);
                     const approvedCount = requiredApprovals.filter(a => a.status === 'approved').length;
                     const totalCount = requiredApprovals.length;
+                    // التصريح اليدوي أو بدون دائرة موافقات: يعرض مكتمل ولا يحتاج إكمال الموافقة
+                    const isManualOrNoApproval = item.isManualEntry === true || totalCount === 0;
 
                     return `
                     <tr>
@@ -11930,15 +11583,19 @@ const PTW = {
                         <td>${item.startDate ? Utils.formatDate(item.startDate) : '-'}</td>
                         <td>${item.endDate ? Utils.formatDate(item.endDate) : '-'}</td>
                         <td>
-                            ${totalCount > 0 ? `
+                            ${isManualOrNoApproval ? `
+                                <span class="badge badge-success">
+                                    <i class="fas fa-check-circle ml-1"></i> مكتمل
+                                </span>
+                            ` : `
                                 <span class="badge badge-${approvedCount === totalCount ? 'success' : 'warning'}">
                                     ${approvedCount}/${totalCount}
                                 </span>
-                            ` : '<span class="text-gray-400">-</span>'}
-                            <br>
-                            <span class="badge badge-${this.getStatusBadgeClass(item.status)}">
-                                ${item.status || '-'}
-                            </span>
+                                <br>
+                                <span class="badge badge-${this.getStatusBadgeClass(item.status)}">
+                                    ${item.status || '-'}
+                                </span>
+                            `}
                         </td>
                         <td>
                             <div class="flex items-center gap-2">
@@ -11960,6 +11617,12 @@ const PTW = {
                 `;
                 }).join('');
         }
+
+        const countEl = document.getElementById('ptw-filter-count');
+        if (countEl) {
+            countEl.textContent = String(filtered.length);
+        }
+
         // تحديث KPIs بعد التصفية
         this.updateKPIs();
     },
@@ -12070,39 +11733,48 @@ const PTW = {
                 <!-- فلتر التحليل -->
                 <div class="content-card border-2 border-indigo-100 bg-indigo-50/30">
                     <div class="card-body">
-                        <h3 class="text-lg font-semibold text-gray-800 mb-4"><i class="fas fa-filter ml-2"></i>فلتر التحليل</h3>
+                        <h3 class="text-lg font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                            <i class="fas fa-filter ml-2"></i>
+                            فلتر التحليل
+                            <span id="ptw-analysis-current-count-badge" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                                إجمالي التصاريح في التحليل: <span id="ptw-analysis-current-count" class="ml-1">${totalPermits}</span>
+                            </span>
+                        </h3>
+                        <p id="ptw-analysis-summary" class="text-xs text-gray-600 mb-3">
+                            لا يوجد أي فلتر مطبق حالياً، يتم عرض تحليل لجميع التصاريح المسجلة (${totalPermits} تصريحاً).
+                        </p>
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">من تاريخ</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1 ptw-analysis-filter-label" data-filter-id="ptw-analysis-date-from">من تاريخ</label>
                                 <input type="date" id="ptw-analysis-date-from" class="form-input w-full" placeholder="اختياري">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">إلى تاريخ</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1 ptw-analysis-filter-label" data-filter-id="ptw-analysis-date-to">إلى تاريخ</label>
                                 <input type="date" id="ptw-analysis-date-to" class="form-input w-full" placeholder="اختياري">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">نوع التصريح</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1 ptw-analysis-filter-label" data-filter-id="ptw-analysis-work-type">نوع التصريح</label>
                                 <select id="ptw-analysis-work-type" class="form-input w-full">
                                     <option value="">— الكل —</option>
                                     ${(uniqueWorkTypes.length ? uniqueWorkTypes : ['أعمال ساخنة', 'أماكن مغلقة', 'عمل على ارتفاع', 'أعمال حفر', 'أعمال كهرباء', 'أعمال أخرى']).map(w => `<option value="${Utils.escapeHTML(w)}">${Utils.escapeHTML(w)}</option>`).join('')}
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">الجهة المصرح لها (مقاول)</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1 ptw-analysis-filter-label" data-filter-id="ptw-analysis-authorized">الجهة المصرح لها (مقاول)</label>
                                 <select id="ptw-analysis-authorized" class="form-input w-full">
                                     <option value="">— الكل —</option>
                                     ${uniqueAuthorized.map(a => `<option value="${Utils.escapeHTML(a)}">${Utils.escapeHTML(a)}</option>`).join('')}
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">الجهة الطالبة</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1 ptw-analysis-filter-label" data-filter-id="ptw-analysis-requesting">الجهة الطالبة</label>
                                 <select id="ptw-analysis-requesting" class="form-input w-full">
                                     <option value="">— الكل —</option>
                                     ${uniqueRequesting.map(r => `<option value="${Utils.escapeHTML(r)}">${Utils.escapeHTML(r)}</option>`).join('')}
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">الحالة</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1 ptw-analysis-filter-label" data-filter-id="ptw-analysis-status">الحالة</label>
                                 <select id="ptw-analysis-status" class="form-input w-full">
                                     <option value="">— الكل —</option>
                                     ${statusOptions.map(s => `<option value="${Utils.escapeHTML(s)}">${Utils.escapeHTML(s)}</option>`).join('')}
@@ -12409,6 +12081,105 @@ const PTW = {
         setEl('ptw-kpi-pending', pendingPermits);
         setEl('ptw-kpi-rejected', rejectedPermits);
         setEl('ptw-kpi-formulas', 'نسبة الإغلاق = ' + closureRate + '% | المفتوحة = ' + openRate + '% | المرفوضة = ' + rejectedRate + '%');
+
+        const countBadge = document.getElementById('ptw-analysis-current-count');
+        if (countBadge) {
+            countBadge.textContent = String(total);
+        }
+
+        const summaryEl = document.getElementById('ptw-analysis-summary');
+        if (summaryEl) {
+            if (total === 0) {
+                summaryEl.textContent = 'لا توجد تصاريح مطابقة لمعايير الفلتر الحالية. جرّب توسيع الفترة أو إزالة بعض الفلاتر للحصول على بيانات للتحليل.';
+            } else {
+                const parts = [];
+                const fromVal = document.getElementById('ptw-analysis-date-from')?.value || '';
+                const toVal = document.getElementById('ptw-analysis-date-to')?.value || '';
+                const wtVal = document.getElementById('ptw-analysis-work-type')?.value || '';
+                const authVal = document.getElementById('ptw-analysis-authorized')?.value || '';
+                const reqVal = document.getElementById('ptw-analysis-requesting')?.value || '';
+                const stVal = document.getElementById('ptw-analysis-status')?.value || '';
+
+                if (fromVal || toVal) {
+                    const rangeText = (fromVal && toVal)
+                        ? ('من ' + fromVal + ' إلى ' + toVal)
+                        : (fromVal ? ('من ' + fromVal) : ('حتى ' + toVal));
+                    parts.push('الفترة: ' + rangeText);
+                }
+                if (wtVal) parts.push('نوع التصريح: ' + wtVal);
+                if (authVal) parts.push('الجهة المصرح لها: ' + authVal);
+                if (reqVal) parts.push('الجهة الطالبة: ' + reqVal);
+                if (stVal) parts.push('الحالة: ' + stVal);
+
+                const filterText = parts.length ? parts.join(' | ') : 'بدون فلاتر (جميع التصاريح)';
+                summaryEl.textContent = 'عدد التصاريح في الفلتر الحالي: ' + total + ' — ' + filterText;
+            }
+        }
+
+        if (!document.getElementById('ptw-analysis-filter-badge-styles')) {
+            const style = document.createElement('style');
+            style.id = 'ptw-analysis-filter-badge-styles';
+            style.textContent = `
+                .ptw-analysis-filter-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-width: 22px;
+                    height: 18px;
+                    padding: 1px 6px;
+                    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+                    color: #ffffff;
+                    border-radius: 9999px;
+                    font-size: 10px;
+                    font-weight: 700;
+                    margin-right: 4px;
+                    margin-left: 4px;
+                    box-shadow: 0 2px 4px rgba(79, 70, 229, 0.35);
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        const filterIds = [
+            'ptw-analysis-date-from',
+            'ptw-analysis-date-to',
+            'ptw-analysis-work-type',
+            'ptw-analysis-authorized',
+            'ptw-analysis-requesting',
+            'ptw-analysis-status'
+        ];
+
+        filterIds.forEach(id => {
+            const input = document.getElementById(id);
+            if (!input) return;
+            const wrapper = input.closest('div');
+            if (!wrapper) return;
+            const label = wrapper.querySelector('.ptw-analysis-filter-label[data-filter-id="' + id + '"]');
+            if (!label) return;
+
+            const existing = label.querySelector('.ptw-analysis-filter-badge');
+            if (existing) existing.remove();
+
+            let isActive = false;
+            if (input.tagName === 'INPUT') {
+                isActive = !!input.value;
+            } else if (input.tagName === 'SELECT') {
+                isActive = !!input.value;
+            }
+
+            if (isActive && total > 0) {
+                const badge = document.createElement('span');
+                badge.className = 'ptw-analysis-filter-badge';
+                badge.title = 'عدد التصاريح المطابقة لهذا الفلتر مع الفلاتر الأخرى';
+                badge.textContent = String(total);
+                const icon = label.querySelector('i');
+                if (icon && icon.nextSibling) {
+                    icon.insertAdjacentElement('afterend', badge);
+                } else {
+                    label.appendChild(badge);
+                }
+            }
+        });
 
         if (typeof Chart === 'undefined') return;
         const chartIds = ['ptw-chart-work-type', 'ptw-chart-authorized', 'ptw-chart-status', 'ptw-chart-timeline'];
@@ -12965,7 +12736,8 @@ const PTW = {
 
             const pendingPermits = allPermits.filter(p => {
                 try {
-                    if (!p || p.status === 'مغلق' || p.status === 'مرفوض') return false;
+                    const st = (p?.status || '').trim();
+                    if (!p || st === 'مغلق' || st === 'مرفوض' || st === 'اكتمل العمل بشكل آمن' || st === 'إغلاق جبري') return false;
 
                     // Check normalized approvals with error handling
                     const approvals = this.normalizeApprovals(p.approvals || []);
@@ -13511,7 +13283,11 @@ const PTW = {
     try {
         if (typeof window !== 'undefined' && typeof PTW !== 'undefined') {
             window.PTW = PTW;
-            
+
+            window.addEventListener('formSettingsUpdated', function () {
+                try { if (typeof PTW !== 'undefined' && PTW.refreshSiteDropdowns) PTW.refreshSiteDropdowns(); } catch (e) {}
+            });
+
             // إشعار عند تحميل الموديول بنجاح
             if (typeof AppState !== 'undefined' && AppState.debugMode && typeof Utils !== 'undefined' && Utils.safeLog) {
                 Utils.safeLog('✅ PTW module loaded and available on window.PTW');

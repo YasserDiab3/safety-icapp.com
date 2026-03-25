@@ -1,5 +1,5 @@
-﻿/**
- * تحسينات المزامنة مع قاعدة البيانات
+/**
+ * تحسينات المزامنة مع Google Sheets
  * Sync Improvements Module
  * 
  * Features:
@@ -84,13 +84,14 @@
 
         /**
          * إخفاء نافذة التقدم مع استمرار التحميل في الخلفية
+         * عرض شريط التقدم في الهيدر السفلي فقط (شريط عائم صغير)
          */
         hideProgressIndicator() {
             const el = document.getElementById('sync-progress-indicator');
             if (!el) return;
             el.style.display = 'none';
             this._progressHidden = true;
-            this._createFloatingShowButton();
+            this._createFloatingBottomBar();
         },
 
         /**
@@ -106,49 +107,33 @@
         },
 
         /**
-         * إنشاء زر عائم لإظهار نافذة التقدم
+         * إنشاء الشريط السفلي فقط (شريط تقدم مضغوط + زر إظهار)
          */
-        _createFloatingShowButton() {
+        _createFloatingBottomBar() {
             this._removeFloatingShowButton();
             const floating = document.createElement('div');
             floating.id = 'sync-progress-floating';
-            floating.style.cssText = `
-                position: fixed;
-                bottom: 24px;
-                left: 50%;
-                transform: translateX(-50%);
-                z-index: 10002;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                background: white;
-                padding: 10px 16px;
-                border-radius: 24px;
-                box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-                direction: rtl;
-                font-size: 14px;
-                color: #374151;
+            floating.className = 'sync-progress-floating-bar';
+            floating.setAttribute('role', 'status');
+            floating.setAttribute('aria-live', 'polite');
+            floating.innerHTML = `
+                <span class="sync-floating-label">جاري التحميل</span>
+                <div class="sync-floating-track"><div id="sync-floating-fill" class="sync-floating-fill" style="width: 0%;"></div></div>
+                <span id="sync-floating-percent" class="sync-floating-percent">0</span>
+                <button type="button" id="sync-floating-show-btn" class="sync-floating-btn">إظهار</button>
             `;
-            const progressSpan = document.createElement('span');
-            progressSpan.id = 'sync-progress-floating-text';
-            progressSpan.textContent = 'جاري تحميل البيانات من قاعدة البيانات... 0 من ' + (this._totalSheets || '?') + ' (0%)';
-            const showBtn = document.createElement('button');
-            showBtn.type = 'button';
-            showBtn.textContent = 'إظهار';
-            showBtn.style.cssText = `
-                background: #3B82F6;
-                color: white;
-                border: none;
-                padding: 6px 14px;
-                border-radius: 8px;
-                font-size: 13px;
-                cursor: pointer;
-                font-family: inherit;
-            `;
-            showBtn.addEventListener('click', () => this.showProgressIndicator());
-            floating.appendChild(progressSpan);
-            floating.appendChild(showBtn);
             document.body.appendChild(floating);
+            const showBtn = document.getElementById('sync-floating-show-btn');
+            if (showBtn) showBtn.addEventListener('click', () => this.showProgressIndicator());
+            this._updateFloatingProgress(0, this._totalSheets || 1);
+        },
+
+        _updateFloatingProgress(completed, total) {
+            const percent = total ? Math.round((completed / total) * 100) : 0;
+            const fill = document.getElementById('sync-floating-fill');
+            const percentEl = document.getElementById('sync-floating-percent');
+            if (fill) fill.style.width = percent + '%';
+            if (percentEl) percentEl.textContent = percent;
         },
 
         _removeFloatingShowButton() {
@@ -167,11 +152,7 @@
             const progressText = document.getElementById('sync-progress-text');
             if (progressBar) progressBar.style.width = `${percent}%`;
             if (progressText) progressText.textContent = `${completed} من ${total} (${percent}%)`;
-            // تحديث النص في الزر العائم عند إخفاء النافذة
-            if (this._progressHidden) {
-                const floatingText = document.getElementById('sync-progress-floating-text');
-                if (floatingText) floatingText.textContent = `جاري تحميل البيانات من قاعدة البيانات... ${completed} من ${total} (${percent}%)`;
-            }
+            if (this._progressHidden) this._updateFloatingProgress(completed, total);
         },
         
         /**
@@ -231,11 +212,19 @@
                 }
                 
                 if (Array.isArray(data)) {
-                    AppState.appData[key] = data;
-                    if (data.length > 0) {
+                    const oldData = Array.isArray(AppState.appData[key]) ? AppState.appData[key] : [];
+                    // ✅ حماية: لا نُبدّل البيانات المحلية بمصفوفة فارغة
+                    const shouldKeepOld = data.length === 0 && oldData.length > 0;
+                    const effectiveData = shouldKeepOld ? oldData : data;
+
+                    if (!shouldKeepOld) {
+                        AppState.appData[key] = data;
+                    }
+
+                    if (effectiveData.length > 0) {
                         syncedInBatch++;
                         if (shouldLog) {
-                            Utils.safeLog(`✅ تم تحميل ${data.length} سجل من ${sheetName}`);
+                            Utils.safeLog(`✅ تم تحميل ${effectiveData.length} سجل من ${sheetName}`);
                         }
                     } else if (shouldLog) {
                         Utils.safeLog(`✅ ${sheetName} فارغة (تم التخطي بشكل آمن)`);
@@ -284,12 +273,10 @@
                         sheets: requestedSheets = null
                     } = options;
                     
-                    var useSupabase = AppState.useSupabaseBackend === true;
-                    var hasGoogleSheets = AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl;
-                    if (!useSupabase && !hasGoogleSheets) {
+                    if (!AppState.googleConfig.appsScript.enabled || !AppState.googleConfig.appsScript.scriptUrl) {
                         if (!silent) {
-                            Utils.safeLog('قاعدة البيانات غير متصلة (لا Supabase ولا قاعدة البيانات) - سيتم استخدام البيانات المحلية');
-                            Notification.warning('قاعدة البيانات غير متصلة. يتم استخدام البيانات المحلية فقط');
+                            Utils.safeLog('Google Sheets غير مفعل أو لا يوجد رابط سكريبت - سيتم استخدام البيانات المحلية');
+                            Notification.warning('Google Sheets غير مفعل. يتم استخدام البيانات المحلية فقط');
                         }
                         return false;
                     }
@@ -301,7 +288,7 @@
                         }
                         
                         if (showLoader && typeof Loading !== 'undefined') {
-                            Loading.show('جاري تحميل البيانات من قاعدة البيانات');
+                            Loading.show();
                         }
                         
                         // جلب قائمة الأوراق (نسخة من الكود الأصلي)
@@ -322,7 +309,7 @@
                             'SafetyTeamMembers', 'SafetyOrganizationalStructure', 'SafetyJobDescriptions',
                             'SafetyTeamKPIs', 'SafetyTeamAttendance', 'SafetyTeamLeaves', 'SafetyTeamTasks',
                             'SafetyBudgets', 'SafetyBudgetTransactions', 'SafetyPerformanceKPIs',
-                            'ActionTrackingRegister', 'UserActivityLog', 'Notifications'
+                            'ActionTrackingRegister', 'UserActivityLog'
                         ];
                         
                         // تطبيق نفس منطق التصفية من الكود الأصلي
@@ -371,8 +358,7 @@
                             'SafetyBudgets': 'safetyBudgets', 'SafetyBudgetTransactions': 'safetyBudgetTransactions',
                             'SafetyPerformanceKPIs': 'safetyPerformanceKPIs',
                             'ActionTrackingRegister': 'actionTrackingRegister',
-                            'UserActivityLog': 'user_activity_log',
-                            'Notifications': 'notifications'
+                            'UserActivityLog': 'user_activity_log'
                         };
                         
                         // تطبيق صلاحيات المستخدم (منطق مبسط)
@@ -396,8 +382,7 @@
                                 'safety-budget': ['SafetyBudgets', 'SafetyBudgetTransactions'],
                                 'safety-performance-kpis': ['SafetyPerformanceKPIs', 'SafetyTeamKPIs'],
                                 'safety-health-management': ['SafetyTeamMembers', 'SafetyOrganizationalStructure', 'SafetyJobDescriptions', 'SafetyTeamKPIs', 'SafetyTeamAttendance', 'SafetyTeamLeaves', 'SafetyTeamTasks'],
-                                'action-tracking': ['ActionTrackingRegister', 'HSECorrectiveActions', 'HSENonConformities', 'HSEObjectives'],
-                                'users': ['Users', 'Notifications']
+                                'action-tracking': ['ActionTrackingRegister', 'HSECorrectiveActions', 'HSENonConformities', 'HSEObjectives']
                             };
                             
                             const allowedSheets = new Set(includeUsersSheet ? ['Users'] : []);
@@ -491,9 +476,9 @@
                                 dm.save();
                             }
                             
-                            // تأخير قصير جداً بين الدفعات (بدون تأخير ملحوظ للمستخدم)
+                            // إضافة تأخير بسيط بين الدفعات
                             if (i + BATCH_SIZE < sheets.length) {
-                                await new Promise(resolve => setTimeout(resolve, 0));
+                                await new Promise(resolve => setTimeout(resolve, 500));
                             }
                         }
                         
@@ -514,7 +499,11 @@
                         const dm = (typeof window !== 'undefined' && window.DataManager) || 
                                    (typeof DataManager !== 'undefined' && DataManager);
                         if (dm && typeof dm.save === 'function') {
-                            dm.save();
+                            await new Promise(resolve => {
+                                dm.save();
+                                // إعطاء وقت للحفظ
+                                setTimeout(resolve, 300);
+                            });
                         }
                         
                         // إرسال حدث لإعلام الوحدات بتحديث الواجهة
@@ -530,6 +519,8 @@
                         
                         // إزالة مؤشر التقدم بعد التأكد من اكتمال الحفظ
                         if (showLoader) {
+                            // انتظار قصير للتأكد من عرض التقدم الكامل
+                            await new Promise(resolve => setTimeout(resolve, 500));
                             SyncImprovements.removeProgressIndicator();
                         }
                         
@@ -564,7 +555,7 @@
                         }
                         Utils.safeError('خطأ في المزامنة:', error);
                         if (notifyOnError) {
-                            Notification.error('خطأ في المزامنة مع قاعدة البيانات: ' + error.message);
+                            Notification.error('خطأ في المزامنة مع Google Sheets: ' + error.message);
                         }
                         return false;
                     }
@@ -575,4 +566,3 @@
         }, 2000); // انتظار 2 ثانية للتأكد من تحميل جميع الملفات
     });
 })();
-

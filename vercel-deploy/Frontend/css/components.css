@@ -968,31 +968,29 @@ body.hse-post-login-overlay-active #main-app {
     --hse-post-login-header-height: 0px;
 }
 
-/* الحاوية: توسيط ثابت — إجبار LTR + توسيط بالموقع لضمان المنتصف دائماً */
+/* الحاوية: توسيط مثالي في منتصف الشاشة */
 .hse-post-login-overlay {
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: 100% !important;
-    min-height: 100vh !important;
-    min-height: 100dvh !important;
-    height: 100vh !important;
-    height: 100dvh !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+    height: 100vh;
+    height: 100dvh;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
     place-items: center !important;
-    place-content: center !important;
-    direction: ltr !important;
-    text-align: left !important;
     z-index: 99999 !important;
     visibility: visible !important;
     opacity: 1 !important;
     pointer-events: auto !important;
-    padding: 1.5rem !important;
-    box-sizing: border-box !important;
+    padding: 1.5rem;
+    padding: max(1.5rem, env(safe-area-inset-top)) max(1.5rem, env(safe-area-inset-right)) max(1.5rem, env(safe-area-inset-bottom)) max(1.5rem, env(safe-area-inset-left));
+    box-sizing: border-box;
     animation: hsePostLoginOverlayFadeIn 0.35s ease-out;
     -webkit-overflow-scrolling: touch;
 }
@@ -1015,14 +1013,10 @@ body.hse-post-login-overlay-active #main-app {
     }
 }
 
-/* البطاقة: توسيط مطلق أفقياً وعمودياً — يعمل مع أي dir ولا يعتمد على flex فقط */
+/* البطاقة: عرض A4 + 5% (≈834px / 221mm) في المنتصف، خلفية بيضاء ومظهر منمق */
 .hse-post-login-overlay-card {
-    position: absolute !important;
-    left: 50% !important;
-    top: 50% !important;
-    transform: translate(-50%, -50%) !important;
+    position: relative;
     z-index: 1;
-    direction: rtl;
     background: #ffffff;
     border-radius: 28px;
     box-shadow:
@@ -1031,8 +1025,8 @@ body.hse-post-login-overlay-active #main-app {
         0 12px 24px rgba(0, 0, 0, 0.08),
         0 32px 64px -12px rgba(0, 0, 0, 0.2),
         0 0 0 1px rgba(37, 99, 235, 0.12);
-    width: min(834px, calc(100vw - 3rem)) !important;
     max-width: min(834px, 221mm, calc(100vw - 3rem));
+    width: 100%;
     min-width: min(320px, 100%);
     min-height: 0;
     max-height: min(calc(100vh - 3rem), calc(100dvh - 3rem), 88vh);
@@ -1042,22 +1036,24 @@ body.hse-post-login-overlay-active #main-app {
     border: 1px solid rgba(148, 163, 184, 0.2);
     animation: hsePostLoginSlideIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
     -webkit-overflow-scrolling: touch;
-    flex-shrink: 0;
-    margin: 0 !important;
+    margin: auto !important;
+    margin-inline: auto !important;
+    align-self: center !important;
+    justify-self: center !important;
 }
 
 @keyframes hsePostLoginSlideIn {
     from {
         opacity: 0;
-        transform: translate(-50%, -50%) scale(0.96) translateY(24px);
+        transform: scale(0.96) translateY(24px);
     }
     to {
         opacity: 1;
-        transform: translate(-50%, -50%) scale(1) translateY(0);
+        transform: scale(1) translateY(0);
     }
 }
 
-/* هيدر البطاقة مثل التقرير: شعار (يسار)، عنوان (وسط)، اسم الشركة (يمين) + خط أزرق سفلي */
+/* هيدر البطاقة مثل التقرير: شعار اتجاه اليسار، عنوان في الوسط، اسم الشركة والإدارة اتجاه اليمين + خط أزرق سفلي */
 .hse-post-login-overlay-header {
     background: #ffffff;
     border-top: 4px solid #fef3c7;
@@ -1100,15 +1096,6 @@ body.hse-post-login-overlay-active #main-app {
     margin: 0;
 }
 
-/* العنوان الفرعي تحت العنوان الرئيسي (مثل: إدارة السلامة والصحة المهنية والبيئة) */
-.hse-post-login-overlay-header-center-subtitle {
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: #475569;
-    margin: 0.35rem 0 0;
-    line-height: 1.4;
-}
-
 .hse-post-login-overlay-header-left {
     display: flex;
     align-items: center;
@@ -1125,7 +1112,7 @@ body.hse-post-login-overlay-active #main-app {
     justify-content: center;
 }
 
-/* حجم الشعار مطابق للتقرير عند التصدير: 70px × 130px — مثل النظام السابق */
+/* حجم الشعار مطابق للتقرير عند التصدير: 70px × 130px */
 .hse-post-login-overlay-logo {
     flex-shrink: 0;
     width: min(130px, 28%);
@@ -1141,7 +1128,6 @@ body.hse-post-login-overlay-active #main-app {
     width: auto;
     height: auto;
     object-fit: contain;
-    display: block;
 }
 
 .hse-post-login-overlay-logo-placeholder {
@@ -1190,7 +1176,7 @@ body.hse-post-login-overlay-active #main-app {
     flex-shrink: 0;
 }
 
-/* محتوى النص — عربي: اتجاه اليمين + تنسيق كامل (ضبط المسافات، كلا الحافتين مستقيمتين) */
+/* محتوى النص - قراءة مريحة مع ألوان منظمة */
 .hse-post-login-overlay-body {
     flex: 1;
     overflow-y: auto;
@@ -1200,26 +1186,6 @@ body.hse-post-login-overlay-active #main-app {
     font-size: 1.0625rem;
     -webkit-overflow-scrolling: touch;
     background: #ffffff;
-    direction: rtl;
-    text-align: justify;
-    text-align-last: right;
-}
-
-.hse-post-login-overlay-body p {
-    padding-right: 0;
-    margin-bottom: 0.65em;
-    text-align: justify;
-    text-align-last: right;
-}
-
-.hse-post-login-overlay-body p::before {
-    content: '\25AA\00A0';
-    font-size: 0.85em;
-    color: #111827;
-}
-
-.hse-post-login-overlay-body p:first-of-type::before {
-    content: '\25AA\00A0';
 }
 
 .hse-post-login-overlay-body::-webkit-scrollbar {
@@ -1243,14 +1209,10 @@ body.hse-post-login-overlay-active #main-app {
 .hse-post-login-overlay-body br {
     display: block;
     content: "";
-    margin-top: 0.4em;
+    margin-top: 0.5em;
 }
 
-.hse-post-login-overlay-body p:last-child {
-    margin-bottom: 0;
-}
-
-/* الفوتر: مثل النظام السابق — شريط علوي أزرق + مؤقت + أزرار */
+/* الفوتر: مثل النظام - شريط علوي أزرق + مؤقت + أزرار */
 .hse-post-login-overlay-footer {
     display: flex;
     flex-direction: column;
@@ -1262,7 +1224,6 @@ body.hse-post-login-overlay-active #main-app {
     background: #f8fafc;
     flex-shrink: 0;
     text-align: center;
-    direction: rtl;
 }
 
 .hse-post-login-overlay-timer {
@@ -1284,7 +1245,7 @@ body.hse-post-login-overlay-active #main-app {
     order: 2;
 }
 
-/* الزر الرئيسي: لقد اطّلعت على السياسة — مطابق للنظام السابق */
+/* الزر الرئيسي: لقد اطّلعت على السياسة - شكل مميز وواضح في المنتصف */
 .hse-post-login-ack-btn {
     flex-shrink: 0;
     min-width: 260px;
@@ -1322,7 +1283,7 @@ body.hse-post-login-overlay-active #main-app {
     outline-offset: 3px;
 }
 
-/* زر التخطي - ثانوي وأنيق (مطابق للنظام السابق) */
+/* زر التخطي - ثانوي وأنيق */
 .hse-post-login-skip-btn {
     flex-shrink: 0;
     min-width: 120px;
@@ -1354,7 +1315,7 @@ body.hse-post-login-overlay-active #main-app {
     outline-offset: 2px;
 }
 
-/* فوتر السياسة مثل النماذج: كود النموذج + اسم الشركة (مطابق للنظام السابق) */
+/* فوتر السياسة مثل النماذج: كود النموذج + اسم الشركة (تعبئة تلقائية) */
 .hse-post-login-overlay-footer-meta {
     padding: 0.75rem 1.5rem 1rem;
     background: #f8fafc;
@@ -1392,10 +1353,6 @@ body.hse-post-login-overlay-active #main-app {
 
 [data-theme="dark"] .hse-post-login-overlay-header-center-title {
     color: #93c5fd;
-}
-
-[data-theme="dark"] .hse-post-login-overlay-header-center-subtitle {
-    color: #94a3b8;
 }
 
 [data-theme="dark"] .hse-post-login-overlay-company-name {
@@ -1482,9 +1439,8 @@ body.hse-post-login-overlay-active #main-app {
         justify-content: center;
     }
     .hse-post-login-overlay-card {
-        max-height: min(calc(100vh - 2rem), calc(100dvh - 2rem), 90vh);
-        border-radius: 16px;
-        max-width: calc(100vw - 2rem);
+        max-height: min(calc(100vh - 2rem), calc(100dvh - 2rem), 88vh);
+        border-radius: 24px;
     }
     .hse-post-login-overlay-icon {
         width: 56px;
@@ -1751,21 +1707,6 @@ textarea.form-input {
 /* ===== Change Management Form Modal ===== */
 .change-form-modal.change-form-modal-draggable {
     transition: width 0.25s ease, height 0.25s ease, max-width 0.25s ease, border-radius 0.25s ease;
-}
-/* وضع ملء الشاشة: الـ overlay يملأ الشاشة والنموذج يعلوه */
-.modal-overlay.change-form-overlay-fullscreen {
-    position: fixed !important;
-    left: 0 !important;
-    top: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    z-index: 10000 !important;
-    overflow: auto !important;
-    display: flex !important;
-    align-items: stretch !important;
-    justify-content: center !important;
 }
 .change-form-modal.change-form-modal-fullscreen {
     position: fixed !important;

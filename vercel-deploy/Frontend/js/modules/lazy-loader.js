@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Lazy Loader System
  * نظام تحميل ديناميكي للموديولات لتحسين أداء التطبيق
  * 
@@ -50,7 +50,7 @@ const LazyLoader = {
         'action-tracking': { name: 'ActionTrackingRegister', required: false, priority: 3 },
         'ai-assistant': { name: 'AIAssistant', required: false, priority: 3 },
         'settings': { name: 'Settings', required: false, priority: 3 },
-        'user-tasks': { name: 'UserTasksModule', required: false, priority: 3 }
+        'user-tasks': { name: 'UserTasks', required: false, priority: 3 }
     },
 
     /**
@@ -281,4 +281,3 @@ const LazyLoader = {
 if (typeof window !== 'undefined') {
     window.LazyLoader = LazyLoader;
 }
-

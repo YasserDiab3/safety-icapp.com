@@ -1,11 +1,11 @@
-﻿/* ========================================
+/* ========================================
    نظام المزامنة اللحظية للبيانات
    Real-Time Data Synchronization Manager
    ======================================== */
 
 /**
  * نظام إدارة المزامنة اللحظية للبيانات بين المستخدمين
- * يقوم بجلب التحديثات من قاعدة البيانات بشكل دوري
+ * يقوم بجلب التحديثات من Google Sheets بشكل دوري
  * ويعرضها للمستخدمين الآخرين بدون الحاجة لإعادة تحميل الصفحة
  */
 const realtimeSyncLog = (...args) => {
@@ -37,7 +37,7 @@ const RealtimeSyncManager = {
             'nearmiss',             // الحوادث الوشيكة (يجب أن يكون nearmiss وليس nearMiss)
             'ptw',                  // تصاريح العمل
             'training',             // التدريب
-            'fireEquipment',        // معدات الحريق
+            // fireEquipment يُحمّل داخل الموديول عبر getAllFireEquipmentAssets (شيت FireEquipmentAssets)
             'ppe',                  // معدات الوقاية
             'ppeStock',             // ✅ إضافة: مخزون مهمات الوقاية
             'violations',           // المخالفات
@@ -277,7 +277,7 @@ const RealtimeSyncManager = {
                     user: AppState.currentUser?.email
                 });
 
-                // مزامنة الموديول بعد ثانيتين للتأكد من حفظ البيانات في قاعدة البيانات
+                // مزامنة الموديول بعد ثانيتين للتأكد من حفظ البيانات في Google Sheets
                 setTimeout(() => {
                     this.syncModule(module, false);
                 }, 2000);
@@ -531,7 +531,7 @@ const RealtimeSyncManager = {
                 return false;
             }
 
-            // جلب البيانات من قاعدة البيانات
+            // جلب البيانات من Google Sheets
             const result = await GoogleIntegration.sendRequest({
                 action: 'readFromSheet',
                 data: {
@@ -1239,12 +1239,13 @@ const RealtimeSyncManager = {
                             Contractors.switchTab(savedTab);
                         }
                     } else {
-                        // المحتوى غير موجود - تحميل كامل مع الحفاظ على التبويب الحالي
+                        // المحتوى غير موجود - تحميل كامل
                         // ✅ CRITICAL: منع استدعاء load إذا كان قيد التنفيذ
                         if (!Contractors._isLoading) {
-                            Contractors.load(true).then(() => {
+                            Contractors.load().then(() => {
                                 // استعادة حالة التبويبات بعد التحميل
                                 if (savedTab && typeof Contractors.switchTab === 'function') {
+                                    // ✅ CRITICAL: إزالة requestAnimationFrame - تنفيذ مباشر
                                     Contractors.switchTab(savedTab);
                                 }
                             }).catch(err => {
@@ -1536,4 +1537,3 @@ if (document.readyState === 'loading') {
         }
     }, 2000);
 }
-

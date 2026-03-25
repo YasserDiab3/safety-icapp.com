@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Employees Module
  * ØªÙ… Ø§Ø³ØªØ®Ø±Ø§Ø¬Ù‡ Ù…Ù† app-modules.js
  */
@@ -16,7 +16,8 @@ const Employees = {
     config: {
         cacheTimeout: 5 * 60 * 1000, // 5 دقائق - صلاحية الـ cache
         backgroundUpdateInterval: 10 * 60 * 1000, // 10 دقائق - فترة التحديث في الخلفية
-        backgroundUpdateTimer: null
+        backgroundUpdateTimer: null,
+        _refreshedOnceForInactive: false // مرة واحدة لكل جلسة لجلب المستقيلين من الخادم
     },
 
     /**
@@ -215,6 +216,14 @@ const Employees = {
     },
 
     async load() {
+        // إضافة مستمع لتغيير اللغة
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         // التحقق من وجود التبعيات المطلوبة
         if (typeof Utils === 'undefined') {
             console.error('Utils غير متوفر!');
@@ -260,7 +269,7 @@ const Employees = {
         try {
             const canAddOrImport = this.canAddOrImport();
 
-            // ⚡️ مهم: عرض Skeleton فوراً بدون انتظار المزامنة مع قاعدة البيانات
+            // ⚡️ مهم: عرض Skeleton فوراً بدون انتظار المزامنة مع Google Sheets
             // هذا يمنع "الواجهة فارغة" و Timeout في AppTester (مهلة 15 ثانية للـ UI)
             section.innerHTML = `
                 <div class="section-header">
@@ -401,6 +410,20 @@ const Employees = {
     },
 
     /**
+     * تحديد إذا كان الموظف غير نشط (مستقيل)
+     * يدعم: status = 'inactive' أو 'غير نشط' أو وجود تاريخ استقالة
+     */
+    isEmployeeInactive(employee) {
+        if (!employee) return false;
+        const status = (employee.status != null && employee.status !== '') ? String(employee.status).trim() : '';
+        const resignationDate = (employee.resignationDate != null && employee.resignationDate !== '') ? String(employee.resignationDate).trim() : '';
+        if (resignationDate) return true;
+        if (status === 'inactive' || status.toLowerCase() === 'inactive') return true;
+        if (status === 'غير نشط') return true;
+        return false;
+    },
+
+    /**
      * حساب الإحصائيات للموظفين
      */
     calculateStatistics() {
@@ -416,8 +439,9 @@ const Employees = {
             };
         }
 
-        // حساب عدد الموظفين
-        const total = employees.length;
+        // حساب عدد الموظفين (النشطين فقط - لا يشمل المستقيلين أو من تم إلغاء تفعيلهم)
+        const activeEmployees = employees.filter(e => !this.isEmployeeInactive(e));
+        const total = activeEmployees.length;
 
         // حساب متوسط السن
         let totalAge = 0;
@@ -541,10 +565,8 @@ const Employees = {
         
         const averageExperience = experienceCount > 0 ? (totalExperience / experienceCount).toFixed(1) : 0;
 
-        // ✅ حساب عدد الموظفين غير النشطين (المستقيلين)
-        const inactiveCount = employees.filter(e => 
-            e.status === 'inactive'
-        ).length;
+        // ✅ حساب عدد الموظفين غير النشطين (المستقيلين) - يدعم inactive / غير نشط / تاريخ استقالة
+        const inactiveCount = employees.filter(e => this.isEmployeeInactive(e)).length;
 
         return {
             total,
@@ -956,6 +978,16 @@ const Employees = {
             if (this.cache.data && this.cache.data.length > 0) {
                 AppState.appData.employees = this.cache.data;
             }
+            // ✅ مرة واحدة لكل جلسة: إذا عداد المستقيلين 0 والكاش قد يكون قديماً، جلب كامل من الخادم في الخلفية
+            if (!this.config._refreshedOnceForInactive && AppState.appData.employees.length > 0 && AppState.googleConfig?.appsScript?.enabled) {
+                const inactiveInCache = (AppState.appData.employees || []).filter(e => this.isEmployeeInactive(e)).length;
+                if (inactiveInCache === 0) {
+                    this.config._refreshedOnceForInactive = true;
+                    this.loadEmployeesFromBackend(true).then(() => {
+                        window.dispatchEvent(new CustomEvent('employeesDataUpdated', { detail: {} }));
+                    }).catch(() => {});
+                }
+            }
             return true;
         }
 
@@ -976,7 +1008,7 @@ const Employees = {
     },
 
     /**
-     * تحميل بيانات الموظفين من قاعدة البيانات (قاعدة البيانات)
+     * تحميل بيانات الموظفين من قاعدة البيانات (Google Sheets)
      */
     async loadEmployeesFromBackend(forceReload = false) {
         // منع التحميل المتزامن المتكرر
@@ -1002,7 +1034,7 @@ const Employees = {
             // التحقق من تفعيل Google Integration
             if (!AppState.googleConfig?.appsScript?.enabled || !AppState.googleConfig?.appsScript?.scriptUrl) {
                 if (AppState.debugMode) {
-                    Utils.safeLog('⚠️ الاتصال بالخادم غير مفعّل - استخدام البيانات المحلية فقط');
+                    Utils.safeLog('⚠️ Google Apps Script غير مفعّل - استخدام البيانات المحلية فقط');
                 }
                 // استخدام البيانات المحلية إذا كانت موجودة
                 if (AppState.appData.employees && Array.isArray(AppState.appData.employees)) {
@@ -1030,10 +1062,11 @@ const Employees = {
             }
 
             // محاولة تحميل البيانات من Backend باستخدام getAllEmployees
+            // ✅ includeInactive: true لاستلام جميع الموظفين (نشطين + مستقيلين) حتى يظهر عداد المستقيلين بشكل صحيح
             try {
                 const result = await GoogleIntegration.sendRequest({
                     action: 'getAllEmployees',
-                    data: { filters: {} }
+                    data: { filters: { includeInactive: true } }
                 });
 
                 if (result && result.success && Array.isArray(result.data)) {
@@ -1082,7 +1115,7 @@ const Employees = {
                         }
 
                         if (AppState.debugMode) {
-                            Utils.safeLog(`✅ تم تحميل ${sheetResult.data.length} موظف من قاعدة البيانات`);
+                            Utils.safeLog(`✅ تم تحميل ${sheetResult.data.length} موظف من Google Sheets`);
                         }
                         this.cache.isUpdating = false;
                         return true;
@@ -1144,7 +1177,7 @@ const Employees = {
             // محاولة تحميل البيانات من Backend
             const result = await GoogleIntegration.sendRequest({
                 action: 'getAllEmployees',
-                data: { filters: {} }
+                data: { filters: { includeInactive: true } }
             });
 
             if (result && result.success && Array.isArray(result.data)) {
@@ -1255,14 +1288,10 @@ const Employees = {
             Utils.safeLog(`📊 loadEmployeesList: إجمالي الموظفين = ${employees.length}, showInactive = ${showInactive}`);
         }
 
-        // ✅ تصفية الموظفين النشطين فقط (ما لم يُطلب خلاف ذلك)
+        // ✅ تصفية الموظفين النشطين فقط (ما لم يُطلب خلاف ذلك) - استخدام isEmployeeInactive
         if (!showInactive) {
             const beforeFilter = employees.length;
-            employees = employees.filter(e => 
-                e.status === undefined || 
-                e.status === '' || 
-                e.status === 'active'
-            );
+            employees = employees.filter(e => !this.isEmployeeInactive(e));
             if (AppState.debugMode) {
                 Utils.safeLog(`📊 بعد التصفية (نشطين فقط): ${employees.length} من ${beforeFilter}`);
             }
@@ -1344,8 +1373,8 @@ const Employees = {
             const hireDate = this.formatDateSafe(employee.hireDate);
             const age = this.calculateAge(employee.birthDate);
             
-            // ✅ تحديد إذا كان الموظف غير نشط
-            const isInactive = employee.status === 'inactive';
+            // ✅ تحديد إذا كان الموظف غير نشط (مستقيل)
+            const isInactive = this.isEmployeeInactive(employee);
             const rowStyle = isInactive ? 'opacity: 0.7; background-color: #f8f9fa;' : '';
             
             const tr = document.createElement('tr');
@@ -2538,7 +2567,7 @@ const Employees = {
         } else {
             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
         }
-            // حفظ تلقائي في قاعدة البيانات
+            // حفظ تلقائي في Google Sheets
             await GoogleIntegration.autoSave('Employees', AppState.appData.employees);
 
             // تحديث Cache
@@ -2809,7 +2838,7 @@ const Employees = {
                         </div>
                         <div class="detail-field">
                             <div class="detail-label">النوع</div>
-                            <div class="detail-value">${Utils.escapeHTML(employee.gender === 'ذكر' ? 'Male' : employee.gender === 'أنثى' ? 'Female' : employee.gender || '-')}</div>
+                            <div class="detail-value">${Utils.escapeHTML(employee.gender || '-')}</div>
                         </div>
                         <div class="detail-field">
                             <div class="detail-label">البريد الإلكتروني</div>
@@ -2996,7 +3025,7 @@ const Employees = {
                 Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
             }
             
-            // حفظ تلقائي في قاعدة البيانات
+            // حفظ تلقائي في Google Sheets
             await GoogleIntegration.autoSave('Employees', AppState.appData.employees);
             
             // ✅ محاولة استخدام deactivateEmployee من Backend إذا كان متاحاً
@@ -3004,7 +3033,7 @@ const Employees = {
                 try {
                     await GoogleIntegration.sendToAppsScript('deactivateEmployee', { employeeId: id });
                 } catch (error) {
-                    Utils.safeWarn('⚠️ فشل إلغاء تفعيل الموظف من قاعدة البيانات، سيتم المحاولة لاحقاً:', error);
+                    Utils.safeWarn('⚠️ فشل إلغاء تفعيل الموظف من Google Sheets، سيتم المحاولة لاحقاً:', error);
                 }
             }
             
@@ -3059,7 +3088,7 @@ const Employees = {
         } else {
             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
         }
-            // حفظ تلقائي في قاعدة البيانات
+            // حفظ تلقائي في Google Sheets
             await GoogleIntegration.autoSave('Employees', AppState.appData.employees);
             
             // تحديث Cache
@@ -3174,13 +3203,9 @@ const Employees = {
         
         let employees = AppState.appData.employees || [];
         
-        // ✅ تصفية الموظفين النشطين فقط (ما لم يُطلب خلاف ذلك)
+        // ✅ تصفية الموظفين النشطين فقط (ما لم يُطلب خلاف ذلك) - استخدام isEmployeeInactive
         if (!showInactive) {
-            employees = employees.filter(e => 
-                e.status === undefined || 
-                e.status === '' || 
-                e.status === 'active'
-            );
+            employees = employees.filter(e => !this.isEmployeeInactive(e));
         }
         
         let filtered = employees;
@@ -3243,8 +3268,8 @@ const Employees = {
                 const hireDate = this.formatDateSafe(employee.hireDate);
                 const age = this.calculateAge(employee.birthDate);
                 
-                // ✅ تحديد إذا كان الموظف غير نشط
-                const isInactive = employee.status === 'inactive';
+                // ✅ تحديد إذا كان الموظف غير نشط (مستقيل)
+                const isInactive = this.isEmployeeInactive(employee);
                 const rowStyle = isInactive ? 'opacity: 0.7; background-color: #f8f9fa;' : '';
                 
                 const tr = document.createElement('tr');
@@ -3572,15 +3597,17 @@ const Employees = {
         const doUpdate = () => {
             try {
                 const employees = AppState.appData.employees || [];
-                const inactiveCount = employees.filter(e => e.status === 'inactive').length;
+                const inactiveCount = employees.filter(e => this.isEmployeeInactive(e)).length;
                 
                 const countBadge = document.getElementById('inactive-employees-count');
                 if (countBadge) {
                     // ✅ تحديث المحتوى
                     countBadge.textContent = inactiveCount;
                     
-                    // ✅ إظهار الشارة دائماً بشكل ثابت (حتى لو كان العدد صفر)
-                    // استخدام setAttribute لضمان تطبيق الأنماط بشكل صحيح
+                    // ✅ لون الشارة: رمادي عند 0 (محايد)، أحمر عند وجود مستقيلين
+                    const isZero = inactiveCount === 0;
+                    const bgColor = isZero ? '#6b7280' : '#dc2626';
+                    const boxShadow = isZero ? '0 2px 4px rgba(107, 114, 128, 0.3)' : '0 2px 4px rgba(220, 38, 38, 0.3)';
                     countBadge.style.cssText = `
                         display: inline-flex !important;
                         visibility: visible !important;
@@ -3590,19 +3617,19 @@ const Employees = {
                         min-width: 24px;
                         height: 22px;
                         padding: 0 8px;
-                        background: #dc2626;
+                        background: ${bgColor};
                         color: white;
                         border-radius: 11px;
                         font-size: 11px;
                         font-weight: 700;
                         margin-right: 4px;
-                        box-shadow: 0 2px 4px rgba(220, 38, 38, 0.3);
+                        box-shadow: ${boxShadow};
                         transition: all 0.3s ease;
                     `;
                     
-                    // ✅ تطبيق تأثير خاص إذا كان checkbox مفعل
+                    // ✅ تطبيق تأثير خاص إذا كان checkbox مفعل (عرض المستقيلين)
                     const checkbox = document.getElementById('show-inactive-employees');
-                    if (checkbox && checkbox.checked) {
+                    if (checkbox && checkbox.checked && !isZero) {
                         countBadge.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)';
                         countBadge.style.boxShadow = '0 2px 6px rgba(220, 38, 38, 0.4)';
                         countBadge.style.transform = 'scale(1.1)';
@@ -3676,10 +3703,15 @@ const Employees = {
 
 // دالة مساعدة لتوليد كود ISO للنماذج
 function generateISOCode(prefix, dataArray) {
+    // This method is prone to collisions if items are deleted or if IDs are generated concurrently.
+    // For robust unique IDs, consider a UUID generator (e.g., crypto.randomUUID) or a centralized ID service.
+    // For now, keeping the existing logic but adding a warning.
     const year = new Date().getFullYear();
     const month = String(new Date().getMonth() + 1).padStart(2, '0');
-    const count = (dataArray || []).length + 1;
-    return `${prefix}-${year}${month}-${String(count).padStart(4, '0')}`;
+    // To ensure uniqueness, a more robust ID generation strategy is needed.
+    // For example, using a timestamp + random string, or a backend-generated ID.
+    const uniqueSuffix = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    return `${prefix}-${year}${month}-${uniqueSuffix}`;
 }
 
 // ===== Export module to global scope =====

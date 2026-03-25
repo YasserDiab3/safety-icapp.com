@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Training Module
  * ØªÙ… Ø§Ø³ØªØ®Ø±Ø§Ø¬Ù‡ Ù…Ù† app-modules.js
  */
@@ -27,6 +27,34 @@ const Training = {
     },
 
     /**
+     * عدد المشاركين من سجل تدريب — منطق موحد: نفضّل participantsCount الرقمي، وإلا طول مصفوفة participants.
+     */
+    getParticipantsCount(record) {
+        if (!record || typeof record !== 'object') return 0;
+        const n = Number(record.participantsCount);
+        if (Number.isFinite(n)) return n;
+        return Array.isArray(record.participants) ? record.participants.length : 0;
+    },
+
+    /**
+     * إرجاع مصفوفة المشاركين من سجل تدريب — مع دعم تحليل JSON إذا كان الحقل نصاً (من الورقة).
+     */
+    getParticipantsArray(record) {
+        if (!record || typeof record !== 'object') return [];
+        const p = record.participants;
+        if (Array.isArray(p)) return p;
+        if (typeof p === 'string' && p.trim()) {
+            try {
+                const parsed = JSON.parse(p);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (e) {
+                return [];
+            }
+        }
+        return [];
+    },
+
+    /**
      * إصلاح البيانات الموجودة: إضافة أوقات افتراضية للسجلات التي لا تحتوي على أوقات
      */
     fixExistingContractorTrainingTimes() {
@@ -42,37 +70,33 @@ const Training = {
             if (!training) return;
 
             // التحقق من وجود أوقات صحيحة
-            const hasValidFromTime = training.fromTime && 
-                                     training.fromTime !== '—' && 
-                                     training.fromTime !== '-' && 
-                                     training.fromTime !== '' &&
-                                     training.fromTime !== 'null' &&
-                                     training.fromTime !== 'undefined';
-            
-            const hasValidToTime = training.toTime && 
-                                   training.toTime !== '—' && 
-                                   training.toTime !== '-' && 
-                                   training.toTime !== '' &&
-                                   training.toTime !== 'null' &&
-                                   training.toTime !== 'undefined';
+            const startVal = training.startTime || training.fromTime;
+            const endVal = training.endTime || training.toTime;
+            const isTimeValid = (time) => {
+                const s = String(time || '').trim();
+                return s !== '' && s !== '—' && s !== '-' && s !== 'null' && s !== 'undefined';
+            };
+            const hasValidStartTime = isTimeValid(startVal);
+            const hasValidEndTime = isTimeValid(endVal);
 
-            // إذا كانت الأوقات فارغة أو غير صحيحة، إضافة أوقات افتراضية
-            if (!hasValidFromTime || !hasValidToTime) {
+            // إذا كانت الأوقات فارغة أو غير صحيحة، إضافة أوقات افتراضية (مطابق لتدريب الموظفين)
+            if (!hasValidStartTime || !hasValidEndTime) {
                 fixedCount++;
-                
-                // تعيين أوقات افتراضية معقولة (09:00 - 10:00)
-                if (!hasValidFromTime) {
-                    training.fromTime = '09:00';
+                if (!hasValidStartTime) {
+                    training.startTime = '09:00';
+                    if (training.fromTime !== undefined) training.fromTime = '09:00';
                     needsSave = true;
                 }
-                if (!hasValidToTime) {
-                    training.toTime = '10:00';
+                if (!hasValidEndTime) {
+                    training.endTime = '10:00';
+                    if (training.toTime !== undefined) training.toTime = '10:00';
                     needsSave = true;
                 }
 
-                // حساب المدة والساعات إذا لم تكن موجودة
-                if (training.fromTime && training.toTime) {
-                    const duration = this.calculateDuration(training.fromTime, training.toTime);
+                const startForCalc = training.startTime || training.fromTime;
+                const endForCalc = training.endTime || training.toTime;
+                if (startForCalc && endForCalc) {
+                    const duration = this.calculateDuration(startForCalc, endForCalc);
                     if (duration > 0) {
                         if (!training.durationMinutes || training.durationMinutes === 0) {
                             training.durationMinutes = duration;
@@ -119,8 +143,9 @@ const Training = {
             let duration = toMinutes - fromMinutes;
             
             // التعامل مع الحالة التي يكون فيها الوقت عبر منتصف الليل
+            // This assumes duration is within a 24-hour period. If it can span multiple days, more complex logic is needed.
             if (duration < 0) {
-                duration += 24 * 60; // إضافة يوم كامل
+                duration += 24 * 60; // Add 24 hours for durations spanning midnight
             }
             
             return duration;
@@ -271,6 +296,13 @@ const Training = {
     },
 
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
         this.ensureData();
         const section = document.getElementById('training-section');
         if (!section) {
@@ -470,7 +502,7 @@ const Training = {
         // التحقق من تفعيل Google Integration قبل إجراء الطلبات
         if (!AppState.googleConfig?.appsScript?.enabled || !AppState.googleConfig?.appsScript?.scriptUrl) {
             if (AppState.debugMode) {
-                Utils.safeLog('⚠️ الاتصال بالخادم غير مفعّل - استخدام البيانات المحلية فقط');
+                Utils.safeLog('⚠️ Google Apps Script غير مفعل - استخدام البيانات المحلية فقط');
             }
             return;
         }
@@ -481,9 +513,9 @@ const Training = {
             return;
         }
 
-        // تحميل البيانات من قاعدة البيانات مع timeout محسّن (مع تنظيف الـ timer)
+        // تحميل البيانات من Google Sheets مع timeout محسّن (مع تنظيف الـ timer)
         const timeout = 60000; // 60 ثانية timeout لكل طلب (زيادة من 30 ثانية)
-        const timeoutMessage = 'انتهت مهلة الاتصال بالخادم. تحقق من اتصال الإنترنت وإعدادات الخادم.';
+        const timeoutMessage = 'انتهت مهلة الاتصال بالخادم\n\nتحقق من:\n1. اتصال الإنترنت\n2. أن Google Apps Script منشور ومفعّل\n3. عدم وجود قيود على الشبكة';
         const requestWithTimeout = (promise) => Utils.promiseWithTimeout(promise, timeout, timeoutMessage);
 
         try {
@@ -593,10 +625,8 @@ const Training = {
         let completedCount = 0;
 
         trainings.forEach(training => {
-            const participantsCount = Array.isArray(training.participants)
-                ? training.participants.length
-                : Number(training.participantsCount || training.participants || 0);
-            totalParticipants += Number.isFinite(participantsCount) ? participantsCount : 0;
+            const participantsCount = this.getParticipantsCount(training);
+            totalParticipants += participantsCount;
 
             if (training.status === 'مكتمل') {
                 completedCount += 1;
@@ -614,6 +644,20 @@ const Training = {
             completedTrainings: completedCount,
             totalParticipants: totalParticipants
         };
+    },
+
+    /** إحصائيات برامج التدريب من مصفوفة معينة (للاستخدام مع البيانات المفلترة) */
+    getStatsFromTrainingsArray(trainings) {
+        const list = Array.isArray(trainings) ? trainings : [];
+        const now = new Date();
+        let totalParticipants = 0, upcomingCount = 0, completedCount = 0;
+        list.forEach(training => {
+            totalParticipants += this.getParticipantsCount(training);
+            if (training.status === 'مكتمل') completedCount += 1;
+            const startDate = training.startDate ? new Date(training.startDate) : null;
+            if (training.status === 'مخطط' || (startDate && startDate >= now)) upcomingCount += 1;
+        });
+        return { totalTrainings: list.length, upcomingTrainings: upcomingCount, completedTrainings: completedCount, totalParticipants };
     },
 
     getContractorTrainingStats(monthFilter = '') {
@@ -816,8 +860,10 @@ const Training = {
             .map(t => {
                 const contractorId = String(t?.contractorId ?? '').trim();
         // ✅ لا نسمح للـ Map باستبدال الاسم المحفوظ في السجل (لتفادي تعارض IDs)
-        const storedName = normalizeText(t?.contractorName || 'غير محدد');
-        const hasStored = storedName && !['غير محدد', 'بدون اسم', '—', '-'].includes(storedName);
+        // Use canonical identifiers or a more robust check for empty/placeholder names.
+        const storedName = normalizeText(t?.contractorName || '');
+        const isPlaceholder = (name) => name === '' || name === 'غير محدد' || name === 'بدون اسم' || name === '—' || name === '-';
+        const hasStored = storedName && !isPlaceholder(storedName);
         const contractorName = hasStored ? storedName : normalizeText(contractorMap.get(contractorId) || storedName || 'غير محدد');
                 const trainer = normalizeText(t?.trainer || t?.conductedBy || 'غير محدد');
                 const topic = normalizeText(t?.topic || '—');
@@ -993,7 +1039,7 @@ const Training = {
                         </thead>
                         <tbody>
                             ${rows.map((r, idx) => `
-                                <tr class="hover:bg-indigo-50 cursor-pointer transition-all duration-200" data-analytics-drill="${safe(r.label)}" data-analytics-mode="${mode}" style="background: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};" onmouseover="this.style.background='#eef2ff'; this.style.transform='scale(1.005)'" onmouseout="this.style.background='${idx % 2 === 0 ? '#ffffff' : '#f8fafc'}'; this.style.transform='scale(1)'">
+                                <tr class="hover:bg-indigo-50 cursor-pointer transition-all duration-200 pivot-table-row" data-analytics-drill="${safe(r.label)}" data-analytics-mode="${mode}" data-row-idx="${idx}" style="background: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
                                     <td style="padding: 12px 16px; font-size: 12px; text-align: right; border-bottom: 1px solid #f0f0f0;">
                                         <span style="color: #4c51bf; font-weight: 600; display: flex; align-items: center; gap: 8px;">
                                             <span style="width: 8px; height: 8px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 50%; flex-shrink: 0;"></span>
@@ -1112,7 +1158,7 @@ const Training = {
                                 <i class="fas fa-building" style="color: #667eea; font-size: 0.7rem; width: 14px; text-align: center;"></i>
                                 <span>المقاول</span>
                             </label>
-                            <select id="contractor-analytics-contractor" class="form-input" style="border: 2px solid #e0e7ff; border-radius: 10px; padding: 10px 12px; font-size: 0.85rem; transition: all 0.25s ease; background: white; min-height: 42px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);" onfocus="this.style.borderColor='#667eea'; this.style.boxShadow='0 0 0 4px rgba(102,126,234,0.12), 0 2px 6px rgba(102,126,234,0.15)'; this.style.transform='translateY(-1px)'" onblur="this.style.borderColor='#e0e7ff'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)'; this.style.transform='translateY(0)'">${optionList(model.dimensions.contractors, state.contractor)}</select>
+                            <select id="contractor-analytics-contractor" class="form-input contractor-analytics-input" data-focus-style="true">${optionList(model.dimensions.contractors, state.contractor)}</select>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 8px;">
                             <label style="font-size: 0.75rem; font-weight: 600; color: #4b5563; display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
@@ -1349,6 +1395,723 @@ const Training = {
                     // عند الـ drill نعرض التفاصيل مباشرة
                     state.view = 'details';
                     this.refreshContractorAnalytics(monthFilter);
+                });
+            });
+        }
+    },
+
+    // =========================
+    // تحليل تفاعلي لتدريبات الموظفين (Slicers + Pivot + Drill-down)
+    // =========================
+
+    getEmployeeAnalyticsState() {
+        this._employeeAnalyticsState = this._employeeAnalyticsState || {
+            trainer: '',
+            topic: '',
+            location: '',
+            trainingType: '',
+            search: '',
+            view: 'trainer', // trainer | topic | details
+            sortBy: 'hours',
+            sortDir: 'desc',
+            drillKey: ''
+        };
+        return this._employeeAnalyticsState;
+    },
+
+    getEmployeeTrainingAnalyticsModel(monthFilter = '') {
+        this.ensureData();
+        const trainings = Array.isArray(AppState.appData.training) ? AppState.appData.training : [];
+
+        const toMonthKey = (d) => {
+            if (!d) return '';
+            const date = new Date(d);
+            if (Number.isNaN(date.getTime())) return '';
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        };
+
+        const normalizeText = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+        const normalizeKey = (v) => normalizeText(v).toLowerCase();
+
+        const records = trainings
+            .filter(t => {
+                if (!monthFilter) return true;
+                const d = t?.startDate || t?.date || t?.createdAt;
+                return toMonthKey(d) === monthFilter;
+            })
+            .map(t => {
+                const topic = normalizeText(t?.name || t?.subject || '—');
+                const trainer = normalizeText(t?.trainer || t?.conductedBy || 'غير محدد');
+                const location = normalizeText(t?.location || '—');
+                const trainingType = normalizeText(t?.trainingType || 'داخلي');
+                const participants = Array.isArray(t.participants) ? t.participants : [];
+                const trainees = this.getParticipantsCount(t);
+                const hours = parseFloat(t?.hours || t?.totalHours || 0) || 0;
+                const date = (t?.startDate || t?.date) ? new Date(t.startDate || t.date) : null;
+
+                return {
+                    raw: t,
+                    date,
+                    dateKey: t?.startDate || t?.date ? String(t.startDate || t.date) : '',
+                    monthKey: toMonthKey(t?.startDate || t?.date),
+                    topic,
+                    topicKey: normalizeKey(topic),
+                    trainer,
+                    trainerKey: normalizeKey(trainer),
+                    location,
+                    locationKey: normalizeKey(location),
+                    trainingType,
+                    trainingTypeKey: normalizeKey(trainingType),
+                    trainees,
+                    hours
+                };
+            });
+
+        const uniq = (arr) => Array.from(new Set(arr.filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ar', { sensitivity: 'base' }));
+
+        const dimensions = {
+            trainers: uniq(records.map(r => r.trainer)),
+            topics: uniq(records.map(r => r.topic)),
+            locations: uniq(records.map(r => r.location)),
+            trainingTypes: uniq(records.map(r => r.trainingType))
+        };
+
+        return { monthFilter, records, dimensions };
+    },
+
+    computeEmployeeAnalytics(model, state) {
+        const normalizeKey = (v) => String(v ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+        const trainerKey = normalizeKey(state.trainer);
+        const topicKey = normalizeKey(state.topic);
+        const locationKey = normalizeKey(state.location);
+        const trainingTypeKey = normalizeKey(state.trainingType);
+        const searchKey = normalizeKey(state.search);
+
+        const filtered = (model.records || []).filter(r => {
+            if (trainerKey && r.trainerKey !== trainerKey) return false;
+            if (topicKey && r.topicKey !== topicKey) return false;
+            if (locationKey && r.locationKey !== locationKey) return false;
+            if (trainingTypeKey && r.trainingTypeKey !== trainingTypeKey) return false;
+            if (searchKey) {
+                const hay = `${r.trainerKey} ${r.topicKey} ${r.locationKey} ${r.trainingTypeKey}`;
+                if (!hay.includes(searchKey)) return false;
+            }
+            return true;
+        });
+
+        const totals = {
+            programs: filtered.length,
+            trainees: filtered.reduce((s, r) => s + (r.trainees || 0), 0),
+            hours: filtered.reduce((s, r) => s + (r.hours || 0), 0),
+            trainers: new Set(filtered.map(r => r.trainerKey)).size,
+            topics: new Set(filtered.map(r => r.topicKey)).size
+        };
+
+        const pivotBy = (keyField, labelField) => {
+            const map = new Map();
+            filtered.forEach(r => {
+                const key = r[keyField] || '';
+                const label = r[labelField] || 'غير محدد';
+                if (!key) return;
+                if (!map.has(key)) map.set(key, { key, label, count: 0, trainees: 0, hours: 0 });
+                const agg = map.get(key);
+                agg.count += 1;
+                agg.trainees += r.trainees || 0;
+                agg.hours += r.hours || 0;
+            });
+            return Array.from(map.values());
+        };
+
+        const trainersPivot = pivotBy('trainerKey', 'trainer');
+        const topicsPivot = pivotBy('topicKey', 'topic');
+
+        const sortDir = state.sortDir === 'asc' ? 1 : -1;
+        const sortMetric = state.sortBy || 'hours';
+        const sortPivot = (rows) => {
+            const sorted = rows.slice().sort((a, b) => {
+                const av = a[sortMetric] ?? 0;
+                const bv = b[sortMetric] ?? 0;
+                if (bv === av) return (a.label || '').localeCompare(b.label || '', 'ar', { sensitivity: 'base' }) * sortDir;
+                return (bv - av) * sortDir;
+            });
+            return sorted;
+        };
+
+        const topTrainers = sortPivot(trainersPivot).slice(0, 20);
+        const topTopics = sortPivot(topicsPivot).slice(0, 20);
+
+        const drillKey = normalizeKey(state.drillKey);
+        const drilled = drillKey
+            ? filtered.filter(r => (state.view === 'topic' ? r.topicKey === drillKey : r.trainerKey === drillKey))
+            : filtered;
+
+        const detailsSorted = drilled.slice().sort((a, b) => {
+            if (state.view !== 'details' && state.sortBy !== 'date') return 0;
+            const at = a.date ? a.date.getTime() : 0;
+            const bt = b.date ? b.date.getTime() : 0;
+            return (bt - at) * sortDir;
+        });
+
+        return { filtered, totals, topTrainers, topTopics, details: detailsSorted };
+    },
+
+    renderEmployeeAnalyticsDashboard(model, state) {
+        const safe = (v) => Utils.escapeHTML(String(v ?? ''));
+        const fmt = (n, digits = 0) => {
+            const num = Number(n) || 0;
+            return num.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+        };
+
+        const computed = this.computeEmployeeAnalytics(model, state);
+        const drillLabel = state.drillKey ? String(state.drillKey) : '';
+
+        const optionList = (items, selected) => {
+            const selKey = String(selected ?? '').replace(/\s+/g, ' ').trim();
+            return [`<option value="">الكل</option>`]
+                .concat(items.map(v => `<option value="${safe(v)}" ${selKey === String(v) ? 'selected' : ''}>${safe(v)}</option>`))
+                .join('');
+        };
+
+        const renderPivotTable = (rows, mode) => {
+            if (!rows.length) {
+                return `<div style="padding: 40px 20px; text-align: center; background: linear-gradient(180deg, #f0fdfa 0%, #ccfbf1 100%); border-radius: 12px; border: 2px dashed #99f6e4;">
+                    <i class="fas fa-inbox" style="font-size: 2.5rem; color: #5eead4; margin-bottom: 12px; display: block;"></i>
+                    <p style="color: #0f766e; font-size: 0.9rem; margin: 0;">لا توجد بيانات مطابقة للفلاتر الحالية</p>
+                </div>`;
+            }
+            return `
+                <div class="employee-pivot-table-container" style="overflow: auto; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #99f6e4; max-height: 400px; scrollbar-width: thin; scrollbar-color: #0d9488 #ccfbf1;">
+                    <style>
+                        .employee-pivot-table-container::-webkit-scrollbar { width: 6px; height: 6px; }
+                        .employee-pivot-table-container::-webkit-scrollbar-track { background: #ccfbf1; border-radius: 10px; }
+                        .employee-pivot-table-container::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #0d9488, #059669); border-radius: 10px; }
+                    </style>
+                    <table class="table-auto w-full" style="min-width: 640px; border-collapse: separate; border-spacing: 0;">
+                        <thead>
+                            <tr style="background: linear-gradient(135deg, #0d9488 0%, #059669 100%);">
+                                <th style="padding: 14px 16px; font-size: 12px; text-align: right; color: white; font-weight: 700; position: sticky; top: 0; z-index: 10; background: linear-gradient(135deg, #0d9488 0%, #059669 100%);">
+                                    <i class="fas ${mode === 'topic' ? 'fa-book' : 'fa-user-tie'} ml-2"></i>${mode === 'topic' ? 'البرنامج / الموضوع' : 'القائم بالتدريب'}
+                                </th>
+                                <th style="padding: 14px 12px; font-size: 12px; text-align: center; color: white; font-weight: 700; position: sticky; top: 0; z-index: 10; background: linear-gradient(135deg, #0d9488 0%, #059669 100%);">
+                                    <i class="fas fa-clipboard-list ml-1"></i>البرامج
+                                </th>
+                                <th style="padding: 14px 12px; font-size: 12px; text-align: center; color: white; font-weight: 700; position: sticky; top: 0; z-index: 10; background: linear-gradient(135deg, #0d9488 0%, #059669 100%);">
+                                    <i class="fas fa-users ml-1"></i>المشاركين
+                                </th>
+                                <th style="padding: 14px 12px; font-size: 12px; text-align: center; color: white; font-weight: 700; position: sticky; top: 0; z-index: 10; background: linear-gradient(135deg, #0d9488 0%, #059669 100%);">
+                                    <i class="fas fa-clock ml-1"></i>الساعات
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows.map((r, idx) => `
+                                <tr class="hover:bg-teal-50 cursor-pointer transition-all duration-200" data-analytics-drill="${safe(r.label)}" data-analytics-mode="${mode}" style="background: ${idx % 2 === 0 ? '#ffffff' : '#f0fdfa'};" onmouseover="this.style.background='#ccfbf1'; this.style.transform='scale(1.005)'" onmouseout="this.style.background='${idx % 2 === 0 ? '#ffffff' : '#f0fdfa'}'; this.style.transform='scale(1)'">
+                                    <td style="padding: 12px 16px; font-size: 12px; text-align: right; border-bottom: 1px solid #f0f0f0;">
+                                        <span style="color: #0f766e; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                                            <span style="width: 8px; height: 8px; background: linear-gradient(135deg, #0d9488, #059669); border-radius: 50%; flex-shrink: 0;"></span>
+                                            ${safe(r.label)}
+                                        </span>
+                                    </td>
+                                    <td style="padding: 12px; font-size: 12px; text-align: center; border-bottom: 1px solid #f0f0f0;">
+                                        <span style="background: #ccfbf1; color: #0f766e; padding: 4px 10px; border-radius: 20px; font-weight: 600;">${fmt(r.count)}</span>
+                                    </td>
+                                    <td style="padding: 12px; font-size: 12px; text-align: center; border-bottom: 1px solid #f0f0f0;">
+                                        <span style="background: #d1fae5; color: #065f46; padding: 4px 10px; border-radius: 20px; font-weight: 600;">${fmt(r.trainees)}</span>
+                                    </td>
+                                    <td style="padding: 12px; font-size: 12px; text-align: center; border-bottom: 1px solid #f0f0f0;">
+                                        <span style="background: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 20px; font-weight: 600;">${fmt(r.hours, 2)}</span>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <p style="font-size: 0.75rem; color: #0f766e; margin-top: 8px; text-align: center;">
+                    <i class="fas fa-mouse-pointer ml-1"></i>اضغط على أي صف للتعمق في التفاصيل
+                </p>
+            `;
+        };
+
+        const renderDetails = () => {
+            const rows = computed.details.slice(0, 300);
+            if (!rows.length) return `<div style="padding: 40px 20px; text-align: center; background: linear-gradient(180deg, #f0fdfa 0%, #ccfbf1 100%); border-radius: 12px; border: 2px dashed #99f6e4;">
+                <i class="fas fa-folder-open" style="font-size: 2.5rem; color: #5eead4; margin-bottom: 12px; display: block;"></i>
+                <p style="color: #0f766e; font-size: 0.9rem; margin: 0;">لا توجد تفاصيل للعرض</p>
+            </div>`;
+            return `
+                <div class="employee-details-table-container" style="overflow: auto; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #99f6e4; max-height: 450px; scrollbar-width: thin; scrollbar-color: #0d9488 #ccfbf1;">
+                    <style>
+                        .employee-details-table-container::-webkit-scrollbar { width: 6px; height: 6px; }
+                        .employee-details-table-container::-webkit-scrollbar-track { background: #ccfbf1; border-radius: 10px; }
+                        .employee-details-table-container::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #0d9488, #059669); border-radius: 10px; }
+                    </style>
+                    <table class="table-auto w-full" style="min-width: 980px; border-collapse: separate; border-spacing: 0;">
+                        <thead>
+                            <tr style="background: linear-gradient(135deg, #0d9488 0%, #059669 100%);">
+                                <th style="padding: 14px 12px; font-size: 11px; text-align: center; color: white; font-weight: 700; position: sticky; top: 0; z-index: 10; white-space: nowrap;">التاريخ</th>
+                                <th style="padding: 14px 12px; font-size: 11px; text-align: right; color: white; font-weight: 700; position: sticky; top: 0; z-index: 10; white-space: nowrap;">الموضوع</th>
+                                <th style="padding: 14px 12px; font-size: 11px; text-align: right; color: white; font-weight: 700; position: sticky; top: 0; z-index: 10; white-space: nowrap;">المدرب</th>
+                                <th style="padding: 14px 12px; font-size: 11px; text-align: center; color: white; font-weight: 700; position: sticky; top: 0; z-index: 10; white-space: nowrap;">نوع التدريب</th>
+                                <th style="padding: 14px 12px; font-size: 11px; text-align: center; color: white; font-weight: 700; position: sticky; top: 0; z-index: 10; white-space: nowrap;">المشاركين</th>
+                                <th style="padding: 14px 12px; font-size: 11px; text-align: center; color: white; font-weight: 700; position: sticky; top: 0; z-index: 10; white-space: nowrap;">الساعات</th>
+                                <th style="padding: 14px 12px; font-size: 11px; text-align: right; color: white; font-weight: 700; position: sticky; top: 0; z-index: 10; white-space: nowrap;">الموقع</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows.map((r, idx) => `
+                                <tr class="hover:bg-teal-50 transition-all duration-200" style="background: ${idx % 2 === 0 ? '#ffffff' : '#f0fdfa'};" onmouseover="this.style.background='#ccfbf1'" onmouseout="this.style.background='${idx % 2 === 0 ? '#ffffff' : '#f0fdfa'}'">
+                                    <td style="padding: 10px 12px; font-size: 11px; text-align: center; border-bottom: 1px solid #f0f0f0; white-space: nowrap;">${r.raw?.startDate || r.raw?.date ? safe(Utils.formatDate(r.raw.startDate || r.raw.date)) : '-'}</td>
+                                    <td style="padding: 10px 12px; font-size: 11px; text-align: right; border-bottom: 1px solid #f0f0f0; max-width: 200px;" title="${safe(r.topic || '-')}">${safe(r.topic || '-')}</td>
+                                    <td style="padding: 10px 12px; font-size: 11px; text-align: right; border-bottom: 1px solid #f0f0f0;"><span style="color: #0f766e; font-weight: 500;">${safe(r.trainer || '-')}</span></td>
+                                    <td style="padding: 10px 12px; font-size: 11px; text-align: center; border-bottom: 1px solid #f0f0f0;"><span style="background: #e0e7ff; color: #3730a3; padding: 2px 8px; border-radius: 12px; font-size: 10px;">${safe(r.trainingType || '-')}</span></td>
+                                    <td style="padding: 10px 12px; font-size: 11px; text-align: center; border-bottom: 1px solid #f0f0f0;"><span style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 10px;">${fmt(r.trainees)}</span></td>
+                                    <td style="padding: 10px 12px; font-size: 11px; text-align: center; border-bottom: 1px solid #f0f0f0;"><span style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 10px;">${fmt(r.hours, 2)}</span></td>
+                                    <td style="padding: 10px 12px; font-size: 11px; text-align: right; border-bottom: 1px solid #f0f0f0; max-width: 150px;" title="${safe(r.location || '-')}">${safe(r.location || '-')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding: 8px 12px; background: #f0fdfa; border-radius: 8px; border: 1px solid #99f6e4;">
+                    <span style="font-size: 0.75rem; color: #0f766e;"><i class="fas fa-info-circle ml-1"></i>يتم عرض أول 300 سجل فقط لتحسين الأداء</span>
+                    <span style="font-size: 0.75rem; color: #0d9488; font-weight: 600;"><i class="fas fa-table ml-1"></i>إجمالي: ${rows.length} سجل</span>
+                </div>
+            `;
+        };
+
+        return `
+            <div class="grid grid-cols-1 gap-4" style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif;">
+                <div style="background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%); border-radius: 16px; padding: 22px 24px; border: 1px solid #99f6e4; box-shadow: 0 4px 12px rgba(13,148,136,0.12);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid rgba(153,246,228,0.6);">
+                        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #0f766e; display: flex; align-items: center; gap: 10px;">
+                            <i class="fas fa-filter" style="color: #0d9488;"></i>فلاتر التحليل
+                        </h4>
+                        <button type="button" id="employee-analytics-reset-btn" style="background: white; border: 1.5px solid #99f6e4; padding: 8px 16px; border-radius: 10px; font-size: 0.8rem; font-weight: 600; color: #0f766e; cursor: pointer; transition: all 0.25s ease; display: flex; align-items: center; gap: 7px;" onmouseover="this.style.background='#f0fdfa'" onmouseout="this.style.background='white'">
+                            <i class="fas fa-redo-alt"></i>إعادة تعيين
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" style="margin-bottom: 16px;">
+                        <div><label style="font-size: 0.75rem; font-weight: 600; color: #134e4a; display: flex; align-items: center; gap: 6px;"><i class="fas fa-user-tie" style="color: #0d9488;"></i>المدرب</label>
+                            <select id="employee-analytics-trainer" class="form-input" style="border: 2px solid #99f6e4; border-radius: 10px; padding: 10px 12px; font-size: 0.85rem; background: white; min-height: 42px;">${optionList(model.dimensions.trainers, state.trainer)}</select></div>
+                        <div><label style="font-size: 0.75rem; font-weight: 600; color: #134e4a; display: flex; align-items: center; gap: 6px;"><i class="fas fa-book" style="color: #0d9488;"></i>الموضوع</label>
+                            <select id="employee-analytics-topic" class="form-input" style="border: 2px solid #99f6e4; border-radius: 10px; padding: 10px 12px; font-size: 0.85rem; background: white; min-height: 42px;">${optionList(model.dimensions.topics, state.topic)}</select></div>
+                        <div><label style="font-size: 0.75rem; font-weight: 600; color: #134e4a; display: flex; align-items: center; gap: 6px;"><i class="fas fa-map-marker-alt" style="color: #0d9488;"></i>الموقع</label>
+                            <select id="employee-analytics-location" class="form-input" style="border: 2px solid #99f6e4; border-radius: 10px; padding: 10px 12px; font-size: 0.85rem; background: white; min-height: 42px;">${optionList(model.dimensions.locations, state.location)}</select></div>
+                        <div><label style="font-size: 0.75rem; font-weight: 600; color: #134e4a; display: flex; align-items: center; gap: 6px;"><i class="fas fa-tag" style="color: #0d9488;"></i>نوع التدريب</label>
+                            <select id="employee-analytics-trainingType" class="form-input" style="border: 2px solid #99f6e4; border-radius: 10px; padding: 10px 12px; font-size: 0.85rem; background: white; min-height: 42px;">${optionList(model.dimensions.trainingTypes, state.trainingType)}</select></div>
+                    </div>
+                    <div><label style="font-size: 0.75rem; font-weight: 600; color: #134e4a; display: flex; align-items: center; gap: 6px;"><i class="fas fa-search" style="color: #0d9488;"></i>بحث سريع</label>
+                        <input id="employee-analytics-search" class="form-input" placeholder="ابحث..." value="${safe(state.search)}" style="border: 2px solid #99f6e4; border-radius: 10px; padding: 10px 12px; font-size: 0.85rem; background: white; min-height: 42px;"></div>
+                </div>
+
+                <div class="employee-analytics-kpi-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+                    <div style="padding: 14px 12px; border-radius: 10px; background: linear-gradient(135deg, #0d9488 0%, #059669 100%); box-shadow: 0 3px 10px rgba(13,148,136,0.25); min-height: 70px; display: flex; flex-direction: column; justify-content: center;">
+                        <div style="font-size: 11px; color: rgba(255,255,255,0.9); font-weight: 600; margin-bottom: 4px;"><i class="fas fa-clipboard-list" style="font-size: 10px;"></i> البرامج</div>
+                        <div style="font-size: 22px; font-weight: 800; color: white;">${fmt(computed.totals.programs)}</div>
+                    </div>
+                    <div style="padding: 14px 12px; border-radius: 10px; background: linear-gradient(135deg, #059669 0%, #047857 100%); box-shadow: 0 3px 10px rgba(5,150,105,0.25); min-height: 70px; display: flex; flex-direction: column; justify-content: center;">
+                        <div style="font-size: 11px; color: rgba(255,255,255,0.9); font-weight: 600; margin-bottom: 4px;"><i class="fas fa-users" style="font-size: 10px;"></i> المشاركين</div>
+                        <div style="font-size: 22px; font-weight: 800; color: white;">${fmt(computed.totals.trainees)}</div>
+                    </div>
+                    <div style="padding: 14px 12px; border-radius: 10px; background: linear-gradient(135deg, #0f766e 0%, #0d5c4a 100%); box-shadow: 0 3px 10px rgba(15,118,110,0.25); min-height: 70px; display: flex; flex-direction: column; justify-content: center;">
+                        <div style="font-size: 11px; color: rgba(255,255,255,0.9); font-weight: 600; margin-bottom: 4px;"><i class="fas fa-clock" style="font-size: 10px;"></i> الساعات</div>
+                        <div style="font-size: 22px; font-weight: 800; color: white;">${fmt(computed.totals.hours, 2)}</div>
+                    </div>
+                    <div style="padding: 14px 12px; border-radius: 10px; background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%); box-shadow: 0 3px 10px rgba(20,184,166,0.25); min-height: 70px; display: flex; flex-direction: column; justify-content: center;">
+                        <div style="font-size: 11px; color: rgba(255,255,255,0.9); font-weight: 600; margin-bottom: 4px;"><i class="fas fa-user-tie" style="font-size: 10px;"></i> المدربين</div>
+                        <div style="font-size: 22px; font-weight: 800; color: white;">${fmt(computed.totals.trainers)}</div>
+                    </div>
+                </div>
+                <style>@media (max-width: 1024px){ .employee-analytics-kpi-grid { grid-template-columns: repeat(2, 1fr) !important; } }</style>
+
+                <div style="background: white; border-radius: 14px; padding: 16px 20px; border: 1px solid #99f6e4; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <button type="button" id="employee-analytics-tab-trainer" style="padding: 10px 18px; border-radius: 10px; font-size: 0.8rem; font-weight: 600; border: 2px solid ${state.view === 'trainer' ? '#0d9488' : '#e5e7eb'}; background: ${state.view === 'trainer' ? 'linear-gradient(135deg, #0d9488 0%, #059669 100%)' : 'white'}; color: ${state.view === 'trainer' ? 'white' : '#6b7280'}; cursor: pointer;">
+                                <i class="fas fa-user-tie"></i>ملخص حسب المدرب
+                            </button>
+                            <button type="button" id="employee-analytics-tab-topic" style="padding: 10px 18px; border-radius: 10px; font-size: 0.8rem; font-weight: 600; border: 2px solid ${state.view === 'topic' ? '#0d9488' : '#e5e7eb'}; background: ${state.view === 'topic' ? 'linear-gradient(135deg, #0d9488 0%, #059669 100%)' : 'white'}; color: ${state.view === 'topic' ? 'white' : '#6b7280'}; cursor: pointer;">
+                                <i class="fas fa-book"></i>ملخص حسب البرنامج/الموضوع
+                            </button>
+                            <button type="button" id="employee-analytics-tab-details" style="padding: 10px 18px; border-radius: 10px; font-size: 0.8rem; font-weight: 600; border: 2px solid ${state.view === 'details' ? '#0d9488' : '#e5e7eb'}; background: ${state.view === 'details' ? 'linear-gradient(135deg, #0d9488 0%, #059669 100%)' : 'white'}; color: ${state.view === 'details' ? 'white' : '#6b7280'}; cursor: pointer;">
+                                <i class="fas fa-list-alt"></i>عرض التفاصيل
+                            </button>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <div style="display: flex; align-items: center; gap: 6px; background: #f0fdfa; padding: 6px 12px; border-radius: 8px; border: 1px solid #99f6e4;">
+                                <label style="font-size: 0.7rem; font-weight: 600; color: #0f766e;">فرز:</label>
+                                <select id="employee-analytics-sortby" class="form-input" style="border: 1px solid #99f6e4; border-radius: 6px; padding: 6px 10px; font-size: 0.75rem; min-width: 100px; background: white;">
+                                    <option value="hours" ${state.sortBy === 'hours' ? 'selected' : ''}>الساعات</option>
+                                    <option value="trainees" ${state.sortBy === 'trainees' ? 'selected' : ''}>المشاركين</option>
+                                    <option value="count" ${state.sortBy === 'count' ? 'selected' : ''}>عدد البرامج</option>
+                                    <option value="date" ${state.sortBy === 'date' ? 'selected' : ''}>التاريخ</option>
+                                </select>
+                                <select id="employee-analytics-sortdir" class="form-input" style="border: 1px solid #99f6e4; border-radius: 6px; padding: 6px 10px; font-size: 0.75rem; min-width: 90px; background: white;">
+                                    <option value="desc" ${state.sortDir === 'desc' ? 'selected' : ''}>تنازلي</option>
+                                    <option value="asc" ${state.sortDir === 'asc' ? 'selected' : ''}>تصاعدي</option>
+                                </select>
+                            </div>
+                            ${drillLabel ? `<button type="button" id="employee-analytics-clear-drill" style="padding: 8px 14px; border-radius: 8px; font-size: 0.75rem; font-weight: 600; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); color: #92400e; border: 1px solid #fcd34d; cursor: pointer;"><i class="fas fa-times-circle"></i> إلغاء التعمق: ${safe(drillLabel)}</button>` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                <div style="background: white; border-radius: 14px; padding: 20px; border: 1px solid #e5e7eb; box-shadow: 0 2px 6px rgba(0,0,0,0.04); min-height: 300px;">
+                    ${state.view === 'topic' ? renderPivotTable(computed.topTopics, 'topic') : state.view === 'details' ? renderDetails() : renderPivotTable(computed.topTrainers, 'trainer')}
+                </div>
+            </div>
+        `;
+    },
+
+    refreshEmployeeAnalytics(monthFilter = '') {
+        const dashboard = document.getElementById('employee-analytics-dashboard');
+        if (!dashboard) return;
+        const state = this.getEmployeeAnalyticsState();
+        const model = this.getEmployeeTrainingAnalyticsModel(monthFilter);
+        dashboard.innerHTML = this.renderEmployeeAnalyticsDashboard(model, state);
+        this.bindEmployeeAnalyticsEvents(monthFilter);
+    },
+
+    bindEmployeeAnalyticsEvents(monthFilter = '') {
+        const state = this.getEmployeeAnalyticsState();
+        const getMonth = () => (document.getElementById('employee-month-filter') || {}).value || '';
+        const refresh = () => this.refreshEmployeeAnalytics(getMonth());
+
+        const wire = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('change', fn); };
+
+        wire('employee-analytics-trainer', (e) => { state.trainer = String(e.target.value || ''); state.drillKey = ''; refresh(); });
+        wire('employee-analytics-topic', (e) => { state.topic = String(e.target.value || ''); state.drillKey = ''; refresh(); });
+        wire('employee-analytics-location', (e) => { state.location = String(e.target.value || ''); state.drillKey = ''; refresh(); });
+        wire('employee-analytics-trainingType', (e) => { state.trainingType = String(e.target.value || ''); state.drillKey = ''; refresh(); });
+        wire('employee-analytics-sortby', (e) => { state.sortBy = String(e.target.value || 'hours'); refresh(); });
+        wire('employee-analytics-sortdir', (e) => { state.sortDir = String(e.target.value || 'desc'); refresh(); });
+
+        const search = document.getElementById('employee-analytics-search');
+        if (search) search.addEventListener('input', (e) => { state.search = String(e.target.value || ''); refresh(); });
+
+        const tabTrainer = document.getElementById('employee-analytics-tab-trainer');
+        if (tabTrainer) tabTrainer.addEventListener('click', () => { state.view = 'trainer'; state.drillKey = ''; refresh(); });
+        const tabTopic = document.getElementById('employee-analytics-tab-topic');
+        if (tabTopic) tabTopic.addEventListener('click', () => { state.view = 'topic'; state.drillKey = ''; refresh(); });
+        const tabDetails = document.getElementById('employee-analytics-tab-details');
+        if (tabDetails) tabDetails.addEventListener('click', () => { state.view = 'details'; refresh(); });
+
+        const clearDrill = document.getElementById('employee-analytics-clear-drill');
+        if (clearDrill) clearDrill.addEventListener('click', () => { state.drillKey = ''; refresh(); });
+
+        const resetBtn = document.getElementById('employee-analytics-reset-btn');
+        if (resetBtn) resetBtn.addEventListener('click', () => {
+            this._employeeAnalyticsState = { trainer: '', topic: '', location: '', trainingType: '', search: '', view: 'trainer', sortBy: 'hours', sortDir: 'desc', drillKey: '' };
+            refresh();
+        });
+
+        const dashboard = document.getElementById('employee-analytics-dashboard');
+        if (dashboard) {
+            dashboard.querySelectorAll('[data-analytics-drill]')?.forEach(row => {
+                row.addEventListener('click', () => {
+                    const key = String(row.getAttribute('data-analytics-drill') || '').trim();
+                    const mode = String(row.getAttribute('data-analytics-mode') || '').trim();
+                    state.view = mode === 'topic' ? 'topic' : 'trainer';
+                    state.drillKey = key;
+                    state.view = 'details';
+                    refresh();
+                });
+            });
+        }
+    },
+
+    // =========================
+    // تحليل تفاعلي لسجل التدريب للموظفين (Slicers + Pivot + Drill-down) - بيانات trainingAttendance
+    // =========================
+
+    getAttendanceAnalyticsState() {
+        this._attendanceAnalyticsState = this._attendanceAnalyticsState || {
+            employee: '',
+            topic: '',
+            department: '',
+            factory: '',
+            trainingType: '',
+            trainer: '',
+            search: '',
+            view: 'employee',
+            drillMode: 'employee', // 'employee' | 'topic' عند التعمق لاستخدامه في الفلتر
+            sortBy: 'hours',
+            sortDir: 'desc',
+            drillKey: ''
+        };
+        return this._attendanceAnalyticsState;
+    },
+
+    getAttendanceAnalyticsModel(monthFilter = '') {
+        this.ensureData();
+        const list = AppState.appData.trainingAttendance || [];
+        const toMonthKey = (d) => {
+            if (!d) return '';
+            const date = new Date(d);
+            return Number.isNaN(date.getTime()) ? '' : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        };
+        const normalizeText = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+        const normalizeKey = (v) => normalizeText(v).toLowerCase();
+
+        const records = list
+            .filter(r => {
+                if (!monthFilter) return true;
+                const d = r?.date || r?.attendanceDate || r?.createdAt;
+                return toMonthKey(d) === monthFilter;
+            })
+            .map(r => {
+                const employee = normalizeText(r?.employeeName || r?.employee || '—');
+                const topic = normalizeText(r?.topic || '—');
+                const department = normalizeText(r?.department || '—');
+                const factory = normalizeText(r?.factoryName || r?.factory || '—');
+                const trainingType = normalizeText(r?.trainingType || 'داخلي');
+                const trainer = normalizeText(r?.trainerName || r?.trainer || r?.conductedBy || '—');
+                const hours = parseFloat(r?.totalHours || 0) || 0;
+                const date = (r?.date || r?.attendanceDate) ? new Date(r.date || r.attendanceDate) : null;
+                return {
+                    raw: r,
+                    date,
+                    employee,
+                    employeeKey: normalizeKey(employee),
+                    topic,
+                    topicKey: normalizeKey(topic),
+                    department,
+                    departmentKey: normalizeKey(department),
+                    factory,
+                    factoryKey: normalizeKey(factory),
+                    trainingType,
+                    trainingTypeKey: normalizeKey(trainingType),
+                    trainer,
+                    trainerKey: normalizeKey(trainer),
+                    hours
+                };
+            });
+
+        const uniq = (arr) => Array.from(new Set(arr.filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ar', { sensitivity: 'base' }));
+        return {
+            monthFilter,
+            records,
+            dimensions: {
+                employees: uniq(records.map(x => x.employee)),
+                topics: uniq(records.map(x => x.topic)),
+                departments: uniq(records.map(x => x.department)),
+                factories: uniq(records.map(x => x.factory)),
+                trainingTypes: uniq(records.map(x => x.trainingType)),
+                trainers: uniq(records.map(x => x.trainer))
+            }
+        };
+    },
+
+    computeAttendanceAnalytics(model, state) {
+        const normalizeKey = (v) => String(v ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+        const filtered = (model.records || []).filter(r => {
+            if (state.employee && r.employeeKey !== normalizeKey(state.employee)) return false;
+            if (state.topic && r.topicKey !== normalizeKey(state.topic)) return false;
+            if (state.department && r.departmentKey !== normalizeKey(state.department)) return false;
+            if (state.factory && r.factoryKey !== normalizeKey(state.factory)) return false;
+            if (state.trainingType && r.trainingTypeKey !== normalizeKey(state.trainingType)) return false;
+            if (state.trainer && r.trainerKey !== normalizeKey(state.trainer)) return false;
+            const sk = normalizeKey(state.search);
+            if (sk && !(`${r.employeeKey} ${r.topicKey} ${r.departmentKey} ${r.factoryKey} ${r.trainerKey}`).includes(sk)) return false;
+            return true;
+        });
+        const totals = {
+            records: filtered.length,
+            hours: filtered.reduce((s, r) => s + (r.hours || 0), 0),
+            employees: new Set(filtered.map(r => r.employeeKey)).size,
+            topics: new Set(filtered.map(r => r.topicKey)).size
+        };
+        const pivotBy = (keyField, labelField) => {
+            const map = new Map();
+            filtered.forEach(r => {
+                const key = r[keyField] || '';
+                const label = r[labelField] || '—';
+                if (!key) return;
+                if (!map.has(key)) map.set(key, { key, label, count: 0, hours: 0 });
+                const agg = map.get(key);
+                agg.count += 1;
+                agg.hours += r.hours || 0;
+            });
+            return Array.from(map.values());
+        };
+        const sortDir = state.sortDir === 'asc' ? 1 : -1;
+        const sortMetric = state.sortBy || 'hours';
+        const sortPivot = (rows) => rows.slice().sort((a, b) => {
+            const av = a[sortMetric] ?? 0;
+            const bv = b[sortMetric] ?? 0;
+            if (bv === av) return (a.label || '').localeCompare(b.label || '', 'ar', { sensitivity: 'base' }) * sortDir;
+            return (bv - av) * sortDir;
+        });
+        const topEmployees = sortPivot(pivotBy('employeeKey', 'employee')).slice(0, 20);
+        const topTopics = sortPivot(pivotBy('topicKey', 'topic')).slice(0, 20);
+        const drillKey = normalizeKey(state.drillKey);
+        const drilled = drillKey
+            ? filtered.filter(r => (state.drillMode === 'topic' ? r.topicKey === drillKey : r.employeeKey === drillKey))
+            : filtered;
+        const detailsSorted = drilled.slice().sort((a, b) => {
+            const at = a.date ? a.date.getTime() : 0;
+            const bt = b.date ? b.date.getTime() : 0;
+            return (bt - at) * sortDir;
+        });
+        return { filtered, totals, topEmployees, topTopics, details: detailsSorted };
+    },
+
+    renderAttendanceAnalyticsDashboard(model, state) {
+        const safe = (v) => Utils.escapeHTML(String(v ?? ''));
+        const fmt = (n, d = 0) => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+        const computed = this.computeAttendanceAnalytics(model, state);
+        const drillLabel = state.drillKey ? String(state.drillKey) : '';
+        const optionList = (items, selected) => {
+            const sel = String(selected ?? '').trim();
+            return ['<option value="">الكل</option>'].concat(items.map(v => `<option value="${safe(v)}" ${sel === String(v) ? 'selected' : ''}>${safe(v)}</option>`)).join('');
+        };
+        const renderPivotTable = (rows, mode) => {
+            if (!rows.length) {
+                return `<div style="padding:40px 20px;text-align:center;background:linear-gradient(180deg,#f0fdfa 0%,#ccfbf1 100%);border-radius:12px;border:2px dashed #99f6e4;"><i class="fas fa-inbox" style="font-size:2.5rem;color:#5eead4;"></i><p style="color:#0f766e;margin:8px 0 0;">لا توجد بيانات مطابقة للفلاتر</p></div>`;
+            }
+            return `
+                <div class="attendance-pivot-container" style="overflow:auto;border-radius:12px;border:1px solid #99f6e4;max-height:400px;">
+                    <table class="table-auto w-full" style="min-width:560px;">
+                        <thead><tr style="background:linear-gradient(135deg,#0d9488 0%,#059669 100%);">
+                            <th style="padding:14px;font-size:12px;text-align:right;color:white;">${mode === 'topic' ? 'الموضوع' : 'الموظف'}</th>
+                            <th style="padding:14px;font-size:12px;text-align:center;color:white;">السجلات</th>
+                            <th style="padding:14px;font-size:12px;text-align:center;color:white;">الساعات</th>
+                        </tr></thead>
+                        <tbody>
+                            ${rows.map((r, i) => `
+                                <tr data-analytics-drill="${safe(r.label)}" data-analytics-mode="${mode}" style="background:${i % 2 ? '#f0fdfa' : '#fff'};cursor:pointer;" class="hover:bg-teal-50">
+                                    <td style="padding:12px;font-size:12px;color:#0f766e;font-weight:600;">${safe(r.label)}</td>
+                                    <td style="padding:12px;text-align:center;"><span style="background:#ccfbf1;color:#0f766e;padding:4px 10px;border-radius:20px;font-weight:600;">${fmt(r.count)}</span></td>
+                                    <td style="padding:12px;text-align:center;"><span style="background:#fef3c7;color:#92400e;padding:4px 10px;border-radius:20px;font-weight:600;">${fmt(r.hours, 2)}</span></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <p style="font-size:0.75rem;color:#0f766e;margin-top:8px;text-align:center;">اضغط على أي صف للتعمق</p>
+            `;
+        };
+        const renderDetails = () => {
+            const rows = computed.details.slice(0, 300);
+            if (!rows.length) return `<div style="padding:40px;text-align:center;background:#f0fdfa;border-radius:12px;border:2px dashed #99f6e4;"><p style="color:#0f766e;">لا توجد تفاصيل</p></div>`;
+            return `
+                <div style="overflow:auto;border-radius:12px;border:1px solid #99f6e4;max-height:450px;">
+                    <table class="table-auto w-full" style="min-width:900px;">
+                        <thead><tr style="background:linear-gradient(135deg,#0d9488 0%,#059669 100%);">
+                            <th style="padding:10px;font-size:11px;color:white;text-align:center;">التاريخ</th>
+                            <th style="padding:10px;font-size:11px;color:white;text-align:right;">الموضوع</th>
+                            <th style="padding:10px;font-size:11px;color:white;text-align:right;">الموظف</th>
+                            <th style="padding:10px;font-size:11px;color:white;text-align:center;">نوع التدريب</th>
+                            <th style="padding:10px;font-size:11px;color:white;text-align:right;">الإدارة</th>
+                            <th style="padding:10px;font-size:11px;color:white;text-align:center;">الساعات</th>
+                        </tr></thead>
+                        <tbody>
+                            ${rows.map((r, i) => `
+                                <tr style="background:${i % 2 ? '#f0fdfa' : '#fff'}">
+                                    <td style="padding:10px;font-size:11px;">${(r.raw?.date || r.raw?.attendanceDate) ? safe(Utils.formatDate(r.raw.date || r.raw.attendanceDate)) : '-'}</td>
+                                    <td style="padding:10px;font-size:11px;">${safe(r.topic)}</td>
+                                    <td style="padding:10px;font-size:11px;">${safe(r.employee)}</td>
+                                    <td style="padding:10px;font-size:11px;">${safe(r.trainingType)}</td>
+                                    <td style="padding:10px;font-size:11px;">${safe(r.department)}</td>
+                                    <td style="padding:10px;font-size:11px;text-align:center;">${fmt(r.hours, 2)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <p style="font-size:0.75rem;color:#0f766e;margin-top:8px;">أول 300 سجل</p>
+            `;
+        };
+        return `
+            <div class="grid grid-cols-1 gap-4">
+                <div style="background:linear-gradient(135deg,#f0fdfa 0%,#ccfbf1 100%);border-radius:16px;padding:22px;border:1px solid #99f6e4;">
+                    <h4 style="margin:0 0 16px;font-size:0.95rem;font-weight:700;color:#0f766e;"><i class="fas fa-filter" style="color:#0d9488;"></i> فلاتر التحليل</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                        <div><label style="font-size:0.75rem;font-weight:600;color:#134e4a;">الموظف</label><select id="attendance-analytics-employee" class="form-input" style="border:2px solid #99f6e4;border-radius:10px;padding:10px;width:100%;">${optionList(model.dimensions.employees, state.employee)}</select></div>
+                        <div><label style="font-size:0.75rem;font-weight:600;color:#134e4a;">الموضوع</label><select id="attendance-analytics-topic" class="form-input" style="border:2px solid #99f6e4;border-radius:10px;padding:10px;width:100%;">${optionList(model.dimensions.topics, state.topic)}</select></div>
+                        <div><label style="font-size:0.75rem;font-weight:600;color:#134e4a;">الإدارة</label><select id="attendance-analytics-department" class="form-input" style="border:2px solid #99f6e4;border-radius:10px;padding:10px;width:100%;">${optionList(model.dimensions.departments, state.department)}</select></div>
+                        <div><label style="font-size:0.75rem;font-weight:600;color:#134e4a;">المصنع</label><select id="attendance-analytics-factory" class="form-input" style="border:2px solid #99f6e4;border-radius:10px;padding:10px;width:100%;">${optionList(model.dimensions.factories, state.factory)}</select></div>
+                        <div><label style="font-size:0.75rem;font-weight:600;color:#134e4a;">نوع التدريب</label><select id="attendance-analytics-trainingType" class="form-input" style="border:2px solid #99f6e4;border-radius:10px;padding:10px;width:100%;">${optionList(model.dimensions.trainingTypes, state.trainingType)}</select></div>
+                        <div><label style="font-size:0.75rem;font-weight:600;color:#134e4a;">المحاضر</label><select id="attendance-analytics-trainer" class="form-input" style="border:2px solid #99f6e4;border-radius:10px;padding:10px;width:100%;">${optionList(model.dimensions.trainers, state.trainer)}</select></div>
+                    </div>
+                    <div><label style="font-size:0.75rem;font-weight:600;color:#134e4a;">بحث سريع</label><input id="attendance-analytics-search" placeholder="ابحث..." value="${safe(state.search)}" class="form-input" style="border:2px solid #99f6e4;border-radius:10px;padding:10px;width:100%;"></div>
+                    <div style="margin-top:12px;"><button type="button" id="attendance-analytics-reset-btn" style="background:white;border:1.5px solid #99f6e4;padding:8px 16px;border-radius:10px;font-weight:600;color:#0f766e;cursor:pointer;"><i class="fas fa-redo-alt"></i> إعادة تعيين</button></div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+                    <div style="padding:14px;border-radius:10px;background:linear-gradient(135deg,#0d9488,#059669);color:white;"><div style="font-size:11px;">السجلات</div><div style="font-size:22px;font-weight:800;">${fmt(computed.totals.records)}</div></div>
+                    <div style="padding:14px;border-radius:10px;background:linear-gradient(135deg,#059669,#047857);color:white;"><div style="font-size:11px;">الساعات</div><div style="font-size:22px;font-weight:800;">${fmt(computed.totals.hours, 2)}</div></div>
+                    <div style="padding:14px;border-radius:10px;background:linear-gradient(135deg,#0f766e,#0d5c4a);color:white;"><div style="font-size:11px;">الموظفين</div><div style="font-size:22px;font-weight:800;">${fmt(computed.totals.employees)}</div></div>
+                    <div style="padding:14px;border-radius:10px;background:linear-gradient(135deg,#14b8a6,#0d9488);color:white;"><div style="font-size:11px;">الموضوعات</div><div style="font-size:22px;font-weight:800;">${fmt(computed.totals.topics)}</div></div>
+                </div>
+                <div style="background:white;border-radius:14px;padding:16px;border:1px solid #e5e7eb;">
+                    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between;">
+                        <div style="display:flex;gap:8px;">
+                            <button type="button" id="attendance-analytics-tab-employee" style="padding:10px 18px;border-radius:10px;font-size:0.8rem;font-weight:600;border:2px solid ${state.view === 'employee' ? '#0d9488' : '#e5e7eb'};background:${state.view === 'employee' ? 'linear-gradient(135deg,#0d9488,#059669)' : 'white'};color:${state.view === 'employee' ? 'white' : '#6b7280'};cursor:pointer;"><i class="fas fa-user"></i> حسب الموظف</button>
+                            <button type="button" id="attendance-analytics-tab-topic" style="padding:10px 18px;border-radius:10px;font-size:0.8rem;font-weight:600;border:2px solid ${state.view === 'topic' ? '#0d9488' : '#e5e7eb'};background:${state.view === 'topic' ? 'linear-gradient(135deg,#0d9488,#059669)' : 'white'};color:${state.view === 'topic' ? 'white' : '#6b7280'};cursor:pointer;"><i class="fas fa-book"></i> حسب الموضوع</button>
+                            <button type="button" id="attendance-analytics-tab-details" style="padding:10px 18px;border-radius:10px;font-size:0.8rem;font-weight:600;border:2px solid ${state.view === 'details' ? '#0d9488' : '#e5e7eb'};background:${state.view === 'details' ? 'linear-gradient(135deg,#0d9488,#059669)' : 'white'};color:${state.view === 'details' ? 'white' : '#6b7280'};cursor:pointer;"><i class="fas fa-list-alt"></i> التفاصيل</button>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <label style="font-size:0.7rem;font-weight:600;color:#6b7280;">فرز:</label>
+                            <select id="attendance-analytics-sortby" style="border:1px solid #e5e7eb;border-radius:6px;padding:6px 10px;font-size:0.75rem;"><option value="hours" ${state.sortBy === 'hours' ? 'selected' : ''}>الساعات</option><option value="count" ${state.sortBy === 'count' ? 'selected' : ''}>عدد السجلات</option></select>
+                            <select id="attendance-analytics-sortdir" style="border:1px solid #e5e7eb;border-radius:6px;padding:6px 10px;font-size:0.75rem;"><option value="desc" ${state.sortDir === 'desc' ? 'selected' : ''}>تنازلي</option><option value="asc" ${state.sortDir === 'asc' ? 'selected' : ''}>تصاعدي</option></select>
+                            ${drillLabel ? `<button type="button" id="attendance-analytics-clear-drill" style="padding:8px 14px;border-radius:8px;font-size:0.75rem;font-weight:600;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;cursor:pointer;"><i class="fas fa-times-circle"></i> إلغاء التعمق: ${safe(drillLabel)}</button>` : ''}
+                        </div>
+                    </div>
+                </div>
+                <div style="background:white;border-radius:14px;padding:20px;border:1px solid #e5e7eb;min-height:300px;">
+                    ${state.view === 'topic' ? renderPivotTable(computed.topTopics, 'topic') : state.view === 'details' ? renderDetails() : renderPivotTable(computed.topEmployees, 'employee')}
+                </div>
+            </div>
+        `;
+    },
+
+    refreshAttendanceAnalytics(monthFilter = '') {
+        const dashboard = document.getElementById('attendance-analytics-dashboard');
+        if (!dashboard) return;
+        const state = this.getAttendanceAnalyticsState();
+        const model = this.getAttendanceAnalyticsModel(monthFilter);
+        dashboard.innerHTML = this.renderAttendanceAnalyticsDashboard(model, state);
+        this.bindAttendanceAnalyticsEvents(monthFilter);
+    },
+
+    bindAttendanceAnalyticsEvents(monthFilter = '') {
+        const state = this.getAttendanceAnalyticsState();
+        const getMonth = () => (document.getElementById('attendance-month-filter') || {}).value || '';
+        const refresh = () => this.refreshAttendanceAnalytics(getMonth());
+        const wire = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('change', fn); };
+        wire('attendance-analytics-employee', (e) => { state.employee = e.target.value || ''; state.drillKey = ''; refresh(); });
+        wire('attendance-analytics-topic', (e) => { state.topic = e.target.value || ''; state.drillKey = ''; refresh(); });
+        wire('attendance-analytics-department', (e) => { state.department = e.target.value || ''; state.drillKey = ''; refresh(); });
+        wire('attendance-analytics-factory', (e) => { state.factory = e.target.value || ''; state.drillKey = ''; refresh(); });
+        wire('attendance-analytics-trainingType', (e) => { state.trainingType = e.target.value || ''; state.drillKey = ''; refresh(); });
+        wire('attendance-analytics-trainer', (e) => { state.trainer = e.target.value || ''; state.drillKey = ''; refresh(); });
+        wire('attendance-analytics-sortby', (e) => { state.sortBy = e.target.value || 'hours'; refresh(); });
+        wire('attendance-analytics-sortdir', (e) => { state.sortDir = e.target.value || 'desc'; refresh(); });
+        const search = document.getElementById('attendance-analytics-search');
+        if (search) search.addEventListener('input', (e) => { state.search = e.target.value || ''; refresh(); });
+        const tabEmployee = document.getElementById('attendance-analytics-tab-employee');
+        if (tabEmployee) tabEmployee.addEventListener('click', () => { state.view = 'employee'; state.drillKey = ''; refresh(); });
+        const tabTopic = document.getElementById('attendance-analytics-tab-topic');
+        if (tabTopic) tabTopic.addEventListener('click', () => { state.view = 'topic'; state.drillKey = ''; refresh(); });
+        const tabDetails = document.getElementById('attendance-analytics-tab-details');
+        if (tabDetails) tabDetails.addEventListener('click', () => { state.view = 'details'; refresh(); });
+        const clearDrill = document.getElementById('attendance-analytics-clear-drill');
+        if (clearDrill) clearDrill.addEventListener('click', () => { state.drillKey = ''; refresh(); });
+        const resetBtn = document.getElementById('attendance-analytics-reset-btn');
+        if (resetBtn) resetBtn.addEventListener('click', () => {
+            this._attendanceAnalyticsState = { employee: '', topic: '', department: '', factory: '', trainingType: '', trainer: '', search: '', view: 'employee', drillMode: 'employee', sortBy: 'hours', sortDir: 'desc', drillKey: '' };
+            refresh();
+        });
+        const dashboard = document.getElementById('attendance-analytics-dashboard');
+        if (dashboard) {
+            dashboard.querySelectorAll('[data-analytics-drill]').forEach(row => {
+                row.addEventListener('click', () => {
+                    const key = String(row.getAttribute('data-analytics-drill') || '').trim();
+                    const mode = String(row.getAttribute('data-analytics-mode') || '').trim();
+                    state.drillMode = mode === 'topic' ? 'topic' : 'employee';
+                    state.drillKey = key;
+                    state.view = 'details';
+                    refresh();
                 });
             });
         }
@@ -1622,10 +2385,52 @@ const Training = {
         const monthsArray = Array.from(months).sort().reverse();
         return monthsArray.map(monthKey => {
             const [year, month] = monthKey.split('-');
-            const monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 
+            const monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
                               'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
             const monthName = monthNames[parseInt(month) - 1];
             return `<option value="${monthKey}">${monthName} ${year}</option>`;
+        }).join('');
+    },
+
+    getEmployeeMonthOptions() {
+        this.ensureData();
+        const trainings = AppState.appData.training || [];
+        const months = new Set();
+        trainings.forEach(t => {
+            const d = t?.startDate || t?.date || t?.createdAt;
+            if (d) {
+                const date = new Date(d);
+                if (!Number.isNaN(date.getTime())) {
+                    months.add(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+                }
+            }
+        });
+        const monthsArray = Array.from(months).sort().reverse();
+        const monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+        return monthsArray.map(monthKey => {
+            const [year, month] = monthKey.split('-');
+            return `<option value="${monthKey}">${monthNames[parseInt(month) - 1]} ${year}</option>`;
+        }).join('');
+    },
+
+    getAttendanceMonthOptions() {
+        this.ensureData();
+        const list = AppState.appData.trainingAttendance || [];
+        const months = new Set();
+        list.forEach(r => {
+            const d = r?.date || r?.attendanceDate || r?.createdAt;
+            if (d) {
+                const date = new Date(d);
+                if (!Number.isNaN(date.getTime())) {
+                    months.add(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+                }
+            }
+        });
+        const monthsArray = Array.from(months).sort().reverse();
+        const monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+        return monthsArray.map(monthKey => {
+            const [year, month] = monthKey.split('-');
+            return `<option value="${monthKey}">${monthNames[parseInt(month) - 1]} ${year}</option>`;
         }).join('');
     },
 
@@ -1861,34 +2666,44 @@ const Training = {
             if (tabName === 'programs') {
                 this.loadTrainingList();
             } else if (tabName === 'contractors') {
-                // ✅ التأكد من تحميل بيانات المقاولين والمعتمدين ثم تحديث القائمة
-                if (typeof Contractors !== 'undefined' && typeof Contractors.ensureContractorsAndApprovedForModules === 'function') {
-                    Contractors.ensureContractorsAndApprovedForModules().then(() => {
-                        if (!AppState.appData.contractorTrainings || AppState.appData.contractorTrainings.length === 0) {
-                            this.loadTrainingDataAsync().then(() => this.refreshContractorTrainingList()).catch(() => this.refreshContractorTrainingList());
-                        } else {
-                            this.refreshContractorTrainingList();
-                        }
+                // تحديث قائمة تدريبات المقاولين عند التبديل للتبويب
+                // التأكد من تحميل البيانات أولاً إذا لم تكن محمّلة
+                if (!AppState.appData.contractorTrainings || AppState.appData.contractorTrainings.length === 0) {
+                    // محاولة تحميل البيانات من الخادم
+                    this.loadTrainingDataAsync().then(() => {
+                        this.refreshContractorTrainingList();
                     }).catch(() => {
-                        if (!AppState.appData.contractorTrainings || AppState.appData.contractorTrainings.length === 0) {
-                            this.loadTrainingDataAsync().then(() => this.refreshContractorTrainingList()).catch(() => this.refreshContractorTrainingList());
-                        } else {
-                            this.refreshContractorTrainingList();
-                        }
+                        // في حالة الفشل، عرض القائمة الفارغة
+                        this.refreshContractorTrainingList();
                     });
                 } else {
-                    if (!AppState.appData.contractorTrainings || AppState.appData.contractorTrainings.length === 0) {
-                        this.loadTrainingDataAsync().then(() => this.refreshContractorTrainingList()).catch(() => this.refreshContractorTrainingList());
-                    } else {
-                        this.refreshContractorTrainingList();
-                    }
+                    this.refreshContractorTrainingList();
                 }
             } else if (tabName === 'attendance') {
+                // ضمان تحميل سجل الحضور من الخادم إذا كانت القائمة فارغة (تجنب عرض "لا توجد سجلات" قبل اكتمال التحميل)
+                const attendance = AppState.appData.trainingAttendance || [];
+                if (attendance.length === 0) {
+                    await this.loadTrainingDataAsync().catch(() => {});
+                }
                 this.loadAttendanceRegistry();
+                const attendanceMonthFilter = document.getElementById('attendance-month-filter');
+                const resetAttendanceFilter = document.getElementById('reset-attendance-filter');
+                if (attendanceMonthFilter) {
+                    attendanceMonthFilter.addEventListener('change', () => {
+                        this.refreshAttendanceAnalytics(attendanceMonthFilter.value || '');
+                    });
+                }
+                if (resetAttendanceFilter) {
+                    resetAttendanceFilter.addEventListener('click', () => {
+                        if (attendanceMonthFilter) attendanceMonthFilter.value = '';
+                        this.refreshAttendanceAnalytics('');
+                    });
+                }
+                this.bindAttendanceAnalyticsEvents((document.getElementById('attendance-month-filter') || {}).value || '');
             } else if (tabName === 'analysis') {
-                // تحميل بنود التحليل وعرض النتائج
                 this.loadTrainingAnalysisItemsUI();
                 this.updateTrainingAnalysisResults();
+                this.bindAnalysisFilterEvents();
             }
             
             this.setupEventListeners();
@@ -1937,9 +2752,7 @@ const Training = {
                     <tbody>
                         ${items.map(item => {
             const statusText = item.status || '';
-            const participantsCount = Array.isArray(item.participants)
-                ? item.participants.length
-                : Number(item.participantsCount || item.participants || 0);
+            const participantsCount = this.getParticipantsCount(item);
             const isInProgress = /تنفي/.test(statusText);
             const badgeClass = statusText === 'مكتمل'
                 ? 'success'
@@ -2064,13 +2877,13 @@ const Training = {
             // زر تسجيل تدريب مقاول في الواجهة الرئيسية
             const addContractorTrainingHeaderBtn = document.getElementById('add-contractor-training-header-btn');
             if (addContractorTrainingHeaderBtn) {
-                addContractorTrainingHeaderBtn.addEventListener('click', () => this.openContractorTrainingForm().catch(() => {}));
+                addContractorTrainingHeaderBtn.addEventListener('click', () => this.openContractorTrainingForm());
             }
             
             // زر تسجيل تدريب مقاول في تبويب المقاولين
             const addContractorTrainingBtn = document.getElementById('add-contractor-training-btn');
             if (addContractorTrainingBtn) {
-                addContractorTrainingBtn.addEventListener('click', () => this.openContractorTrainingForm().catch(() => {}));
+                addContractorTrainingBtn.addEventListener('click', () => this.openContractorTrainingForm());
             }
             const contractorTrainingSearch = document.getElementById('contractor-training-search');
             if (contractorTrainingSearch) {
@@ -2289,11 +3102,12 @@ const Training = {
                                         ` : '<span class="text-xs text-gray-500">لا توجد موضوعات محددة</span>'}
                                     </td>
                                     <td>
-                                        <div class="flex items-center gap-2">
-                                            <button onclick="Training.viewEmployeeTrainingMatrix('${code}')" class="btn-icon btn-icon-info" title="عرض تفاصيل التدريب">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <button onclick="Training.viewEmployeeTrainingMatrix('${Utils.escapeHTML(code)}')" class="btn-secondary btn-sm" title="عرض التفاصيل وجميع تدريبات الموظف" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 0.875rem;">
                                                 <i class="fas fa-eye"></i>
+                                                <span>عرض التفاصيل</span>
                                             </button>
-                                            <button onclick="Training.openQuickTrainingRegistration('${code}')" class="btn-icon btn-icon-primary" title="تسجيل تدريب جديد">
+                                            <button onclick="Training.openQuickTrainingRegistration('${Utils.escapeHTML(code)}')" class="btn-icon btn-icon-primary" title="تسجيل تدريب جديد">
                                                 <i class="fas fa-plus"></i>
                                             </button>
                                         </div>
@@ -2395,18 +3209,23 @@ const Training = {
 
         const modal = document.createElement('div');
         modal.className = 'modal-overlay';
+        const sortedTrainings = [...trainings].sort((a, b) => {
+            const dateA = new Date(a.trainingDate || a.date || 0);
+            const dateB = new Date(b.trainingDate || b.date || 0);
+            return dateB - dateA;
+        });
         modal.innerHTML = `
-            <div class="modal-content" style="max-width: 1000px;">
+            <div class="modal-content" style="max-width: 1100px; max-height: 90vh; display: flex; flex-direction: column;">
                 <div class="modal-header">
                     <h2 class="modal-title">
                         <i class="fas fa-graduation-cap ml-2"></i>
-                        مصفوفة التدريب للموظف: ${Utils.escapeHTML(emp.name || '')}
+                        تفاصيل التدريب: ${Utils.escapeHTML(emp.name || '')}
                     </h2>
                     <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body" style="overflow-y: auto; flex: 1;">
                     <div class="mb-4">
                         <div class="grid grid-cols-2 gap-4">
                             <div>
@@ -2451,10 +3270,15 @@ const Training = {
                             </div>
                         </div>
                     ` : ''}
-                    ${trainings.length > 0 ? `
-                        <div class="table-wrapper" style="overflow-x: auto;">
-                            <table class="data-table">
-                                <thead>
+                    <div class="mt-6">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-3">
+                            <i class="fas fa-list-alt ml-2 text-green-600"></i>
+                            جميع تدريبات الموظف (${trainings.length})
+                        </h3>
+                        ${trainings.length > 0 ? `
+                        <div class="table-wrapper" style="overflow: auto; max-height: 400px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                            <table class="data-table" style="margin: 0;">
+                                <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 1;">
                                     <tr>
                                         <th>اسم البرنامج</th>
                                         <th>نوع التدريب</th>
@@ -2466,19 +3290,15 @@ const Training = {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${trainings.sort((a, b) => {
-            const dateA = new Date(a.trainingDate || a.trainingDate || 0);
-            const dateB = new Date(b.trainingDate || b.trainingDate || 0);
-            return dateB - dateA;
-        }).map(t => `
+                                    ${sortedTrainings.map(t => `
                                         <tr>
-                                            <td>${Utils.escapeHTML(t.trainingName || '')}</td>
+                                            <td>${Utils.escapeHTML(t.trainingName || t.name || '')}</td>
                                             <td>
                                                 <span class="badge badge-${t.trainingType === 'داخلي' ? 'info' : 'warning'}">
                                                     ${Utils.escapeHTML(t.trainingType || 'داخلي')}
                                                 </span>
                                             </td>
-                                            <td>${t.trainingDate ? Utils.formatDate(t.trainingDate) : '-'}</td>
+                                            <td>${(t.trainingDate || t.date) ? Utils.formatDate(t.trainingDate || t.date) : '-'}</td>
                                             <td>${Utils.escapeHTML(t.location || '-')}</td>
                                             <td>${Utils.escapeHTML(t.trainer || '-')}</td>
                                             <td>${(parseFloat(t.hours) || 0).toFixed(2)} ساعة</td>
@@ -2492,12 +3312,13 @@ const Training = {
                                 </tbody>
                             </table>
                         </div>
-                    ` : `
-                        <div class="empty-state">
+                        ` : `
+                        <div class="empty-state" style="padding: 2rem;">
                             <i class="fas fa-graduation-cap text-4xl text-gray-300 mb-4"></i>
-                            <p class="text-gray-500">لا توجد برامج تدريب مسجلة لهذا الموظ</p>
+                            <p class="text-gray-500">لا توجد برامج تدريب مسجلة لهذا الموظف</p>
                         </div>
-                    `}
+                        `}
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn-secondary" onclick="this.closest('.modal-overlay').remove()">إغلاق</button>
@@ -2915,8 +3736,8 @@ const Training = {
                     const durationMinutes = Number(entry.durationMinutes || entry.trainingMinutes || 0);
                     const totalHours = parseFloat(entry.totalHours || entry.trainingHours || 0);
                     // ✅ تحويل الوقت إلى صيغة HH:MM مع معالجة محسنة
-                    const fromTime = this.formatTime(entry.fromTime || entry.timeFrom || entry.startTime);
-                    const toTime = this.formatTime(entry.toTime || entry.timeTo || entry.endTime);
+                    const startTime = this.cleanTime(entry.startTime || entry.fromTime || entry.timeFrom) || '—';
+                    const endTime = this.cleanTime(entry.endTime || entry.toTime || entry.timeTo) || '—';
                     const notes = Utils.escapeHTML(entry.notes || '');
                     const searchTokens = [
                         contractorName,
@@ -2926,8 +3747,8 @@ const Training = {
                         location,
                         subLocation,
                         sessionDate,
-                        fromTime,
-                        toTime,
+                        startTime,
+                        endTime,
                         notes
                     ].join(' ').toLowerCase();
 
@@ -2940,8 +3761,8 @@ const Training = {
                             <td class="text-center">
                                 <span class="badge badge-info">${traineesCount}</span>
                             </td>
-                            <td class="text-center">${fromTime}</td>
-                            <td class="text-center">${toTime}</td>
+                            <td class="text-center">${startTime}</td>
+                            <td class="text-center">${endTime}</td>
                             <td class="text-center">${durationMinutes > 0 ? durationMinutes : '—'}</td>
                             <td class="text-center">${totalHours > 0 ? totalHours.toFixed(2) : '—'}</td>
                             <td>${location}</td>
@@ -3114,6 +3935,24 @@ const Training = {
             Utils.safeWarn('⚠️ خطأ في الحصول على قائمة المواقع:', error);
             return [];
         }
+    },
+
+    /** إعادة تعبئة قوائم المصنع/الموقع عند اكتمال تحميل إعدادات النماذج (استدعاء تلقائي من حدث formSettingsUpdated) */
+    refreshSiteDropdowns() {
+        try {
+            const sites = this.getSiteOptions();
+            const escape = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML : (s) => String(s == null ? '' : s);
+            const optionsHtml = (emptyLabel) => '<option value="">' + (emptyLabel || 'اختر المصنع') + '</option>' + (sites || []).map(s => '<option value="' + escape(s.id) + '">' + escape(s.name) + '</option>').join('');
+            const ids = ['training-factory', 'attendance-registry-filter-factory', 'attendance-analytics-factory'];
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (el && el.tagName === 'SELECT') {
+                    const current = el.value;
+                    el.innerHTML = optionsHtml(id === 'attendance-analytics-factory' ? '' : id === 'attendance-registry-filter-factory' ? 'جميع المصانع' : 'اختر المصنع');
+                    if (current) el.value = current;
+                }
+            });
+        } catch (e) { if (typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('⚠️ Training.refreshSiteDropdowns:', e); }
     },
 
     // الحصول على قائمة الأماكن الفرعية لموقع محدد
@@ -3302,18 +4141,8 @@ const Training = {
         return Array.from(membersMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
     },
 
-    async openContractorTrainingForm(trainingId = null) {
+    openContractorTrainingForm(trainingId = null) {
         this.ensureData();
-        try {
-            if (typeof Permissions !== 'undefined' && typeof Permissions.ensureFormSettingsState === 'function') {
-                await Permissions.ensureFormSettingsState();
-            }
-            if (typeof Contractors !== 'undefined' && typeof Contractors.ensureContractorsAndApprovedForModules === 'function') {
-                await Contractors.ensureContractorsAndApprovedForModules();
-            }
-        } catch (e) {
-            // متابعة عرض النموذج حتى مع فشل التحميل
-        }
         const contractors = this.getContractorOptions();
         // ✅ إصلاح: بناء contractorMap بتحويل المفتاح إلى string لضمان التطابق
         // ملاحظة مهمة: استخدام ?? بدل || لتفادي فقدان قيم مثل 0
@@ -3323,14 +4152,12 @@ const Training = {
         const hasContractors = contractors.length > 0;
         const defaultDate = existing?.date ? new Date(existing.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
         
-        // ✅ إصلاح: تحويل قيم الوقت إلى صيغة HH:mm الصحيحة لحقول الإدخال
-        // معالجة صيغ Excel (تاريخ 1899-12-30 أو أرقام عشرية) وتحويلها للصيغة الصحيحة
-        // محاولة الحصول على الوقت من مختلف الحقول الممكنة
+        // ✅ مطابقة تدريب الموظفين: استخدام cleanTime ونفس أسماء الحقول startTime/endTime
         const existingFromTime = existing 
-            ? this.formatTime(existing.fromTime || existing.timeFrom || existing.startTime, true) 
+            ? (this.cleanTime(existing.startTime || existing.fromTime || existing.timeFrom) || '') 
             : '';
         const existingToTime = existing 
-            ? this.formatTime(existing.toTime || existing.timeTo || existing.endTime, true) 
+            ? (this.cleanTime(existing.endTime || existing.toTime || existing.timeTo) || '') 
             : '';
         // ✅ إصلاح: تطبيع contractorId للمقارنة الصحيحة
         const existingContractorId = existing?.contractorId ? String(existing.contractorId).trim() : '';
@@ -3344,7 +4171,7 @@ const Training = {
                         <i class="fas fa-briefcase"></i>
                         ${existing ? 'تعديل تدريب مقاول' : 'تسجيل تدريب للمقاولين'}
                     </h2>
-                    <button class="modal-close" title="إغلاق" style="color: white; font-size: 1.3rem; opacity: 0.9; transition: all 0.2s; border-radius: 8px; padding: 8px 12px; position: absolute; left: 15px; top: 50%; transform: translateY(-50%);" onmouseover="this.style.opacity='1'; this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.opacity='0.9'; this.style.background='transparent'">
+                    <button type="button" class="modal-close" title="إغلاق" style="color: white; font-size: 1.3rem; opacity: 0.9; transition: all 0.2s; border-radius: 8px; padding: 8px 12px; position: absolute; left: 15px; top: 50%; transform: translateY(-50%);" onmouseover="this.style.opacity='1'; this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.opacity='0.9'; this.style.background='transparent'">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
@@ -3518,35 +4345,26 @@ const Training = {
         let isClosing = false;
         let handleEscKey = null;
         
-        // دالة إغلاق مبسطة وفورية
+        // دالة إغلاق فورية: إزالة النموذج من DOM أولاً ثم التنظيف (استجابة فورية من أول ضغطة)
         const close = (e) => {
-            if (isClosing) {
-                if (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-                return;
-            }
-            
-            isClosing = true;
-            
             if (e) {
                 e.preventDefault();
                 e.stopPropagation();
             }
-            
-            // إزالة مستمع ESC فوراً
+            if (isClosing) return;
+            isClosing = true;
+
+            // إزالة النموذج فوراً من الصفحة (أولوية للاستجابة البصرية)
+            if (modal && modal.parentNode) {
+                modal.remove();
+            }
+            // إزالة مستمع ESC
             if (handleEscKey) {
                 document.removeEventListener('keydown', handleEscKey);
                 handleEscKey = null;
             }
-            
-            // إزالة النموذج فوراً بدون تأخير
-            if (modal && modal.parentNode) {
-                modal.remove();
-            }
         };
-        
+
         // منع انتشار الأحداث من محتوى النموذج إلى overlay
         const modalContent = modal.querySelector('.modal-content');
         if (modalContent) {
@@ -3554,28 +4372,43 @@ const Training = {
                 e.stopPropagation();
             });
         }
-        
-        // إضافة مستمعات الإغلاق
+
+        const doClose = (e) => {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            close(e);
+        };
+
         const closeBtn = modal.querySelector('.modal-close');
         if (closeBtn) {
-            closeBtn.addEventListener('click', close, { once: true });
+            closeBtn.addEventListener('click', doClose);
         }
-        
+
         const closeFooterBtn = modal.querySelector('[data-action="close"]');
         if (closeFooterBtn) {
-            closeFooterBtn.addEventListener('click', close, { once: true });
+            closeFooterBtn.addEventListener('click', doClose);
         }
-        
-        // إغلاق عند النقر خارج النموذج
+
+        // النقر خارج النموذج: إظهار رسالة ثم إغلاق عند النقر على overlay
         modal.addEventListener('click', (event) => {
             if (event.target === modal) {
-                close(event);
+                event.preventDefault();
+                event.stopPropagation();
+                if (typeof Notification !== 'undefined' && Notification.warning) {
+                    Notification.warning('تنبيه: لإغلاق النموذج يرجى استخدام زر الإغلاق (×) أو زر إلغاء أسفل النموذج.');
+                } else {
+                    alert('تنبيه: لإغلاق النموذج يرجى استخدام زر الإغلاق (×) أو زر إلغاء أسفل النموذج.');
+                }
             }
         });
-        
-        // إغلاق عند الضغط على ESC
+
+        // إغلاق عند الضغط على ESC من أول ضغطة
         handleEscKey = (e) => {
             if (e.key === 'Escape' || e.keyCode === 27) {
+                e.preventDefault();
+                e.stopPropagation();
                 close(e);
             }
         };
@@ -3735,8 +4568,8 @@ const Training = {
                 const trainerValue = modal.querySelector('#contractor-training-trainer')?.value.trim();
                 const contractorId = modal.querySelector('#contractor-training-contractor')?.value;
                 const traineesCount = parseInt(modal.querySelector('#contractor-training-trainees')?.value || '0', 10);
-                const fromTime = modal.querySelector('#contractor-training-from-time')?.value || '';
-                const toTime = modal.querySelector('#contractor-training-to-time')?.value || '';
+                const startTimeVal = modal.querySelector('#contractor-training-from-time')?.value || '';
+                const endTimeVal = modal.querySelector('#contractor-training-to-time')?.value || '';
                 const durationMinutes = parseInt(modal.querySelector('#contractor-training-duration')?.value || '0', 10);
                 const totalHoursInput = modal.querySelector('#contractor-training-hours');
                 const computedHours = totalHoursInput ? parseFloat(totalHoursInput.value || '0') : 0;
@@ -3754,7 +4587,7 @@ const Training = {
                 const notes = modal.querySelector('#contractor-training-notes')?.value.trim();
 
                 const normalizedContractorId = String(contractorId ?? '').trim();
-                if (!dateValue || !topicValue || !trainerValue || !normalizedContractorId || !Number.isFinite(traineesCount) || traineesCount <= 0 || !fromTime || !toTime) {
+                if (!dateValue || !topicValue || !trainerValue || !normalizedContractorId || !Number.isFinite(traineesCount) || traineesCount <= 0 || !startTimeVal || !endTimeVal) {
                     Notification.warning('يرجى استكمال الحقول الإلزامية للتدريب');
                     if (submitBtn) {
                         submitBtn.disabled = false;
@@ -3794,11 +4627,11 @@ const Training = {
                     date: new Date(dateValue).toISOString(),
                     topic: topicValue,
                     trainer: trainerValue,
-                    contractorId: normalizedContractorId, // ✅ حفظ المعرف المطبّع
+                    contractorId: normalizedContractorId,
                     contractorName,
                     traineesCount,
-                    fromTime,
-                    toTime,
+                    startTime: this.cleanTime(startTimeVal) || startTimeVal,
+                    endTime: this.cleanTime(endTimeVal) || endTimeVal,
                     durationMinutes: Number.isFinite(durationMinutes) && durationMinutes > 0 ? durationMinutes : '',
                     totalHours: computedHours > 0 ? computedHours : '',
                     location,
@@ -3844,7 +4677,7 @@ const Training = {
                         Utils.safeWarn('⚠️ خطأ في تحديث القائمة:', refreshError);
                     });
 
-                    // المزامنة مع قاعدة البيانات في الخلفية
+                    // المزامنة مع Google Sheets في الخلفية
                     (async () => {
                         try {
                             if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
@@ -3863,7 +4696,7 @@ const Training = {
                                 await GoogleIntegration.autoSave('ContractorTrainings', AppState.appData.contractorTrainings);
                             }
                         } catch (syncError) {
-                            Utils.safeWarn('⚠️ فشل المزامنة مع قاعدة البيانات (سيتم المحاولة لاحقاً):', syncError);
+                            Utils.safeWarn('⚠️ فشل المزامنة مع Google Sheets (سيتم المحاولة لاحقاً):', syncError);
                         }
                     })();
                 }, 0);
@@ -3937,11 +4770,11 @@ const Training = {
                             </div>
                             <div>
                                 <label class="block text-sm font-semibold text-gray-700 mb-1">من الساعة</label>
-                                <p class="text-gray-900">${this.formatTime(training.fromTime || training.timeFrom || training.startTime)}</p>
+                                <p class="text-gray-900">${this.cleanTime(training.startTime || training.fromTime || training.timeFrom) || '—'}</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-semibold text-gray-700 mb-1">إلى الساعة</label>
-                                <p class="text-gray-900">${this.formatTime(training.toTime || training.timeTo || training.endTime)}</p>
+                                <p class="text-gray-900">${this.cleanTime(training.endTime || training.toTime || training.timeTo) || '—'}</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-semibold text-gray-700 mb-1">المدة (دقائق)</label>
@@ -3988,7 +4821,7 @@ const Training = {
     },
 
     editContractorTraining(trainingId) {
-        this.openContractorTrainingForm(trainingId).catch(() => {});
+        this.openContractorTrainingForm(trainingId);
     },
 
     async deleteContractorTraining(trainingId) {
@@ -4024,7 +4857,7 @@ const Training = {
             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
         }
         
-        // حفظ في قاعدة البيانات
+        // حفظ في Google Sheets
         if (AppState.googleConfig?.appsScript?.enabled) {
             try {
                 // استخدام saveToSheet لحذف السجل
@@ -4037,7 +4870,7 @@ const Training = {
                     }
                 });
             } catch (error) {
-                Utils.safeWarn('⚠️ فشل حذف تدريب المقاول من قاعدة البيانات، سيتم المحاولة لاحقاً:', error);
+                Utils.safeWarn('⚠️ فشل حذف تدريب المقاول من Google Sheets، سيتم المحاولة لاحقاً:', error);
                 // استخدام autoSave كبديل فقط في حالة الفشل
                 if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                     await GoogleIntegration.autoSave?.('ContractorTrainings', AppState.appData.contractorTrainings).catch(() => {
@@ -4046,7 +4879,7 @@ const Training = {
                 }
             }
         } else if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
-            // إذا لم يكن الخادم مفعّلاً، نستخدم autoSave
+            // إذا لم يكن Google Apps Script مفعّل، نستخدم autoSave
             await GoogleIntegration.autoSave?.('ContractorTrainings', AppState.appData.contractorTrainings);
         }
         
@@ -4084,8 +4917,8 @@ const Training = {
                     ? storedContractorName
                     : (contractorMap.get(normalizedContractorId) || storedContractorName || '');
                 // ✅ إصلاح: تحويل قيم الوقت إلى صيغة صحيحة
-                const formattedFromTime = this.formatTime(entry.fromTime, true) || '';
-                const formattedToTime = this.formatTime(entry.toTime, true) || '';
+                const formattedFromTime = this.cleanTime(entry.startTime || entry.fromTime) || '';
+                const formattedToTime = this.cleanTime(entry.endTime || entry.toTime) || '';
                 const formattedDuration = entry.durationMinutes && !isNaN(Number(entry.durationMinutes)) ? Number(entry.durationMinutes) : '';
                 const formattedHours = entry.totalHours && !isNaN(Number(entry.totalHours)) ? parseFloat(entry.totalHours).toFixed(2) : '';
                 return {
@@ -5447,7 +6280,7 @@ const Training = {
                     Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
                 }
                 
-                // حفظ في قاعدة البيانات
+                // حفظ في Google Sheets
                 if (AppState.googleConfig?.appsScript?.enabled) {
                     try {
                         // حفظ التدريب
@@ -5472,7 +6305,7 @@ const Training = {
                             }
                         }
                     } catch (error) {
-                        Utils.safeWarn('⚠️ فشل حفظ التدريب في قاعدة البيانات، سيتم المحاولة لاحقاً:', error);
+                        Utils.safeWarn('⚠️ فشل حفظ التدريب في Google Sheets، سيتم المحاولة لاحقاً:', error);
                         // استخدام autoSave كبديل فقط في حالة الفشل
                         if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                             await Promise.allSettled([
@@ -5484,7 +6317,7 @@ const Training = {
                         }
                     }
                 } else if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
-                    // إذا لم يكن الخادم مفعّلاً، نستخدم autoSave
+                    // إذا لم يكن Google Apps Script مفعّل، نستخدم autoSave
                     await Promise.allSettled([
                         GoogleIntegration.autoSave?.('Training', AppState.appData.training),
                         GoogleIntegration.autoSave?.('EmployeeTrainingMatrix', AppState.appData.employeeTrainingMatrix)
@@ -5596,7 +6429,7 @@ const Training = {
                     <td>${Utils.escapeHTML(item.name || '')}</td>
                     <td>${Utils.escapeHTML(item.trainer || '')}</td>
                     <td>${item.startDate ? Utils.formatDate(item.startDate) : '-'}</td>
-                    <td>${item.participants?.length || item.participantsCount || 0}</td>
+                    <td>${this.getParticipantsCount(item)}</td>
                     <td>
                         <span class="badge badge-${item.status === 'مكتمل' ? 'success' : item.status === 'قيد التنيذ' ? 'info' : item.status === 'ملغي' ? 'danger' : 'warning'}">
                             ${item.status || '-'}
@@ -5636,15 +6469,14 @@ const Training = {
 
             // Prepare data for Excel
             const excelData = trainings.map(training => {
-                const participants = Array.isArray(training.participants)
-                    ? training.participants.map(p => `${p.name || ''} (${p.code || p.employeeNumber || ''})`).join('; ')
-                    : '';
+                const participantsArr = this.getParticipantsArray(training);
+                const participants = participantsArr.map(p => `${p.name || p.contractorName || ''} (${p.code || p.employeeNumber || p.employeeCode || ''})`).filter(Boolean).join('; ') || '';
 
                 return {
                     'اسم البرنامج': training.name || '',
                     'المدرب': training.trainer || '',
                     'تاريخ البدء': training.startDate ? Utils.formatDate(training.startDate) : '',
-                    'عدد المشاركين': training.participants?.length || training.participantsCount || 0,
+                    'عدد المشاركين': this.getParticipantsCount(training),
                     'قائمة المشاركين': participants,
                     'الحالة': training.status || '',
                     'تاريخ الإنشاء': training.createdAt ? Utils.formatDate(training.createdAt) : ''
@@ -5841,7 +6673,7 @@ const Training = {
             const filteredTrainings = this.filterTrainingsForReport(trainings, filters);
 
             const totalPrograms = filteredTrainings.length;
-            const totalParticipants = filteredTrainings.reduce((acc, training) => acc + (training.participantsCount || (training.participants?.length || 0)), 0);
+            const totalParticipants = filteredTrainings.reduce((acc, training) => acc + this.getParticipantsCount(training), 0);
             const uniqueParticipants = new Set();
             filteredTrainings.forEach(training => {
                 const participants = Array.isArray(training.participants) ? training.participants : [];
@@ -6017,8 +6849,12 @@ const Training = {
     },
 
     renderTrainingReportRow(training, index) {
-        const participantsCount = training.participantsCount || (training.participants?.length || 0);
+        const participantsCount = this.getParticipantsCount(training);
         const statusText = training.status === 'قيد التنيذ' ? 'قيد التنفيذ' : (training.status || '-');
+        let locationDisplay = training.locationName || training.location || '—';
+        if (!training.locationName && training.location && training.factory) {
+            locationDisplay = this.getPlaceName(training.location, training.factory) || training.location || '—';
+        }
         return `
             <tr style="${index % 2 === 0 ? 'background: #F9FAFB;' : ''}">
                 <td style="padding: 8px 10px; border: 1px solid #E5E7EB; text-align: center;">${index}</td>
@@ -6026,7 +6862,7 @@ const Training = {
                 <td style="padding: 8px 10px; border: 1px solid #E5E7EB;">${training.startDate ? Utils.formatDate(training.startDate) : (training.date ? Utils.formatDate(training.date) : '—')}</td>
                 <td style="padding: 8px 10px; border: 1px solid #E5E7EB;">${Utils.escapeHTML(training.trainer || '—')}</td>
                 <td style="padding: 8px 10px; border: 1px solid #E5E7EB;">${Utils.escapeHTML(training.trainingType || 'داخلي')}</td>
-                <td style="padding: 8px 10px; border: 1px solid #E5E7EB;">${Utils.escapeHTML(training.location || '—')}</td>
+                <td style="padding: 8px 10px; border: 1px solid #E5E7EB;">${Utils.escapeHTML(locationDisplay)}</td>
                 <td style="padding: 8px 10px; border: 1px solid #E5E7EB; text-align: center;">${participantsCount}</td>
                 <td style="padding: 8px 10px; border: 1px solid #E5E7EB;">${Utils.escapeHTML(statusText)}</td>
             </tr>
@@ -6034,8 +6870,21 @@ const Training = {
     },
 
     renderTrainingReportParticipantsBlock(training) {
-        const participants = Array.isArray(training.participants) ? training.participants : [];
-        if (!participants.length) return '';
+        const participants = this.getParticipantsArray(training);
+        const programName = training.name || training.subject || '—';
+        const count = this.getParticipantsCount(training);
+
+        if (participants.length === 0) {
+            if (count > 0) {
+                return `
+                    <div style="page-break-inside: avoid; margin-bottom: 24px;">
+                        <h3 style="font-size: 18px; margin-bottom: 8px; color:#1E3A8A;">كشف المتدربين — ${Utils.escapeHTML(programName)}</h3>
+                        <p style="padding: 12px; color: #6B7280; margin: 0;">عدد المسجلين: ${count} — قائمة الأسماء غير متوفرة في هذه النسخة.</p>
+                    </div>
+                `;
+            }
+            return '';
+        }
 
         const participantsList = participants.map(participant => {
             const participantType = participant.type === 'contractor' || participant.personType === 'contractor'
@@ -6043,11 +6892,13 @@ const Training = {
                 : '<span style="color:#1D4ED8;">موظف</span>';
             const companyLabel = participant.company || participant.contractorCompany || '';
             const topicTags = (participant.topics || []).map(topic => `<span style="display:inline-block; background:#DBEAFE; color:#1D4ED8; padding:2px 8px; border-radius:12px; font-size:11px; margin-left:4px;">${Utils.escapeHTML(topic)}</span>`).join('');
+            const name = participant.name || participant.contractorName || '—';
+            const code = participant.code || participant.employeeNumber || participant.employeeCode || '';
 
             return `
                 <li style="margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #E5E7EB;">
-                    <strong>${Utils.escapeHTML(participant.name || '—')}</strong>
-                    <span style="color:#6B7280;">${participant.code ? ' • ' + Utils.escapeHTML(participant.code) : ''}</span>
+                    <strong>${Utils.escapeHTML(name)}</strong>
+                    <span style="color:#6B7280;">${code ? ' • ' + Utils.escapeHTML(code) : ''}</span>
                     <span style="margin-right: 8px;">${participantType}</span>
                     ${companyLabel ? `<span style="margin-right: 8px; color:#0F766E;">${Utils.escapeHTML(companyLabel)}</span>` : ''}
                     ${participant.position ? `<span style="margin-right: 8px; color:#2563EB;">${Utils.escapeHTML(participant.position)}</span>` : ''}
@@ -6058,7 +6909,7 @@ const Training = {
 
         return `
             <div style="page-break-inside: avoid; margin-bottom: 24px;">
-                <h3 style="font-size: 18px; margin-bottom: 8px; color:#1E3A8A;">المشاركون في: ${Utils.escapeHTML(training.name || training.subject || '—')}</h3>
+                <h3 style="font-size: 18px; margin-bottom: 8px; color:#1E3A8A;">كشف المتدربين — ${Utils.escapeHTML(programName)}</h3>
                 <ul style="list-style: none; padding: 0; margin: 0;">
                     ${participantsList}
                 </ul>
@@ -6092,10 +6943,12 @@ const Training = {
         const trainingType = training.trainingType || 'داخلي';
         const trainingTypeLabel = trainingType === 'خارجي' ? 'خارجي' : 'داخلي';
 
-        // تنسيق الأوقات
-        const startTime = training.startTime ? (this.cleanTime(training.startTime) || '-') : '-';
-        const endTime = training.endTime ? (this.cleanTime(training.endTime) || '-') : '-';
-        const hours = training.hours || '-';
+        // تنسيق الأوقات — تطابق كامل مع البيانات المعزولة
+        const startTimeRaw = training.startTime != null && String(training.startTime).trim() !== '';
+        const endTimeRaw = training.endTime != null && String(training.endTime).trim() !== '';
+        const startTime = startTimeRaw ? (this.cleanTime(training.startTime) || String(training.startTime).trim()) : '-';
+        const endTime = endTimeRaw ? (this.cleanTime(training.endTime) || String(training.endTime).trim()) : '-';
+        const hours = training.hours != null && String(training.hours).trim() !== '' ? training.hours : '-';
 
         // الحالة
         const status = training.status || '';
@@ -6117,44 +6970,44 @@ const Training = {
                 </div>
                 <div class="modal-body" style="padding: 1.5rem;">
                     <div class="grid grid-cols-2 gap-4 mb-4">
-                        <div class="p-3 bg-gray-50 rounded-lg">
-                            <label class="text-sm font-semibold text-gray-600 block mb-1">المدرب:</label>
+                        <div class="p-3 rounded-lg" style="background: #EFF6FF; border-right: 4px solid #3B82F6;">
+                            <label class="text-sm font-semibold block mb-1" style="color: #1D4ED8;">المدرب:</label>
                             <p class="text-gray-800">${Utils.escapeHTML(training.trainer || '-')}</p>
                         </div>
-                        <div class="p-3 bg-gray-50 rounded-lg">
-                            <label class="text-sm font-semibold text-gray-600 block mb-1">نوع التدريب:</label>
+                        <div class="p-3 rounded-lg" style="background: #EFF6FF; border-right: 4px solid #3B82F6;">
+                            <label class="text-sm font-semibold block mb-1" style="color: #1D4ED8;">نوع التدريب:</label>
                             <span class="badge badge-${trainingType === 'خارجي' ? 'warning' : 'info'}">${Utils.escapeHTML(trainingTypeLabel)}</span>
                         </div>
-                        <div class="p-3 bg-gray-50 rounded-lg">
-                            <label class="text-sm font-semibold text-gray-600 block mb-1">تاريخ البدء:</label>
+                        <div class="p-3 rounded-lg" style="background: #ECFDF5; border-right: 4px solid #10B981;">
+                            <label class="text-sm font-semibold block mb-1" style="color: #047857;">تاريخ البدء:</label>
                             <p class="text-gray-800">${training.startDate ? Utils.formatDate(training.startDate) : '-'}</p>
                         </div>
-                        <div class="p-3 bg-gray-50 rounded-lg">
-                            <label class="text-sm font-semibold text-gray-600 block mb-1">الحالة:</label>
+                        <div class="p-3 rounded-lg" style="background: #ECFDF5; border-right: 4px solid #10B981;">
+                            <label class="text-sm font-semibold block mb-1" style="color: #047857;">الحالة:</label>
                             <span class="badge badge-${statusBadge}">${Utils.escapeHTML(statusDisplay || '-')}</span>
                         </div>
-                        <div class="p-3 bg-gray-50 rounded-lg">
-                            <label class="text-sm font-semibold text-gray-600 block mb-1">المصنع:</label>
+                        <div class="p-3 rounded-lg" style="background: #FFFBEB; border-right: 4px solid #F59E0B;">
+                            <label class="text-sm font-semibold block mb-1" style="color: #B45309;">المصنع:</label>
                             <p class="text-gray-800">${Utils.escapeHTML(factoryName || '-')}</p>
                         </div>
-                        <div class="p-3 bg-gray-50 rounded-lg">
-                            <label class="text-sm font-semibold text-gray-600 block mb-1">مكان التدريب:</label>
+                        <div class="p-3 rounded-lg" style="background: #FFFBEB; border-right: 4px solid #F59E0B;">
+                            <label class="text-sm font-semibold block mb-1" style="color: #B45309;">مكان التدريب:</label>
                             <p class="text-gray-800"><i class="fas fa-map-marker-alt ml-1 text-gray-400"></i> ${Utils.escapeHTML(locationName || '-')}</p>
                         </div>
-                        <div class="p-3 bg-gray-50 rounded-lg">
-                            <label class="text-sm font-semibold text-gray-600 block mb-1">وقت البدء:</label>
-                            <p class="text-gray-800">${Utils.escapeHTML(startTime)}</p>
+                        <div class="p-3 rounded-lg" style="background: #F5F3FF; border-right: 4px solid #8B5CF6;">
+                            <label class="text-sm font-semibold block mb-1" style="color: #6D28D9;">وقت البدء:</label>
+                            <p class="text-gray-800 font-medium">${Utils.escapeHTML(startTime)}</p>
                         </div>
-                        <div class="p-3 bg-gray-50 rounded-lg">
-                            <label class="text-sm font-semibold text-gray-600 block mb-1">وقت الانتهاء:</label>
-                            <p class="text-gray-800">${Utils.escapeHTML(endTime)}</p>
+                        <div class="p-3 rounded-lg" style="background: #F5F3FF; border-right: 4px solid #8B5CF6;">
+                            <label class="text-sm font-semibold block mb-1" style="color: #6D28D9;">وقت الانتهاء:</label>
+                            <p class="text-gray-800 font-medium">${Utils.escapeHTML(endTime)}</p>
                         </div>
-                        <div class="p-3 bg-gray-50 rounded-lg">
-                            <label class="text-sm font-semibold text-gray-600 block mb-1">عدد المشاركين:</label>
-                            <p class="text-gray-800">${training.participants?.length || training.participantsCount || 0}</p>
+                        <div class="p-3 rounded-lg" style="background: #FFF1F2; border-right: 4px solid #E11D48;">
+                            <label class="text-sm font-semibold block mb-1" style="color: #BE123C;">عدد المشاركين:</label>
+                            <p class="text-gray-800">${this.getParticipantsCount(training)}</p>
                         </div>
-                        <div class="p-3 bg-gray-50 rounded-lg">
-                            <label class="text-sm font-semibold text-gray-600 block mb-1">ساعات التدريب:</label>
+                        <div class="p-3 rounded-lg" style="background: #FFF1F2; border-right: 4px solid #E11D48;">
+                            <label class="text-sm font-semibold block mb-1" style="color: #BE123C;">ساعات التدريب:</label>
                             <p class="text-gray-800">${Utils.escapeHTML(hours)} ${hours !== '-' ? 'ساعة' : ''}</p>
                         </div>
                     </div>
@@ -6202,6 +7055,10 @@ const Training = {
                 </div>
                 <div class="modal-footer">
                     <button class="btn-secondary" onclick="this.closest('.modal-overlay').remove()">إغلاق</button>
+                    <button type="button" class="btn-secondary" onclick="Training.printTraining('${training.id}'); this.closest('.modal-overlay').remove();" style="display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fas fa-print"></i>
+                        الطباعة
+                    </button>
                     <button class="btn-primary" onclick="Training.editTraining('${training.id}'); this.closest('.modal-overlay').remove();">
                         <i class="fas fa-edit ml-2"></i>
                         تعديل
@@ -6217,6 +7074,9 @@ const Training = {
 
     async showForm(data = null) {
         this.ensureData();
+        if (typeof Permissions !== 'undefined' && Permissions.ensureFormSettingsState) {
+            try { await Permissions.ensureFormSettingsState(); } catch (e) { /* ignore */ }
+        }
         this.currentEditId = data?.id || null;
         const content = document.getElementById('training-content');
         if (!content) {
@@ -7147,9 +8007,13 @@ const Training = {
                 Promise.resolve().then(() => this.syncEmployeeTrainingMatrix(formData)),
                 // مزامنة سجل التدريب للموظفين
                 Promise.resolve().then(() => this.syncAttendanceRegistry(formData)),
-                // حفظ في قاعدة البيانات
+                // حفظ في Google Sheets
                 GoogleIntegration.autoSave('Training', AppState.appData.training),
-                GoogleIntegration.autoSave('EmployeeTrainingMatrix', AppState.appData.employeeTrainingMatrix)
+                GoogleIntegration.autoSave('EmployeeTrainingMatrix', AppState.appData.employeeTrainingMatrix),
+                // حفظ سجل الحضور الناتج عن البرنامج التدريبي
+                (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave)
+                    ? GoogleIntegration.autoSave('TrainingAttendance', AppState.appData.trainingAttendance)
+                    : Promise.resolve()
             ]).catch(error => {
                 Utils.safeError('خطأ في معالجة المهام الخلفية:', error);
             });
@@ -7184,7 +8048,7 @@ const Training = {
                 Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
             }
             
-            // حذف من قاعدة البيانات إذا كان مفعلاً
+            // حذف من Google Sheets إذا كان مفعلاً
             if (AppState.googleConfig?.appsScript?.enabled) {
                 try {
                     const result = await GoogleIntegration.sendToAppsScript('deleteTraining', { 
@@ -7201,19 +8065,19 @@ const Training = {
                         GoogleIntegration.clearCache('Training');
                     }
                 } catch (error) {
-                    Utils.safeWarn('⚠️ فشل حذف البرنامج من قاعدة البيانات، سيتم المحاولة لاحقاً:', error);
+                    Utils.safeWarn('⚠️ فشل حذف البرنامج من Google Sheets، سيتم المحاولة لاحقاً:', error);
                     // محاولة الحفظ التلقائي كبديل
                     if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                         await GoogleIntegration.autoSave('Training', AppState.appData.training).catch(err => {
-                            Utils.safeWarn('⚠️ فشل حفظ التعديلات في قاعدة البيانات:', err);
+                            Utils.safeWarn('⚠️ فشل حفظ التعديلات في Google Sheets:', err);
                         });
                     }
                 }
             } else {
-                // إذا لم يكن قاعدة البيانات مفعلاً، استخدم autoSave فقط
+                // إذا لم يكن Google Sheets مفعلاً، استخدم autoSave فقط
                 if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                     await GoogleIntegration.autoSave('Training', AppState.appData.training).catch(err => {
-                        Utils.safeWarn('⚠️ فشل حفظ التعديلات في قاعدة البيانات:', err);
+                        Utils.safeWarn('⚠️ فشل حفظ التعديلات في Google Sheets:', err);
                     });
                 }
             }
@@ -7232,7 +8096,7 @@ const Training = {
 
     async printTraining(id) {
         this.ensureData();
-        const training = AppState.appData.training.find(t => t.id === id);
+        let training = AppState.appData.training.find(t => t.id === id);
         if (!training) {
             Notification.error('البرنامج غير موجود');
             return;
@@ -7240,7 +8104,15 @@ const Training = {
 
         try {
             Loading.show();
-            
+            if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.sendRequest === 'function') {
+                try {
+                    const res = await GoogleIntegration.sendRequest({ action: 'getTraining', data: { trainingId: id } });
+                    if (res && res.success && res.data) training = res.data;
+                } catch (e) {
+                    Utils.safeWarn('جلب تفاصيل البرنامج للطباعة:', e);
+                }
+            }
+
             // الحصول على اسم المكان
             let locationName = training.locationName || '';
             if (!locationName && training.location) {
@@ -7255,101 +8127,90 @@ const Training = {
                 factoryName = site ? site.name : training.factory;
             }
             
-            const hasCompany = Array.isArray(training.participants) && training.participants.some(p => p.company || p.contractorCompany);
-            const hasType = Array.isArray(training.participants) && training.participants.some(p => p.type === 'contractor' || p.personType === 'contractor');
-            const participantsList = Array.isArray(training.participants) && training.participants.length > 0
-                ? `
-                    <div class="section-title">قائمة المشاركين</div>
-                    <table class="report-table">
+            const participants = this.getParticipantsArray(training);
+            const count = this.getParticipantsCount(training);
+            const isInternal = (training.trainingType || 'داخلي') !== 'خارجي';
+            const internalCheck = isInternal ? '√' : ' ';
+            const externalCheck = isInternal ? ' ' : '√';
+            const trainingDate = training.startDate ? Utils.formatDate(training.startDate) : (training.date ? Utils.formatDate(training.date) : '');
+            const topicText = Utils.escapeHTML(training.name || training.subject || '');
+            const trainerName = Utils.escapeHTML(training.trainer || '');
+            const startTime = this.cleanTime(training.startTime) || '';
+            const endTime = this.cleanTime(training.endTime) || '';
+            const scientificSubject = (training.topics && Array.isArray(training.topics) ? training.topics.join('، ') : '') || '';
+            const locationFull = [locationName, factoryName].filter(Boolean).map(Utils.escapeHTML).join(' — ') || Utils.escapeHTML(training.location || '');
+
+            const maxRows = Math.max(participants.length, 20);
+            const rowsHtml = Array.from({ length: maxRows }, (_, idx) => {
+                const p = participants[idx];
+                if (!p) {
+                    return `
+                    <tr>
+                        <td style="border:1px solid #333; padding:8px; text-align:center; width:40px;">${idx + 1}</td>
+                        <td style="border:1px solid #333; padding:8px; text-align:center; width:90px;"></td>
+                        <td style="border:1px solid #333; padding:8px; text-align:right;"></td>
+                        <td style="border:1px solid #333; padding:8px; text-align:right;"></td>
+                        <td style="border:1px solid #333; padding:8px; min-width:80px;">&nbsp;</td>
+                    </tr>`;
+                }
+                const isContractor = p.type === 'contractor' || p.personType === 'contractor';
+                const nameDisplay = p.name || p.contractorName || '';
+                const codeDisplay = p.code || p.employeeNumber || p.employeeCode || '';
+                const jobDisplay = isContractor ? (p.company || p.contractorCompany || '') : (p.position || p.jobTitle || '');
+                const signatureDisplay = nameDisplay;
+                const name = Utils.escapeHTML(nameDisplay);
+                const code = Utils.escapeHTML(codeDisplay);
+                const job = Utils.escapeHTML(jobDisplay);
+                const signature = Utils.escapeHTML(signatureDisplay);
+                return `
+                    <tr>
+                        <td style="border:1px solid #333; padding:8px; text-align:center; width:40px;">${idx + 1}</td>
+                        <td style="border:1px solid #333; padding:8px; text-align:center; width:90px;">${code}</td>
+                        <td style="border:1px solid #333; padding:8px; text-align:right;">${name}</td>
+                        <td style="border:1px solid #333; padding:8px; text-align:right;">${job}</td>
+                        <td style="border:1px solid #333; padding:8px; min-width:80px;">${signature}</td>
+                    </tr>`;
+            }).join('');
+
+            const content = `
+                <div class="report-body" style="font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif; direction: rtl; text-align: right;">
+                    <h2 style="margin: 0 0 20px 0; font-size: 20px; font-weight: 700; color: #1f2937;">
+                        كشف حضور تدريب داخلي ( ${internalCheck} ) / خارجي ( ${externalCheck} )
+                    </h2>
+                    <table style="width:100%; border-collapse: collapse; margin-bottom: 16px; font-size: 15px;">
+                        <tr><td style="padding: 4px 12px 4px 0; width: 160px;">التاريخ :</td><td style="padding: 4px 0;">${Utils.escapeHTML(trainingDate)}</td></tr>
+                        <tr><td style="padding: 4px 12px 4px 0;">المكان :</td><td style="padding: 4px 0;">${locationFull}</td></tr>
+                        <tr><td style="padding: 4px 12px 4px 0;">موضوع المحاضرة :</td><td style="padding: 4px 0;">${topicText}</td></tr>
+                        <tr><td style="padding: 4px 12px 4px 0;">اسم المحاضر :</td><td style="padding: 4px 0;">${trainerName}</td></tr>
+                        <tr><td style="padding: 4px 12px 4px 0;">المادة العلمية :</td><td style="padding: 4px 0;">${Utils.escapeHTML(scientificSubject)}</td></tr>
+                        <tr><td style="padding: 4px 12px 4px 0;">من ساعة :</td><td style="padding: 4px 0;">${Utils.escapeHTML(startTime)}</td></tr>
+                        <tr><td style="padding: 4px 12px 4px 0;">الي ساعة :</td><td style="padding: 4px 0;">${Utils.escapeHTML(endTime)}</td></tr>
+                    </table>
+                    <p style="margin: 16px 0 8px 0; font-size: 16px; font-weight: 600;">الحاضرون :-</p>
+                    <table class="report-table" style="width:100%; border-collapse: collapse; margin-bottom: 24px; font-size: 14px;">
                         <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>الاسم</th>
-                                <th>الكود</th>
-                                <th>الوظيفة</th>
-                                <th>القسم</th>
-                                ${hasCompany ? '<th>الشركة</th>' : ''}
-                                ${hasType ? '<th>النوع</th>' : ''}
+                            <tr style="background: #1e3a8a; color: #fff;">
+                                <th style="border:1px solid #333; padding:10px; text-align:center; width:50px;">م</th>
+                                <th style="border:1px solid #333; padding:10px; text-align:center; width:90px;">الكود الوظيفي</th>
+                                <th style="border:1px solid #333; padding:10px; text-align:right;">الإسم</th>
+                                <th style="border:1px solid #333; padding:10px; text-align:right;">الوظيفة</th>
+                                <th style="border:1px solid #333; padding:10px; text-align:center; min-width:100px;">التوقيع</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${training.participants.map((p, idx) => `
-                                <tr>
-                                    <td>${idx + 1}</td>
-                                    <td>${Utils.escapeHTML(p.name || p.contractorName || '')}</td>
-                                    <td>${Utils.escapeHTML(p.code || p.employeeNumber || p.employeeCode || '-')}</td>
-                                    <td>${Utils.escapeHTML(p.position || '-')}</td>
-                                    <td>${Utils.escapeHTML(p.department || '-')}</td>
-                                    ${hasCompany ? `<td>${Utils.escapeHTML(p.company || p.contractorCompany || '-')}</td>` : ''}
-                                    ${hasType ? `<td>${(p.type === 'contractor' || p.personType === 'contractor') ? 'مقاول' : 'موظف'}</td>` : ''}
-                                </tr>
-                            `).join('')}
+                            ${rowsHtml}
                         </tbody>
                     </table>
-                `
-                : '';
-
-            const content = `
-                <div class="summary-grid">
-                    <div class="summary-card">
-                        <span class="summary-label">المدرب</span>
-                        <span class="summary-value">${Utils.escapeHTML(training.trainer || '-')}</span>
-                    </div>
-                    <div class="summary-card">
-                        <span class="summary-label">تاريخ البدء</span>
-                        <span class="summary-value">${training.startDate ? Utils.formatDate(training.startDate) : '-'}</span>
-                    </div>
-                    <div class="summary-card">
-                        <span class="summary-label">نوع التدريب</span>
-                        <span class="summary-value">${Utils.escapeHTML(training.trainingType || 'داخلي')}</span>
-                    </div>
-                    <div class="summary-card">
-                        <span class="summary-label">عدد المشاركين</span>
-                        <span class="summary-value">${Array.isArray(training.participants) ? training.participants.length : (training.participantsCount || 0)}</span>
-                    </div>
-                    <div class="summary-card">
-                        <span class="summary-label">الحالة</span>
-                        <span class="summary-value">${Utils.escapeHTML(training.status || '-')}</span>
-                    </div>
-                    ${factoryName ? `
-                    <div class="summary-card">
-                        <span class="summary-label">المصنع</span>
-                        <span class="summary-value">${Utils.escapeHTML(factoryName)}</span>
-                    </div>
-                    ` : ''}
-                    ${locationName ? `
-                    <div class="summary-card">
-                        <span class="summary-label">المكان</span>
-                        <span class="summary-value">${Utils.escapeHTML(locationName)}</span>
-                    </div>
-                    ` : ''}
-                    ${training.startTime ? `
-                    <div class="summary-card">
-                        <span class="summary-label">وقت البدء</span>
-                        <span class="summary-value">${Utils.escapeHTML(training.startTime)}</span>
-                    </div>
-                    ` : ''}
-                    ${training.endTime ? `
-                    <div class="summary-card">
-                        <span class="summary-label">وقت الانتهاء</span>
-                        <span class="summary-value">${Utils.escapeHTML(training.endTime)}</span>
-                    </div>
-                    ` : ''}
-                    ${training.hours ? `
-                    <div class="summary-card">
-                        <span class="summary-label">ساعات التدريب</span>
-                        <span class="summary-value">${Utils.escapeHTML(training.hours)} ساعة</span>
-                    </div>
-                    ` : ''}
+                    <p style="margin: 20px 0 0 0; font-size: 15px;">توقيع المحاضر : _________________________ ${trainerName}</p>
                 </div>
-                ${participantsList}
             `;
 
-            const formCode = training.isoCode || `TRAINING-${training.id?.substring(0, 8) || 'UNKNOWN'}`;
+            const formCode = training.isoCode || `TRN-ATT-${training.id?.substring(0, 8) || 'UNKNOWN'}`;
+            const docTitle = `كشف حضور تدريب - ${Utils.escapeHTML(training.name || '')}`;
             const htmlContent = typeof FormHeader !== 'undefined' && FormHeader.generatePDFHTML
                 ? FormHeader.generatePDFHTML(
                     formCode,
-                    `برنامج تدريبي - ${Utils.escapeHTML(training.name || '')}`,
+                    docTitle,
                     content,
                     false,
                     true,
@@ -7396,7 +8257,7 @@ const Training = {
 
     async exportTraining(id) {
         this.ensureData();
-        const training = AppState.appData.training.find(t => t.id === id);
+        let training = AppState.appData.training.find(t => t.id === id);
         if (!training) {
             Notification.error('البرنامج غير موجود');
             return;
@@ -7404,6 +8265,14 @@ const Training = {
 
         try {
             Loading.show();
+            if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.sendRequest === 'function') {
+                try {
+                    const res = await GoogleIntegration.sendRequest({ action: 'getTraining', data: { trainingId: id } });
+                    if (res && res.success && res.data) training = res.data;
+                } catch (e) {
+                    Utils.safeWarn('جلب تفاصيل البرنامج للتصدير:', e);
+                }
+            }
 
             if (typeof XLSX === 'undefined') {
                 Loading.hide();
@@ -7425,8 +8294,7 @@ const Training = {
                 factoryName = site ? site.name : training.factory;
             }
             
-            const participants = Array.isArray(training.participants)
-                ? training.participants.map(p => {
+            const participants = this.getParticipantsArray(training).map(p => {
                     const participantData = {
                         'اسم المشارك': p.name || p.contractorName || '',
                         'الكود': p.code || p.employeeNumber || p.employeeCode || '',
@@ -7442,15 +8310,14 @@ const Training = {
                         participantData['النوع'] = 'موظف';
                     }
                     return participantData;
-                })
-                : [];
+                });
 
             const excelData = [{
                 'اسم البرنامج': training.name || '',
                 'المدرب': training.trainer || '',
                 'تاريخ البدء': training.startDate ? Utils.formatDate(training.startDate) : '',
                 'نوع التدريب': training.trainingType || 'داخلي',
-                'عدد المشاركين': Array.isArray(training.participants) ? training.participants.length : (training.participantsCount || 0),
+                'عدد المشاركين': this.getParticipantsCount(training),
                 'الحالة': training.status || '',
                 'المصنع': factoryName || '',
                 'المكان': locationName || '',
@@ -7560,6 +8427,41 @@ const Training = {
         }).join('');
         
         return `
+            <!-- فلتر فترة التحليل: الشهر أو من-إلى -->
+            <div class="content-card mb-6">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-calendar-alt ml-2"></i>فترة التحليل</h3>
+                </div>
+                <div class="card-body">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">نوع الفلتر</label>
+                            <select id="training-analysis-filter-type" class="form-input w-full">
+                                <option value="all">جميع البيانات</option>
+                                <option value="month">شهر محدد</option>
+                                <option value="range">فترة (من - إلى)</option>
+                            </select>
+                        </div>
+                        <div id="training-analysis-month-wrap" style="display:none;">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">الشهر</label>
+                            <select id="training-analysis-month" class="form-input w-full">
+                                <option value="">اختر الشهر</option>
+                                ${this.getAnalysisMonthOptions()}
+                            </select>
+                        </div>
+                        <div id="training-analysis-date-from-wrap" style="display:none;">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">من تاريخ</label>
+                            <input type="date" id="training-analysis-date-from" class="form-input w-full">
+                        </div>
+                        <div id="training-analysis-date-to-wrap" style="display:none;">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">إلى تاريخ</label>
+                            <input type="date" id="training-analysis-date-to" class="form-input w-full">
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2"><i class="fas fa-info-circle ml-1"></i>الكروت والرسوم البيانية أدناه تعتمد على الفترة المحددة.</p>
+                </div>
+            </div>
+
             <!-- الكروت الإحصائية القابلة للتخصيص -->
             <div class="content-card mb-6">
                 <div class="card-header">
@@ -7571,7 +8473,7 @@ const Training = {
                     </div>
                 </div>
                 <div class="card-body">
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div id="training-analysis-cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         ${cardsHtml || '<p class="text-center text-gray-500 col-span-full">لا توجد كروت مفعلة</p>'}
                     </div>
                 </div>
@@ -7698,12 +8600,17 @@ const Training = {
     
     calculateTrainingMetrics() {
         this.ensureData();
-        const trainings = AppState.appData.training || [];
-        const contractorTrainings = AppState.appData.contractorTrainings || [];
-        const trainingAttendance = AppState.appData.trainingAttendance || [];
-        
+        const filter = this.getAnalysisDateFilter();
+        let trainings = Array.isArray(AppState.appData.training) ? AppState.appData.training : [];
+        let contractorTrainings = Array.isArray(AppState.appData.contractorTrainings) ? AppState.appData.contractorTrainings : [];
+        let trainingAttendance = Array.isArray(AppState.appData.trainingAttendance) ? AppState.appData.trainingAttendance : [];
+        if (filter && filter.type !== 'all') {
+            trainings = this.filterRecordsByAnalysisDate(trainings, filter, 'training');
+            contractorTrainings = this.filterRecordsByAnalysisDate(contractorTrainings, filter, 'contractorTrainings');
+            trainingAttendance = this.filterRecordsByAnalysisDate(trainingAttendance, filter, 'trainingAttendance');
+        }
         try {
-            const stats = this.getStats();
+            const stats = this.getStatsFromTrainingsArray(trainings);
             const contractorStats = {
                 total: contractorTrainings.length,
                 totalParticipants: contractorTrainings.reduce((sum, t) => {
@@ -7905,12 +8812,32 @@ const Training = {
         }
     },
     
+    /** قائمة أشهر متاحة للتحليل (من برامج التدريب + سجل الحضور + تدريبات المقاولين) */
+    getAnalysisMonthOptions() {
+        this.ensureData();
+        const months = new Set();
+        const addFrom = (list, getDate) => {
+            (list || []).forEach(r => {
+                const d = getDate(r);
+                if (d && !Number.isNaN(d.getTime())) months.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+            });
+        };
+        addFrom(AppState.appData.training, r => new Date(r.startDate || r.date || r.createdAt));
+        addFrom(AppState.appData.trainingAttendance, r => new Date(r.date || r.attendanceDate || r.createdAt));
+        addFrom(AppState.appData.contractorTrainings, r => new Date(r.date || r.trainingDate || r.createdAt));
+        const monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+        return Array.from(months).sort().reverse().map(monthKey => {
+            const [y, m] = monthKey.split('-');
+            return `<option value="${monthKey}">${monthNames[parseInt(m, 10) - 1]} ${y}</option>`;
+        }).join('');
+    },
+
     getTrainingAnalysisFieldsMap() {
         return {
             training: [
                 { value: 'status', label: 'الحالة' },
                 { value: 'trainingType', label: 'نوع التدريب' },
-                { value: 'trainerName', label: 'اسم المدرب' },
+                { value: 'trainer', label: 'اسم المدرب' },
                 { value: 'location', label: 'الموقع' },
                 { value: 'department', label: 'الإدارة' },
                 { value: 'byMonth', label: 'حسب الشهر' }
@@ -8054,18 +8981,83 @@ const Training = {
         this.updateTrainingAnalysisResults();
     },
 
+    /**
+     * قراءة فلتر فترة التحليل من واجهة تبويب تحليل البيانات (الشهر أو من-إلى)
+     */
+    getAnalysisDateFilter() {
+        const typeEl = document.getElementById('training-analysis-filter-type');
+        const monthEl = document.getElementById('training-analysis-month');
+        const fromEl = document.getElementById('training-analysis-date-from');
+        const toEl = document.getElementById('training-analysis-date-to');
+        const type = (typeEl && typeEl.value) ? typeEl.value : 'all';
+        const month = (monthEl && monthEl.value) ? String(monthEl.value).trim() : '';
+        const start = (fromEl && fromEl.value) ? String(fromEl.value).trim() : '';
+        const end = (toEl && toEl.value) ? String(toEl.value).trim() : '';
+        return { type: type || 'all', month, start, end };
+    },
+
+    /**
+     * استخراج تاريخ السجل حسب مجموعة البيانات
+     */
+    getRecordDateForFilter(record, dataset) {
+        if (!record || typeof record !== 'object') return null;
+        const dateStr =
+            dataset === 'training' ? (record.startDate || record.date || record.createdAt) :
+            dataset === 'contractorTrainings' ? (record.date || record.trainingDate || record.createdAt) :
+            dataset === 'trainingAttendance' ? (record.date || record.attendanceDate || record.createdAt) :
+            (record.date || record.createdAt);
+        if (!dateStr) return null;
+        const d = new Date(dateStr);
+        return Number.isNaN(d.getTime()) ? null : d;
+    },
+
+    /**
+     * تصفية سجلات حسب فلتر الفترة (الكل / شهر / من-إلى)
+     */
+    filterRecordsByAnalysisDate(records, filter, dataset) {
+        if (!Array.isArray(records) || !filter || filter.type === 'all') return records;
+        const arr = records.filter(rec => {
+            const d = this.getRecordDateForFilter(rec, dataset);
+            if (!d) return false;
+            if (filter.type === 'month' && filter.month) {
+                const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                return monthKey === filter.month;
+            }
+            if (filter.type === 'range' && (filter.start || filter.end)) {
+                const t = d.getTime();
+                if (filter.start) {
+                    const startD = new Date(filter.start);
+                    if (!Number.isNaN(startD.getTime()) && t < startD.getTime()) return false;
+                }
+                if (filter.end) {
+                    const endD = new Date(filter.end);
+                    if (!Number.isNaN(endD.getTime()) && t > endD.getTime()) return false;
+                }
+                return true;
+            }
+            return true;
+        });
+        return arr;
+    },
+
     getTrainingDatasetForAnalysis(dataset) {
         this.ensureData();
+        let records = [];
         switch (dataset) {
             case 'training':
-                return Array.isArray(AppState.appData.training) ? AppState.appData.training : [];
+                records = Array.isArray(AppState.appData.training) ? AppState.appData.training : [];
+                break;
             case 'contractorTrainings':
-                return Array.isArray(AppState.appData.contractorTrainings) ? AppState.appData.contractorTrainings : [];
+                records = Array.isArray(AppState.appData.contractorTrainings) ? AppState.appData.contractorTrainings : [];
+                break;
             case 'trainingAttendance':
-                return Array.isArray(AppState.appData.trainingAttendance) ? AppState.appData.trainingAttendance : [];
+                records = Array.isArray(AppState.appData.trainingAttendance) ? AppState.appData.trainingAttendance : [];
+                break;
             default:
                 return [];
         }
+        const filter = this.getAnalysisDateFilter();
+        return this.filterRecordsByAnalysisDate(records, filter, dataset);
     },
 
     getTrainingAnalysisValue(dataset, field, record) {
@@ -8084,6 +9076,12 @@ const Training = {
             return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         }
 
+        // دعم اسم المدرب في برامج التدريب (الحقل قد يكون trainer أو trainerName)
+        if (dataset === 'training' && (field === 'trainerName' || field === 'trainer')) {
+            const v = record.trainer || record.trainerName || record.conductedBy;
+            const value = (v === null || v === undefined || v === '') ? 'غير محدد' : String(v).trim();
+            return value && value !== 'null' && value !== 'undefined' ? value : 'غير محدد';
+        }
         // direct read (supports custom fields too)
         const v = record[field];
         const value = (v === null || v === undefined || v === '') ? 'غير محدد' : String(v).trim();
@@ -8208,6 +9206,66 @@ const Training = {
             await this.ensureChartJSLoaded();
             this.renderTrainingAnalysisCharts(enabledItems);
         }, 300);
+    },
+
+    /** بناء HTML كروت التحليل من مقاييس معينة */
+    renderAnalysisCardsHtml(metrics) {
+        const cards = this.loadTrainingInfoCards().filter(c => c.enabled !== false);
+        const colorClasses = {
+            blue: 'bg-blue-100 text-blue-600', green: 'bg-green-100 text-green-600', purple: 'bg-purple-100 text-purple-600',
+            amber: 'bg-amber-100 text-amber-600', red: 'bg-red-100 text-red-600', indigo: 'bg-indigo-100 text-indigo-600',
+            teal: 'bg-teal-100 text-teal-600', orange: 'bg-orange-100 text-orange-600', pink: 'bg-pink-100 text-pink-600'
+        };
+        if (!metrics || typeof metrics !== 'object') metrics = this.calculateTrainingMetrics();
+        return cards.map(card => {
+            let value = metrics[card.metric];
+            if (value === undefined || value === null) value = 0;
+            if (typeof value === 'string' && value.trim() === '') value = 0;
+            if (typeof value === 'number' && value >= 1000) value = value.toLocaleString('en-US');
+            const colorClass = colorClasses[card.color] || 'bg-gray-100 text-gray-600';
+            return `<div class="content-card"><div class="flex items-center gap-4"><div class="w-12 h-12 rounded-xl ${colorClass} flex items-center justify-center shadow-sm"><i class="${card.icon} text-2xl"></i></div><div class="flex-1"><p class="text-sm text-gray-500 mb-1">${Utils.escapeHTML(card.title)}</p><p class="text-2xl font-bold text-gray-900" dir="ltr">${Utils.escapeHTML(String(value))}</p>${card.description ? `<p class="text-xs text-gray-400 mt-1">${Utils.escapeHTML(card.description)}</p>` : ''}</div></div></div>`;
+        }).join('') || '<p class="text-center text-gray-500 col-span-full">لا توجد كروت مفعلة</p>';
+    },
+
+    /** تحديث كروت التحليل والنتائج عند تغيير فلتر الفترة */
+    refreshAnalysisTabContent() {
+        this.refreshAnalysisCards();
+        this.updateTrainingAnalysisResults();
+    },
+
+    /** تحديث كروت التحليل فقط (تقرأ الفلتر من DOM) */
+    refreshAnalysisCards() {
+        const container = document.getElementById('training-analysis-cards-container');
+        if (!container) return;
+        const metrics = this.calculateTrainingMetrics();
+        container.innerHTML = this.renderAnalysisCardsHtml(metrics);
+    },
+
+    /** ربط أحداث فلتر فترة التحليل (الشهر / من-إلى) */
+    bindAnalysisFilterEvents() {
+        const typeEl = document.getElementById('training-analysis-filter-type');
+        const monthWrap = document.getElementById('training-analysis-month-wrap');
+        const fromWrap = document.getElementById('training-analysis-date-from-wrap');
+        const toWrap = document.getElementById('training-analysis-date-to-wrap');
+        const monthEl = document.getElementById('training-analysis-month');
+        const fromEl = document.getElementById('training-analysis-date-from');
+        const toEl = document.getElementById('training-analysis-date-to');
+
+        const updateVisibility = () => {
+            const type = (typeEl && typeEl.value) ? typeEl.value : 'all';
+            if (monthWrap) monthWrap.style.display = type === 'month' ? 'block' : 'none';
+            if (fromWrap) fromWrap.style.display = type === 'range' ? 'block' : 'none';
+            if (toWrap) toWrap.style.display = type === 'range' ? 'block' : 'none';
+        };
+        const refresh = () => this.refreshAnalysisTabContent();
+
+        if (typeEl) {
+            typeEl.addEventListener('change', () => { updateVisibility(); refresh(); });
+        }
+        if (monthEl) monthEl.addEventListener('change', refresh);
+        if (fromEl) fromEl.addEventListener('change', refresh);
+        if (toEl) toEl.addEventListener('change', refresh);
+        updateVisibility();
     },
 
     renderTrainingAnalysisCharts(enabledItems) {
@@ -8940,12 +9998,44 @@ const Training = {
     },
     
     async renderAttendanceRegistry() {
+        const attendanceAnalyticsModel = this.getAttendanceAnalyticsModel('');
+        const attendanceAnalyticsState = this.getAttendanceAnalyticsState();
         return `
+            <!-- فلتر الشهر لتحليل سجل التدريب -->
+            <div class="content-card mb-4">
+                <div class="card-body">
+                    <div class="flex items-center gap-4">
+                        <label class="text-sm font-medium text-gray-700">تصفية حسب الشهر (للتحليل التفاعلي):</label>
+                        <select id="attendance-month-filter" class="form-input" style="max-width: 200px;">
+                            <option value="">جميع الأشهر</option>
+                            ${this.getAttendanceMonthOptions()}
+                        </select>
+                        <button id="reset-attendance-filter" class="btn-secondary"><i class="fas fa-redo ml-2"></i>إعادة تعيين</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- تحليل تفاعلي لسجل التدريب للموظفين (Slicers + Pivot + Drill-down) -->
+            <div class="content-card mb-4">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-layer-group ml-2"></i>تحليل تفاعلي لسجل التدريب للموظفين (Slicers + Pivot + Drill-down)</h3>
+                </div>
+                <div class="card-body" style="padding: 12px;">
+                    <div id="attendance-analytics-dashboard">
+                        ${this.renderAttendanceAnalyticsDashboard(attendanceAnalyticsModel, attendanceAnalyticsState)}
+                    </div>
+                </div>
+            </div>
+
             <div class="content-card">
                 <div class="card-header">
                     <div class="flex items-center justify-between">
                         <h2 class="card-title"><i class="fas fa-clipboard-check ml-2"></i>سجل التدريب للموظفين</h2>
                         <div class="flex items-center gap-2">
+                            <button id="attendance-registry-add-record" class="btn-primary">
+                                <i class="fas fa-plus ml-2"></i>
+                                إضافة سجل
+                            </button>
                             <button id="attendance-registry-import-excel" class="btn-secondary">
                                 <i class="fas fa-file-import ml-2"></i>
                                 استيراد Excel
@@ -9010,10 +10100,7 @@ const Training = {
         this.ensureData();
         const container = document.getElementById('attendance-registry-table-body');
         if (!container) return;
-        
-        // مزامنة السجل مع التدريبات
-        this.syncAllAttendanceRegistry();
-        
+
         const registry = AppState.appData.trainingAttendance || [];
         
         if (registry.length === 0) {
@@ -9072,11 +10159,15 @@ const Training = {
                     <td>${endTime}</td>
                     <td>${totalHours} ساعة</td>
                     <td>
-                        <div class="flex items-center gap-2">
-                            <button class="btn-icon btn-icon-primary" onclick="Training.editAttendanceRecord('${record.id}')" title="تعديل">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <button class="btn-secondary btn-sm" onclick="Training.viewAttendanceRecordDetails('${Utils.escapeHTML(String(record.id || ''))}')" title="عرض التفاصيل وجميع تدريبات الموظف" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 0.875rem;">
+                                <i class="fas fa-eye"></i>
+                                <span>عرض التفاصيل</span>
+                            </button>
+                            <button class="btn-icon btn-icon-primary" onclick="Training.editAttendanceRecord('${Utils.escapeHTML(String(record.id || ''))}')" title="تعديل">
                                 <i class="fas fa-edit"></i>
                             </button>
-                            <button class="btn-icon btn-icon-danger" onclick="Training.deleteAttendanceRecord('${record.id}')" title="حذف">
+                            <button class="btn-icon btn-icon-danger" onclick="Training.deleteAttendanceRecord('${Utils.escapeHTML(String(record.id || ''))}')" title="حذف">
                                 <i class="fas fa-trash"></i>
                             </button>
                         </div>
@@ -9103,6 +10194,12 @@ const Training = {
         const filterFactory = document.getElementById('attendance-registry-filter-factory');
         if (filterFactory) {
             filterFactory.onchange = () => this.loadAttendanceRegistry();
+        }
+        
+        // إضافة سجل جديد
+        const addRecordBtn = document.getElementById('attendance-registry-add-record');
+        if (addRecordBtn) {
+            addRecordBtn.onclick = () => this.showAddAttendanceRecordModal();
         }
         
         // استيراد Excel
@@ -9831,10 +10928,11 @@ const Training = {
                 await window.DataManager.save();
             }
 
-            // حفظ تلقائي في قاعدة البيانات
+            // حفظ تلقائي في Google Sheets
             if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                 await GoogleIntegration.autoSave('TrainingAttendance', AppState.appData.trainingAttendance).catch(err => {
-                    Utils.safeWarn('⚠️ فشل حفظ سجل التدريب في قاعدة البيانات:', err);
+                    Utils.safeWarn('⚠️ فشل حفظ سجل التدريب في Google Sheets:', err);
+                    Notification.error('فشل حفظ سجل التدريب في Google Sheets. سيتم الاحتفاظ بالتغييرات محلياً فقط حتى يتم الحفظ بنجاح.');
                 });
             }
 
@@ -9981,10 +11079,10 @@ const Training = {
                     await window.DataManager.save();
                 }
                 
-                // حفظ في قاعدة البيانات
+                // حفظ في Google Sheets
                 if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                     await GoogleIntegration.autoSave('TrainingAnalysisData', AppState.appData.trainingAnalysisData).catch(err => {
-                        Utils.safeWarn('⚠️ فشل حفظ بيانات التحليل في قاعدة البيانات:', err);
+                        Utils.safeWarn('⚠️ فشل حفظ بيانات التحليل في Google Sheets:', err);
                     });
                 }
                 
@@ -10008,6 +11106,281 @@ const Training = {
         });
     },
     
+    /**
+     * عرض نافذة إضافة سجل تدريب جديد (سجل الحضور)
+     */
+    showAddAttendanceRecordModal() {
+        this.ensureData();
+        if (!Array.isArray(AppState.appData.trainingAttendance)) {
+            AppState.appData.trainingAttendance = [];
+        }
+        const today = new Date().toISOString().split('T')[0];
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 800px;">
+                <div class="modal-header">
+                    <h2 class="modal-title"><i class="fas fa-plus ml-2"></i>إضافة سجل تدريب</h2>
+                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">التاريخ *</label>
+                            <input type="date" id="add-attendance-date" class="form-input" required value="${today}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">نوع التدريب *</label>
+                            <select id="add-attendance-type" class="form-input" required>
+                                <option value="داخلي" selected>داخلي</option>
+                                <option value="خارجي">خارجي</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">المصنع</label>
+                            <input type="text" id="add-attendance-factory" class="form-input" placeholder="المصنع">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">كود الموظف *</label>
+                            <input type="text" id="add-attendance-code" class="form-input" required placeholder="كود الموظف">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">اسم الموظف *</label>
+                            <input type="text" id="add-attendance-name" class="form-input" required placeholder="اسم الموظف">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">الوظيفة</label>
+                            <input type="text" id="add-attendance-position" class="form-input" placeholder="الوظيفة">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">الإدارة</label>
+                            <input type="text" id="add-attendance-department" class="form-input" placeholder="الإدارة">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">موضوع المحاضرة *</label>
+                            <input type="text" id="add-attendance-topic" class="form-input" required placeholder="موضوع المحاضرة">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">اسم المحاضر</label>
+                            <input type="text" id="add-attendance-trainer" class="form-input" placeholder="اسم المحاضر">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">وقت البدء</label>
+                            <input type="time" id="add-attendance-start-time" class="form-input" value="09:00">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">وقت الانتهاء</label>
+                            <input type="time" id="add-attendance-end-time" class="form-input" value="10:00">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">إجمالي ساعات التدريب</label>
+                            <input type="number" id="add-attendance-hours" class="form-input" step="0.01" value="1">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="this.closest('.modal-overlay').remove()">إلغاء</button>
+                    <button id="save-add-attendance-btn" class="btn-primary">
+                        <i class="fas fa-save ml-2"></i>حفظ السجل
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) modal.remove();
+        });
+        
+        const startTimeInput = modal.querySelector('#add-attendance-start-time');
+        const endTimeInput = modal.querySelector('#add-attendance-end-time');
+        const hoursInput = modal.querySelector('#add-attendance-hours');
+        const calculateHours = () => {
+            if (startTimeInput?.value && endTimeInput?.value) {
+                const hours = this.calculateTrainingHours(startTimeInput.value, endTimeInput.value);
+                if (hours && parseFloat(hours) > 0) hoursInput.value = hours;
+            }
+        };
+        startTimeInput?.addEventListener('change', calculateHours);
+        endTimeInput?.addEventListener('change', calculateHours);
+        
+        modal.querySelector('#save-add-attendance-btn')?.addEventListener('click', async () => {
+            try {
+                const dateValue = modal.querySelector('#add-attendance-date')?.value;
+                const code = modal.querySelector('#add-attendance-code')?.value?.trim();
+                const name = modal.querySelector('#add-attendance-name')?.value?.trim();
+                const topic = modal.querySelector('#add-attendance-topic')?.value?.trim();
+                if (!dateValue || !code || !name || !topic) {
+                    Notification.warning('يرجى إدخال جميع الحقول المطلوبة (التاريخ، كود الموظف، اسم الموظف، موضوع المحاضرة)');
+                    return;
+                }
+                Loading.show('جاري حفظ السجل...');
+                const factoryVal = modal.querySelector('#add-attendance-factory')?.value?.trim() || '';
+                const startTime = this.cleanTime(modal.querySelector('#add-attendance-start-time')?.value || '');
+                const endTime = this.cleanTime(modal.querySelector('#add-attendance-end-time')?.value || '');
+                const totalHours = modal.querySelector('#add-attendance-hours')?.value ||
+                    this.calculateTrainingHours(startTime, endTime) || '0';
+                const record = {
+                    id: Utils.generateId('ATT'),
+                    trainingId: null,
+                    date: new Date(dateValue).toISOString(),
+                    trainingType: modal.querySelector('#add-attendance-type')?.value || 'داخلي',
+                    factory: factoryVal,
+                    factoryName: factoryVal,
+                    employeeCode: code,
+                    employeeName: name,
+                    position: modal.querySelector('#add-attendance-position')?.value?.trim() || '',
+                    department: modal.querySelector('#add-attendance-department')?.value?.trim() || '',
+                    topic: topic,
+                    trainer: modal.querySelector('#add-attendance-trainer')?.value?.trim() || '',
+                    startTime: startTime,
+                    endTime: endTime,
+                    totalHours: totalHours,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+                AppState.appData.trainingAttendance.push(record);
+                if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
+                    await window.DataManager.save();
+                }
+                if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
+                    await GoogleIntegration.autoSave('TrainingAttendance', AppState.appData.trainingAttendance).catch(err => {
+                        Utils.safeWarn('⚠️ فشل حفظ سجل التدريب في Google Sheets:', err);
+                        Notification.error('فشل حفظ سجل التدريب في Google Sheets. سيتم الاحتفاظ بالتغييرات محلياً فقط حتى يتم الحفظ بنجاح.');
+                    });
+                }
+                Loading.hide();
+                modal.remove();
+                Notification.success('تم إضافة السجل بنجاح');
+                this.loadAttendanceRegistry();
+            } catch (error) {
+                Loading.hide();
+                Utils.safeError('خطأ في إضافة السجل:', error);
+                Notification.error('فشل إضافة السجل: ' + (error?.message || 'خطأ غير معروف'));
+            }
+        });
+    },
+    
+    /**
+     * عرض تفاصيل سجل تدريب وجميع تدريبات الموظف في نفس النموذج
+     */
+    viewAttendanceRecordDetails(recordId) {
+        this.ensureData();
+        const registry = AppState.appData.trainingAttendance || [];
+        const record = registry.find(r => r.id === recordId);
+
+        if (!record) {
+            Notification.error('السجل غير موجود');
+            return;
+        }
+
+        const employeeCode = record.employeeCode || '';
+        const employeeName = record.employeeName || '-';
+        const allForEmployee = registry
+            .filter(r => (r.employeeCode || '') === employeeCode)
+            .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+        const formatTime = (t) => {
+            const cleaned = this.cleanTime(t);
+            if (!cleaned || cleaned === 'NaN:NaN' || String(cleaned).includes('NaN')) return '-';
+            return cleaned;
+        };
+
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 1100px; max-height: 90vh; display: flex; flex-direction: column;">
+                <div class="modal-header">
+                    <h2 class="modal-title">
+                        <i class="fas fa-eye ml-2"></i>
+                        تفاصيل السجل — ${Utils.escapeHTML(employeeName)}
+                    </h2>
+                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body" style="overflow-y: auto; flex: 1;">
+                    <div class="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-3">
+                            <i class="fas fa-file-alt ml-2 text-blue-600"></i>
+                            تفاصيل هذا السجل
+                        </h3>
+                        <div class="grid grid-cols-2 gap-3 text-sm">
+                            <div><span class="font-semibold text-gray-600">التاريخ:</span> ${record.date ? Utils.formatDate(record.date) : '-'}</div>
+                            <div><span class="font-semibold text-gray-600">نوع التدريب:</span> ${Utils.escapeHTML(record.trainingType || 'داخلي')}</div>
+                            <div><span class="font-semibold text-gray-600">المصنع:</span> ${Utils.escapeHTML(record.factoryName || record.factory || '-')}</div>
+                            <div><span class="font-semibold text-gray-600">الكود:</span> ${Utils.escapeHTML(record.employeeCode || '-')}</div>
+                            <div><span class="font-semibold text-gray-600">الاسم:</span> ${Utils.escapeHTML(record.employeeName || '-')}</div>
+                            <div><span class="font-semibold text-gray-600">الوظيفة:</span> ${Utils.escapeHTML(record.position || '-')}</div>
+                            <div><span class="font-semibold text-gray-600">الإدارة:</span> ${Utils.escapeHTML(record.department || '-')}</div>
+                            <div><span class="font-semibold text-gray-600">موضوع المحاضرة:</span> ${Utils.escapeHTML(record.topic || '-')}</div>
+                            <div><span class="font-semibold text-gray-600">اسم المحاضر:</span> ${Utils.escapeHTML(record.trainer || '-')}</div>
+                            <div><span class="font-semibold text-gray-600">وقت البدء:</span> ${formatTime(record.startTime)}</div>
+                            <div><span class="font-semibold text-gray-600">وقت الانتهاء:</span> ${formatTime(record.endTime)}</div>
+                            <div><span class="font-semibold text-gray-600">إجمالي ساعات التدريب:</span> ${record.totalHours || record.hours || '0'} ساعة</div>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-3">
+                            <i class="fas fa-list-alt ml-2 text-green-600"></i>
+                            جميع تدريبات الموظف (${allForEmployee.length})
+                        </h3>
+                        ${allForEmployee.length > 0 ? `
+                        <div class="table-wrapper" style="overflow: auto; max-height: 400px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                            <table class="data-table" style="margin: 0;">
+                                <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 1;">
+                                    <tr>
+                                        <th>م</th>
+                                        <th>التاريخ</th>
+                                        <th>نوع التدريب</th>
+                                        <th>المصنع</th>
+                                        <th>موضوع المحاضرة</th>
+                                        <th>اسم المحاضر</th>
+                                        <th>وقت البدء</th>
+                                        <th>وقت الانتهاء</th>
+                                        <th>إجمالي الساعات</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${allForEmployee.map((r, i) => {
+                                        const isCurrent = r.id === recordId;
+                                        const startT = formatTime(r.startTime);
+                                        const endT = formatTime(r.endTime);
+                                        const hours = r.totalHours || r.hours || '0';
+                                        return `
+                                        <tr class="${isCurrent ? 'bg-blue-50' : ''}">
+                                            <td>${i + 1}</td>
+                                            <td>${r.date ? Utils.formatDate(r.date) : '-'}</td>
+                                            <td>${Utils.escapeHTML(r.trainingType || 'داخلي')}</td>
+                                            <td>${Utils.escapeHTML(r.factoryName || r.factory || '-')}</td>
+                                            <td>${Utils.escapeHTML(r.topic || '-')}</td>
+                                            <td>${Utils.escapeHTML(r.trainer || '-')}</td>
+                                            <td>${startT}</td>
+                                            <td>${endT}</td>
+                                            <td>${hours} ساعة</td>
+                                        </tr>`;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        ` : `
+                        <p class="text-gray-500 py-4">لا توجد سجلات أخرى لهذا الموظف.</p>
+                        `}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="this.closest('.modal-overlay').remove()">إغلاق</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.remove();
+        });
+    },
+
     /**
      * تعديل سجل تدريب
      */
@@ -10174,10 +11547,11 @@ const Training = {
                         await window.DataManager.save();
                     }
                     
-                    // حفظ في قاعدة البيانات
+                    // حفظ في Google Sheets
                     if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                         await GoogleIntegration.autoSave('TrainingAttendance', registry).catch(err => {
-                            Utils.safeWarn('⚠️ فشل حفظ التعديلات في قاعدة البيانات:', err);
+                            Utils.safeWarn('⚠️ فشل حفظ التعديلات في Google Sheets:', err);
+                            Notification.error('فشل حفظ تعديلات سجل التدريب في Google Sheets. سيتم الاحتفاظ بالتغييرات محلياً فقط حتى يتم الحفظ بنجاح.');
                         });
                     }
                     
@@ -10220,10 +11594,11 @@ const Training = {
                     await window.DataManager.save();
                 }
                 
-                // حفظ في قاعدة البيانات
+                // حفظ في Google Sheets
                 if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                     await GoogleIntegration.autoSave('TrainingAttendance', registry).catch(err => {
-                        Utils.safeWarn('⚠️ فشل حفظ التعديلات في قاعدة البيانات:', err);
+                        Utils.safeWarn('⚠️ فشل حفظ التعديلات في Google Sheets:', err);
+                        Notification.error('فشل حفظ تعديلات سجل التدريب في Google Sheets. سيتم الاحتفاظ بالتغييرات محلياً فقط حتى يتم الحفظ بنجاح.');
                     });
                 }
                 
@@ -10249,6 +11624,13 @@ const Training = {
         if (typeof window !== 'undefined' && typeof Training !== 'undefined') {
             window.Training = Training;
             
+            // إعادة تحميل قوائم المصنع/الموقع تلقائياً عند اكتمال تحميل إعدادات النماذج
+            if (typeof window !== 'undefined') {
+                window.addEventListener('formSettingsUpdated', function () {
+                    try { if (typeof Training !== 'undefined' && Training.refreshSiteDropdowns) Training.refreshSiteDropdowns(); } catch (e) {}
+                });
+            }
+
             // إشعار عند تحميل الموديول بنجاح
             if (typeof AppState !== 'undefined' && AppState.debugMode && typeof Utils !== 'undefined' && Utils.safeLog) {
                 Utils.safeLog('✅ Training module loaded and available on window.Training');

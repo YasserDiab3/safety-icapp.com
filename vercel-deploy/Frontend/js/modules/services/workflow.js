@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Workflow Engine Service
  * Handles multi-step workflow processes
  */
@@ -203,5 +203,4 @@ const Workflow = {
 if (typeof window !== 'undefined') {
     window.Workflow = Workflow;
 }
-
 

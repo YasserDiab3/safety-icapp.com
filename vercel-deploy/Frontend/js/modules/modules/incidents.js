@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Incidents Module
  * ØªÙ… Ø§Ø³ØªØ®Ø±Ø§Ø¬Ù‡ Ù…Ù† app-modules.js
  */
@@ -329,7 +329,7 @@ const Incidents = {
             AppState.appData.incidentsRegistry = this.registryData;
             localStorage.setItem('hse_incidents_registry', Utils.safeStringify(this.registryData));
 
-            // المزامنة مع قاعدة البيانات
+            // المزامنة مع Google Sheets
             if (sync && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                 await GoogleIntegration.autoSave('IncidentsRegistry', this.registryData);
             }
@@ -654,6 +654,14 @@ const Incidents = {
     currentTab: 'annual-log',
 
     async load() {
+        // إضافة مستمع لتغيير اللغة
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         try {
             const section = document.getElementById('incidents-section');
             if (!section) {
@@ -1728,7 +1736,7 @@ const Incidents = {
                         <div style="text-align: center;">
                             <div style="margin-bottom: 8px; font-size: 0.9rem; font-weight: 600; color: #374151;">صورة توضيحية لمكان الحادث</div>
                             <div class="safety-alert-view-yellow-box">
-                                <img src="${alert.locationImage}" alt="صورة المكان" style="max-width: 100%; max-height: 350px; border-radius: 4px; object-fit: contain;">
+                                <img src="${this.convertGoogleDriveLinkToPrintable(alert.locationImage)}" alt="صورة المكان" style="max-width: 100%; max-height: 350px; border-radius: 4px; object-fit: contain;">
                             </div>
                         </div>
                         ` : '<div></div>'}
@@ -1736,7 +1744,7 @@ const Incidents = {
                         <div style="text-align: center;">
                             <div style="margin-bottom: 8px; font-size: 0.9rem; font-weight: 600; color: #374151;">صورة توضيحية لأسباب الحادث</div>
                             <div class="safety-alert-view-yellow-box">
-                                <img src="${alert.causesImage}" alt="صورة الأسباب" style="max-width: 100%; max-height: 350px; border-radius: 4px; object-fit: contain;">
+                                <img src="${this.convertGoogleDriveLinkToPrintable(alert.causesImage)}" alt="صورة الأسباب" style="max-width: 100%; max-height: 350px; border-radius: 4px; object-fit: contain;">
                             </div>
                         </div>
                         ` : ''}
@@ -2050,7 +2058,7 @@ const Incidents = {
                                     <input type="hidden" id="safety-alert-location-image" value="${alertData?.locationImage || ''}">
                                     ${alertData?.locationImage ? `
                                         <div id="safety-alert-location-image-preview">
-                                            <img src="${alertData.locationImage}" style="max-width: 100%; max-height: 350px; border-radius: 4px; object-fit: contain; display: block;">
+                                            <img src="${this.convertGoogleDriveLinkToPrintable(alertData.locationImage)}" style="max-width: 100%; max-height: 350px; border-radius: 4px; object-fit: contain; display: block;">
                                         </div>
                                     ` : `
                                         <label for="safety-alert-location-image-input" style="cursor: pointer; display: block; padding: 10px;">
@@ -2070,7 +2078,7 @@ const Incidents = {
                                     <input type="hidden" id="safety-alert-causes-image" value="${alertData?.causesImage || ''}">
                                     ${alertData?.causesImage ? `
                                         <div id="safety-alert-causes-image-preview">
-                                            <img src="${alertData.causesImage}" style="max-width: 100%; max-height: 350px; border-radius: 4px; object-fit: contain; display: block;">
+                                            <img src="${this.convertGoogleDriveLinkToPrintable(alertData.causesImage)}" style="max-width: 100%; max-height: 350px; border-radius: 4px; object-fit: contain; display: block;">
                                         </div>
                                     ` : `
                                         <label for="safety-alert-causes-image-input" style="cursor: pointer; display: block; padding: 10px;">
@@ -2467,13 +2475,13 @@ const Incidents = {
                 backendSaveSuccess = true;
             }
 
-            // Auto-save to قاعدة البيانات if enabled
+            // Auto-save to Google Sheets if enabled
             if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                 try {
                     await GoogleIntegration.autoSave('safetyAlerts', AppState.appData.safetyAlerts);
                     googleSheetsSaveSuccess = true;
                 } catch (error) {
-                    Utils.safeWarn('خطأ في حفظ Safety Alert إلى قاعدة البيانات:', error);
+                    Utils.safeWarn('خطأ في حفظ Safety Alert إلى Google Sheets:', error);
                 }
             } else {
                 googleSheetsSaveSuccess = true; // Not enabled, treat as success
@@ -2634,12 +2642,12 @@ const Incidents = {
                 }
             }
 
-            // Auto-save to قاعدة البيانات
+            // Auto-save to Google Sheets
             if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                 try {
                     await GoogleIntegration.autoSave('safetyAlerts', AppState.appData.safetyAlerts);
                 } catch (error) {
-                    Utils.safeWarn('خطأ في حفظ Safety Alert إلى قاعدة البيانات:', error);
+                    Utils.safeWarn('خطأ في حفظ Safety Alert إلى Google Sheets:', error);
                 }
             }
 
@@ -3600,7 +3608,7 @@ const Incidents = {
     /**
      * ربط بيانات الإجازة المرضية من سجل الحوادث (الإدخال اليدوي) إلى موديول العيادة (سجل الإجازات المرضية)
      * - يسجل محلياً في AppState.appData.sickLeave
-     * - ثم يرسل إلى قاعدة البيانات في الخلفية عبر action:addSickLeave
+     * - ثم يرسل إلى Google Sheets في الخلفية عبر action:addSickLeave
      */
     async syncClinicSickLeaveFromRegistryEntry(entry, options = {}) {
         try {
@@ -3693,7 +3701,7 @@ const Incidents = {
                     await GoogleIntegration.sendRequest({ action: 'addSickLeave', data: payload });
                 }
             } catch (syncError) {
-                Utils.safeWarn('⚠️ فشل مزامنة الإجازة المرضية مع قاعدة البيانات:', syncError);
+                Utils.safeWarn('⚠️ فشل مزامنة الإجازة المرضية مع Google Sheets:', syncError);
             }
 
             return true;
@@ -5370,6 +5378,9 @@ const Incidents = {
     },
 
     async showForm(incidentData = null) {
+        if (typeof Permissions !== 'undefined' && Permissions.ensureFormSettingsState) {
+            try { await Permissions.ensureFormSettingsState(); } catch (e) { /* ignore */ }
+        }
         this.currentEditId = incidentData?.id || null;
         const attachments = Array.isArray(incidentData?.attachments) ? incidentData.attachments : [];
         this.currentAttachments = attachments
@@ -5675,7 +5686,7 @@ const Incidents = {
                                     </label>
                                     <input type="file" id="incident-image-input" accept="image/*" class="form-input">
                                     <div id="incident-image-preview" class="mt-2 ${incidentData?.image ? '' : 'hidden'}">
-                                        <img src="${incidentData?.image || ''}" alt="صورة الحادث" class="w-48 h-48 object-cover rounded border mt-2" id="incident-image-img">
+                                        <img src="${incidentData?.image ? this.convertGoogleDriveLinkToPrintable(incidentData.image) : ''}" alt="صورة الحادث" class="w-48 h-48 object-cover rounded border mt-2" id="incident-image-img">
                                         <button type="button" onclick="document.getElementById('incident-image-input').value=''; document.getElementById('incident-image-preview').classList.add('hidden');" class="mt-1 text-xs text-red-600">حذ الصورة</button>
                                     </div>
                                 </div>
@@ -6218,7 +6229,7 @@ const Incidents = {
                 }
             }
 
-            // حفظ تلقائي في قاعدة البيانات
+            // حفظ تلقائي في Google Sheets
             await GoogleIntegration.autoSave('Incidents', AppState.appData.incidents);
 
             // إنشاء إجراءات تلقائية في Action Tracking إذا كانت هناك إجراءات في خطة الإجراءات
@@ -6822,7 +6833,7 @@ const Incidents = {
                 } : null
             };
 
-            // حفظ الإخطار في قاعدة البيانات
+            // حفظ الإخطار في Google Sheets
             if (!AppState.appData.incidentNotifications) {
                 AppState.appData.incidentNotifications = [];
             }
@@ -7238,21 +7249,21 @@ const Incidents = {
     // معالجة المهام الخلفية بعد حفظ الإخطار
     async processNotificationBackgroundTasks(notificationData, investigationData) {
         try {
-            // حفظ الإخطار في قاعدة البيانات عبر Backend
+            // حفظ الإخطار في Google Sheets عبر Backend
             const notificationResult = await GoogleIntegration.sendRequest({
                 action: 'addIncidentNotification',
                 data: notificationData
             });
 
             if (notificationResult && notificationResult.success) {
-                Utils.safeLog('✅ تم حفظ الإخطار في قاعدة البيانات بنجاح');
+                Utils.safeLog('✅ تم حفظ الإخطار في Google Sheets بنجاح');
             } else {
-                Utils.safeWarn('⚠️ فشل حفظ الإخطار في قاعدة البيانات، سيتم المحاولة عبر autoSave');
+                Utils.safeWarn('⚠️ فشل حفظ الإخطار في Google Sheets، سيتم المحاولة عبر autoSave');
                 // Fallback: استخدام autoSave
                 await GoogleIntegration.autoSave('IncidentNotifications', AppState.appData.incidentNotifications);
             }
 
-            // إضافة التحقيق إلى قاعدة البيانات
+            // إضافة التحقيق إلى Google Sheets
             await GoogleIntegration.sendRequest({
                 action: 'addIncident',
                 data: investigationData
@@ -7380,7 +7391,7 @@ const Incidents = {
                             <div class="col-span-2">
                                 <label class="text-sm font-semibold text-gray-600">صورة توضيحية:</label>
                                 <div class="mt-2">
-                                    <img src="${incident.image}" alt="صورة الحادث" class="max-w-full h-auto rounded border" style="max-height: 400px;">
+                                    <img src="${this.convertGoogleDriveLinkToPrintable(incident.image)}" alt="صورة الحادث" class="max-w-full h-auto rounded border" style="max-height: 400px;">
                                 </div>
                             </div>
                             ` : ''}
@@ -7484,7 +7495,7 @@ const Incidents = {
                 Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
             }
 
-            // حذف من قاعدة البيانات
+            // حذف من Google Sheets
             if (deletedIncident) {
                 // إرسال بيانات المستخدم للتحقق من الصلاحيات في Backend
                 const userData = {
@@ -8311,7 +8322,7 @@ const Incidents = {
                         ${images.slice(0, maxImages).map((img, idx) => `
                             <div style="${imageContainerStyle}">
                                 <div style="${imageFrameStyle}">
-                                    <img src="${img}" alt="صورة ${idx + 1}" style="${imageStyle}" onerror="this.parentElement.innerHTML='<div style=\\'color: #999; font-size: 14px;\\'>فشل تحميل الصورة</div>';">
+                                    <img src="${this.convertGoogleDriveLinkToPrintable(img)}" alt="صورة ${idx + 1}" style="${imageStyle}" onerror="this.parentElement.innerHTML='<div style=\\'color: #999; font-size: 14px;\\'>فشل تحميل الصورة</div>';">
                                 </div>
                                 <div style="margin-top: 10px; font-size: 13px; color: #555; font-weight: 600;">صورة ${idx + 1}</div>
                             </div>
@@ -8978,6 +8989,22 @@ const Incidents = {
         }
     },
 
+    refreshSiteDropdowns() {
+        try {
+            var sites = this.getSiteOptions();
+            var esc = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML : function(s) { return String(s == null ? '' : s); };
+            var opts = '<option value="">اختر الموقع</option>' + (sites || []).map(function(s) { return '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>'; }).join('');
+            var loc = document.getElementById('incident-location');
+            if (loc && loc.tagName === 'SELECT') { var v = loc.value; loc.innerHTML = opts; if (v) loc.value = v; }
+            var sub = document.getElementById('incident-sublocation');
+            if (sub && sub.tagName === 'SELECT') {
+                var locId = (document.getElementById('incident-location') || {}).value;
+                var places = this.getPlaceOptions(locId);
+                sub.innerHTML = '<option value="">اختر المكان الفرعي</option>' + (places || []).map(function(p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>'; }).join('');
+            }
+        } catch (e) { if (typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('⚠️ Incidents.refreshSiteDropdowns:', e); }
+    },
+
     // الحصول على قائمة الأماكن الفرعية لموقع محدد
     getPlaceOptions(siteId) {
         try {
@@ -9553,7 +9580,7 @@ const Incidents = {
                 // مزامنة في الخلفية بدون تعطيل واجهة المستخدم
                 const safeIncidentDateIso = (this.getIncidentDateValue(incident) || new Date()).toISOString();
                 const updatePayload = {
-                    // بيانات الحادث الأساسية (مطلوبة في حالة عدم وجود الحادث في قاعدة البيانات)
+                    // بيانات الحادث الأساسية (مطلوبة في حالة عدم وجود الحادث في Google Sheets)
                     id: incident.id,
                     title: incident.title || 'حادث بدون عنوان',
                     description: incident.description || '',
@@ -10494,21 +10521,25 @@ const Incidents = {
      */
     convertGoogleDriveLinkToPrintable(link) {
         if (!link) return '';
-        
+        if (typeof window.__convertGoogleDriveUrl === 'function') {
+            link = window.__convertGoogleDriveUrl(link);
+        }
         // إذا كان base64، استخدمه مباشرة
         if (link.startsWith('data:image/')) {
             return link;
         }
-        
-        // إذا كان رابط Google Drive، استخدم صيغة thumbnail (لا تحمّل uploadmanager.js)
+        // تطبيع روابط thumbnail المخزنة قديماً (w1000) → w400
+        if (link.includes('drive.google.com/thumbnail')) {
+            const m = link.match(/drive\.google\.com\/thumbnail\?id=([a-zA-Z0-9_-]+)/i);
+            if (m && m[1]) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w400`;
+        }
+        // إذا كان رابط Google Drive، استخدم صيغة thumbnail
         if (link.includes('drive.google.com')) {
             const fileIdMatch = link.match(/\/d\/([a-zA-Z0-9_-]+)/) || link.match(/id=([a-zA-Z0-9_-]+)/);
             if (fileIdMatch && fileIdMatch[1]) {
-                return `https://drive.google.com/thumbnail?id=${fileIdMatch[1]}&sz=w1000`;
+                return `https://drive.google.com/thumbnail?id=${fileIdMatch[1]}&sz=w400`;
             }
         }
-        
-        // إذا كان رابط مباشر، استخدمه كما هو
         return link;
     },
 

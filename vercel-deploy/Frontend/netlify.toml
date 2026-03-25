@@ -1,20 +1,10 @@
-# نشر واجهة تطبيق HSE (نسخة Supabase) على Netlify
-# المجلد المنشور: SupabaseApp/Frontend (أو استخدم هذا الملف من جذر المستودع مع base = "SupabaseApp/Frontend")
-
 [build]
+  # مجلد البناء (لا حاجة له في حالة Static Site)
   publish = "."
-  # حقن المفتاح السري من متغير البيئة في js/config.js (لا يظهر المفتاح في المستودع)
-  command = "node scripts/inject-secret.js"
-  # إذا نشرت من جذر المستودع ووضعت هذا الملف في SupabaseApp/Frontend:
-  # base = "SupabaseApp/Frontend"
-  # publish = "SupabaseApp/Frontend"
 
 [build.environment]
+  # إعدادات البيئة
   NODE_VERSION = "18"
-  # عيّن في Netlify → Site settings → Environment variables (محمي):
-  # HSE_API_SECRET = نفس قيمة Supabase Edge Functions → Secrets
-  # SUPABASE_URL = "https://xxxx.supabase.co"
-  # SUPABASE_ANON_KEY = "your-anon-key"
 
 # إعدادات Rerouting لـ SPA
 # ⚠️ استثناء: لا تعيد توجيه الملفات الثابتة والـ Service Worker

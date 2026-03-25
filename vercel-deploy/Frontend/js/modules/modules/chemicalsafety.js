@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Chemical Management Module - مديول إدارة المواد الكيميائية
  * Chemical Register with full CRUD, file uploads, NFPA Diamond, and exports
  */
@@ -135,6 +135,14 @@ const ChemicalSafety = {
      * تحميل الموديول
      */
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         const section = document.getElementById('chemical-safety-section');
         if (!section) return;
 
@@ -302,7 +310,7 @@ const ChemicalSafety = {
     },
 
     /**
-     * تحميل البيانات من قاعدة البيانات
+     * تحميل البيانات من Google Sheets
      */
     async loadChemicalDataAsync() {
         try {
@@ -321,7 +329,7 @@ const ChemicalSafety = {
             if (result && result.success && Array.isArray(result.data)) {
                 AppState.appData.chemicalRegister = result.data;
                 dataUpdated = true;
-                Utils.safeLog(`✅ تم تحميل ${result.data.length} سجل من قاعدة البيانات`);
+                Utils.safeLog(`✅ تم تحميل ${result.data.length} سجل من Google Sheets`);
             } else {
                 // التأكد من وجود مصفوفة فارغة إذا لم يتم تحميل البيانات
                 if (!AppState.appData.chemicalRegister) {
@@ -2372,7 +2380,7 @@ const ChemicalSafety = {
                 AppState.appData.chemicalRegister.push(formData);
             }
 
-            // حفظ في قاعدة البيانات
+            // حفظ في Google Sheets
             await GoogleIntegration.sendRequest({
                 action: 'saveToSheet',
                 data: {
@@ -2664,7 +2672,7 @@ const ChemicalSafety = {
             // حذف من AppState
             AppState.appData.chemicalRegister = AppState.appData.chemicalRegister.filter(c => c.id !== id);
 
-            // حذف من قاعدة البيانات
+            // حذف من Google Sheets
             await GoogleIntegration.sendRequest({
                 action: 'deleteFromSheet',
                 data: {
@@ -3506,4 +3514,3 @@ const ChemicalSafety = {
         }
     }
 })();
-

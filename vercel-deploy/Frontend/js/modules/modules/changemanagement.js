@@ -26,7 +26,15 @@ const ChangeManagement = {
     /**
      * تحميل الموديول — عرض الواجهة فوراً ثم جلب البيانات بدون تعليق
      */
-    load() {
+    async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         const section = document.getElementById('change-management-section');
         if (!section) {
             if (typeof Utils !== 'undefined' && Utils.safeError) {
@@ -66,28 +74,34 @@ const ChangeManagement = {
                         <button type="button" class="change-tab-btn tab-btn" data-tab="register" onclick="ChangeManagement.switchTab('register')">
                             <i class="fas fa-history ml-2"></i> سجل التغييرات
                         </button>
+                        <button type="button" class="change-tab-btn tab-btn" data-tab="approvals" onclick="ChangeManagement.switchTab('approvals')">
+                            <i class="fas fa-inbox ml-2"></i> طلبات الموافقة
+                        </button>
                     </div>
                 </div>
                 <div class="mt-6" id="change-tab-requests">
                     ${this.renderRequestsListHTML()}
                 </div>
                 <div class="mt-6" id="change-tab-register" style="display:none;">
-                    <div class="content-card">
-                        <div class="card-header border-b border-gray-200 px-4 py-3 flex items-center justify-between flex-wrap gap-2" style="background: var(--bg-secondary);">
-                            <h3 class="card-title text-lg font-semibold" style="margin: 0;">جميع الطلبات المسجلة والمستلمة مع حالتها</h3>
-                            <div class="flex gap-2">
-                                <button type="button" class="btn-secondary btn-sm" onclick="ChangeManagement.exportToExcel()" title="تصدير إلى Excel">
-                                    <i class="fas fa-file-excel ml-2"></i> تصدير Excel
-                                </button>
-                                <button type="button" class="btn-secondary btn-sm" onclick="ChangeManagement.exportToPDF()" title="تصدير إلى PDF">
-                                    <i class="fas fa-file-pdf ml-2"></i> تصدير PDF
-                                </button>
-                            </div>
+                    <div class="content-card" style="overflow:hidden;">
+                        <div class="card-header border-b px-4 py-3" style="background:linear-gradient(135deg,rgba(59,130,246,0.12),rgba(14,165,233,0.08));text-align:center;">
+                            <h3 class="card-title text-lg font-semibold" style="margin:0;">جميع الطلبات المسجلة والمستلمة مع حالتها</h3>
                         </div>
-                        <div class="card-body">
-                            <div id="change-register-list-container"><p class="text-gray-500">لا توجد طلبات في السجل</p></div>
+                        <div class="card-body" style="padding:0;">
+                            <div id="change-register-list-container" style="max-height:480px;overflow-y:auto;overflow-x:auto;"><p class="text-gray-500 p-4">لا توجد طلبات في السجل</p></div>
+                        </div>
+                        <div class="card-footer" style="display:flex;justify-content:center;gap:8px;padding:1rem;border-top:1px solid var(--border-color);background:var(--bg-secondary);">
+                            <button type="button" class="btn-secondary btn-sm" onclick="ChangeManagement.exportToExcel()" title="تصدير إلى Excel">
+                                <i class="fas fa-file-excel ml-2"></i> تصدير Excel
+                            </button>
+                            <button type="button" class="btn-secondary btn-sm" onclick="ChangeManagement.exportToPDF()" title="تصدير إلى PDF">
+                                <i class="fas fa-file-pdf ml-2"></i> تصدير PDF
+                            </button>
                         </div>
                     </div>
+                </div>
+                <div class="mt-6" id="change-tab-approvals" style="display:none;">
+                    ${this.renderApprovalsListHTML()}
                 </div>
             `;
 
@@ -119,21 +133,38 @@ const ChangeManagement = {
 
     renderRequestsListHTML() {
         return `
-            <div class="content-card">
-                <div class="card-header border-b border-gray-200 px-4 py-3 flex items-center justify-between flex-wrap gap-2" style="background: var(--bg-secondary);">
-                    <h3 class="card-title text-lg font-semibold" style="margin: 0;">الطلبات</h3>
-                    <div class="flex gap-2">
-                        <button type="button" class="btn-secondary btn-sm" onclick="ChangeManagement.exportToExcel()" title="تصدير إلى Excel">
-                            <i class="fas fa-file-excel ml-2"></i> تصدير Excel
-                        </button>
-                        <button type="button" class="btn-secondary btn-sm" onclick="ChangeManagement.exportToPDF()" title="تصدير إلى PDF">
-                            <i class="fas fa-file-pdf ml-2"></i> تصدير PDF
-                        </button>
+            <div class="content-card" style="overflow:hidden;">
+                <div class="card-header border-b px-4 py-3" style="background:linear-gradient(135deg,rgba(59,130,246,0.12),rgba(14,165,233,0.08));text-align:center;">
+                    <h3 class="card-title text-lg font-semibold" style="margin:0;">الطلبات</h3>
+                </div>
+                <div class="card-body" style="padding:0;">
+                    <div id="change-requests-list-container" style="max-height:480px;overflow-y:auto;overflow-x:hidden;padding:1rem;">
+                        <div class="empty-state py-8" id="change-requests-initial"><p class="text-gray-500">لا توجد طلبات تغيير</p></div>
                     </div>
                 </div>
-                <div class="card-body">
-                    <div id="change-requests-list-container">
-                        <div class="empty-state py-8" id="change-requests-initial"><p class="text-gray-500">لا توجد طلبات تغيير</p></div>
+                <div class="card-footer" style="display:flex;justify-content:center;gap:8px;padding:1rem;border-top:1px solid var(--border-color);background:var(--bg-secondary);">
+                    <button type="button" class="btn-secondary btn-sm" onclick="ChangeManagement.exportToExcel()" title="تصدير إلى Excel">
+                        <i class="fas fa-file-excel ml-2"></i> تصدير Excel
+                    </button>
+                    <button type="button" class="btn-secondary btn-sm" onclick="ChangeManagement.exportToPDF()" title="تصدير إلى PDF">
+                        <i class="fas fa-file-pdf ml-2"></i> تصدير PDF
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+
+    /** تبويب طلبات الموافقة */
+    renderApprovalsListHTML() {
+        return `
+            <div class="content-card" style="overflow:hidden;">
+                <div class="card-header border-b px-4 py-3" style="background:linear-gradient(135deg,rgba(59,130,246,0.12),rgba(14,165,233,0.08));text-align:center;">
+                    <h3 class="card-title text-lg font-semibold" style="margin:0;">طلبات الموافقة</h3>
+                    <p class="text-sm text-gray-500 m-0 mt-1">الطلبات التي تتطلب اعتمادك حسب دائرة الاعتماد الإلكترونية</p>
+                </div>
+                <div class="card-body" style="padding:0;">
+                    <div id="change-approvals-list-container" style="max-height:480px;overflow-y:auto;overflow-x:auto;padding:1rem;">
+                        <div class="empty-state py-8"><p class="text-gray-500">لا توجد طلبات موافقة حالياً</p></div>
                     </div>
                 </div>
             </div>
@@ -146,11 +177,26 @@ const ChangeManagement = {
         if (this.state._loadInProgress) return;
 
         if (!AppState.googleConfig?.appsScript?.enabled || !AppState.googleConfig?.appsScript?.scriptUrl) {
-            container.innerHTML = this.showEmptyState('يجب تفعيل الاتصال بقاعدة البيانات أولاً');
+            container.innerHTML = this.showEmptyState('يجب تفعيل Google Integration أولاً');
             return;
         }
 
         this.state._loadInProgress = true;
+        container.innerHTML = `
+            <div class="empty-state py-8" id="change-requests-loading">
+                <i class="fas fa-spinner fa-spin text-3xl text-blue-500 mb-3"></i>
+                <p class="text-gray-500">جاري تحميل الطلبات...</p>
+            </div>
+        `;
+        const apprContainer = document.getElementById('change-approvals-list-container');
+        if (apprContainer && this.state.activeTab === 'approvals') {
+            apprContainer.innerHTML = `
+                <div class="empty-state py-8">
+                    <i class="fas fa-spinner fa-spin text-3xl text-blue-500 mb-3"></i>
+                    <p class="text-gray-500">جاري تحميل طلبات الموافقة...</p>
+                </div>
+            `;
+        }
 
         try {
             const response = await GoogleIntegration.sendRequest({
@@ -164,6 +210,13 @@ const ChangeManagement = {
                 this.renderRequestsList(data);
                 if (this.state.activeTab === 'register') {
                     this.renderRegisterTable(data);
+                }
+                if (this.state.activeTab === 'approvals') {
+                    this.renderApprovalsList(data);
+                }
+                const pendingCount = (data || []).filter(r => this.isApprovalPendingForCurrentUser(r)).length;
+                if (pendingCount > 0 && typeof Notification !== 'undefined' && Notification.info) {
+                    Notification.info('لديك ' + pendingCount + ' طلب موافقة في انتظارك');
                 }
             } else {
                 if (typeof Utils !== 'undefined' && Utils.safeError) Utils.safeError('خطأ في تحميل الطلبات:', response.message);
@@ -215,6 +268,142 @@ const ChangeManagement = {
         `;
     },
 
+    /** تحديد ما إذا كان هناك طلب يحتاج موافقة المستخدم الحالي */
+    isApprovalPendingForCurrentUser(req) {
+        try {
+            if (!req || !req.approvalFlowJson) return false;
+            const user = (typeof AppState !== 'undefined' && AppState.currentUser) ? AppState.currentUser : {};
+            const userEmail = (user.email || user.id || '').toString();
+            const userDept = (user.department || '').toString();
+            const canFinalApprove = typeof Permissions !== 'undefined' && Permissions.hasAccess && Permissions.hasAccess('change-management');
+
+            let flow = [];
+            if (Array.isArray(req.approvalFlowJson)) {
+                flow = req.approvalFlowJson;
+            } else if (typeof req.approvalFlowJson === 'string' && req.approvalFlowJson) {
+                try { flow = JSON.parse(req.approvalFlowJson); } catch (e) { flow = []; }
+            }
+            if (!flow || !flow.length) return false;
+
+            const pendingStep = flow.find(s => s && s.status === 'pending');
+            if (!pendingStep) return false;
+
+            // إذا كانت الخطوة موجهة لبريد/مستخدم معين
+            if (pendingStep.approvedByEmail && userEmail) {
+                if (pendingStep.approvedByEmail === userEmail) return true;
+            }
+
+            const role = (pendingStep.role || '').toString();
+            if (role === 'requester_department') {
+                const fromDept = (req.fromDepartment || req.requestingDepartment || '').toString();
+                return userDept && fromDept && userDept === fromDept;
+            }
+            if (role === 'target_department') {
+                const toDept = (req.toDepartment || req.responsibleImplementingDepartment || '').toString();
+                return userDept && toDept && userDept === toDept;
+            }
+            if (role === 'final_approval') {
+                return !!canFinalApprove;
+            }
+
+            return false;
+        } catch (e) {
+            return false;
+        }
+    },
+
+    /** عرض قائمة طلبات الموافقة للمستخدم الحالي */
+    renderApprovalsList(requests) {
+        const container = document.getElementById('change-approvals-list-container');
+        if (!container) return;
+        const list = Array.isArray(requests) ? requests : [];
+        const pendingForUser = list.filter(r => this.isApprovalPendingForCurrentUser(r));
+
+        if (!pendingForUser.length) {
+            container.innerHTML = `
+                <div class="empty-state py-8">
+                    <i class="fas fa-check-circle text-4xl text-green-400 mb-4"></i>
+                    <p class="text-gray-500">لا توجد طلبات موافقة في انتظارك حالياً</p>
+                </div>
+            `;
+            return;
+        }
+
+        const safe = (v) => (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML(String(v || '')) : String(v || '');
+
+        container.innerHTML = `
+            <div class="overflow-x-auto">
+                <table class="w-full border-collapse text-sm" style="border-color: var(--border-color);">
+                    <thead>
+                        <tr>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">رقم الطلب</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">الموضوع</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">الإدارة الطالبة</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">الإدارة المعنية</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">خطوة الاعتماد</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">الحالة</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">التاريخ</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">إجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${pendingForUser.map((r, i) => {
+                            const displayNumber = this.getDisplayRequestNumber(r) || (r.requestNumber || r.id || '');
+                            const stepInfo = this.getCurrentApprovalStepLabel(r);
+                            return `
+                                <tr class="border-b hover:opacity-90" style="border-color: var(--border-color); background: ${i % 2 === 0 ? 'var(--card-bg)' : 'rgba(241,245,249,0.8)'};">
+                                    <td class="p-3">${safe(displayNumber)}</td>
+                                    <td class="p-3">${safe(r.title || '—')}</td>
+                                    <td class="p-3">${safe(r.fromDepartment || r.requestingDepartment || '—')}</td>
+                                    <td class="p-3">${safe(r.toDepartment || r.responsibleImplementingDepartment || '—')}</td>
+                                    <td class="p-3">${safe(stepInfo.stepLabel)}</td>
+                                    <td class="p-3">${safe(stepInfo.statusLabel)}</td>
+                                    <td class="p-3">${this.formatDate(r.requestedAt || r.createdAt)}</td>
+                                    <td class="p-3">
+                                        <div class="flex flex-wrap gap-1">
+                                            <button type="button" onclick="ChangeManagement.handleApprovalAction('${safe(r.id)}','approve')" class="btn-primary btn-sm">
+                                                <i class="fas fa-check ml-1"></i> اعتماد
+                                            </button>
+                                            <button type="button" onclick="ChangeManagement.handleApprovalAction('${safe(r.id)}','reject')" class="btn-secondary btn-sm btn-danger">
+                                                <i class="fas fa-times ml-1"></i> رفض
+                                            </button>
+                                            <button type="button" onclick="ChangeManagement.showRequestDetail('${safe(r.id)}')" class="btn-secondary btn-sm">
+                                                <i class="fas fa-eye ml-1"></i> تفاصيل
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    /** إرجاع رقم الطلب للعرض بصيغة MOC-XX فقط */
+    getDisplayRequestNumber(req) {
+        if (!req) return '';
+        const rawId = (req.requestNumber || req.id || '').toString();
+        if (!rawId) return '';
+
+        // إذا كان المعرف على صيغة CRQ_رقم نحوله إلى MOC-رقم برقمين
+        const crqMatch = /^CRQ_(\d+)$/.exec(rawId);
+        if (crqMatch && crqMatch[1]) {
+            const n = parseInt(crqMatch[1], 10);
+            const padded = isNaN(n) ? crqMatch[1] : String(n).padStart(2, '0');
+            return 'MOC-' + padded;
+        }
+
+        // إذا كان الحقل نفسه MOC-XX نستخدمه كما هو
+        if (rawId.indexOf('MOC-') === 0) {
+            return rawId;
+        }
+
+        // في باقي الحالات نعرض المعرف كما هو بدون CRQ مدموج
+        return rawId;
+    },
+
     renderRequestCard(req, safe) {
         if (!safe) safe = (v) => String(v || '');
         const id = safe(req.id);
@@ -238,12 +427,12 @@ const ChangeManagement = {
             '4-Low': 'bg-green-100 text-green-800'
         };
         return `
-            <div class="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" onclick="ChangeManagement.showRequestDetail('${id}')">
+            <div class="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" onclick="ChangeManagement.showRequestDetail('${id}')" style="background:linear-gradient(135deg,rgba(255,255,255,0.95),rgba(248,250,252,0.95));border-color:rgba(59,130,246,0.2);border-left:4px solid #3b82f6;">
                 <div class="flex items-start justify-between">
                     <div class="flex-1">
                         <div class="flex items-center gap-2 mb-2 flex-wrap">
-                            <span class="text-sm text-gray-500">${safe(req.requestNumber || req.id)}</span>
-                            <h3 class="font-semibold text-lg">${title}</h3>
+                            <span class="text-sm font-medium" style="color:#0ea5e9;">${safe(this.getDisplayRequestNumber(req) || (req.requestNumber || req.id || ''))}</span>
+                            <h3 class="font-semibold text-lg" style="color:var(--text-primary);">${title}</h3>
                             <span class="px-2 py-1 rounded text-xs font-medium ${statusColors[req.status] || 'bg-gray-100'}">${this.getStatusLabel(req.status)}</span>
                             <span class="px-2 py-1 rounded text-xs font-medium ${priorityColors[req.priority] || 'bg-gray-100'}">${this.getPriorityLabel(req.priority)}</span>
                         </div>
@@ -264,7 +453,10 @@ const ChangeManagement = {
 
     showCreateForm() {
         const btn = document.getElementById('change-btn-add');
-        if (btn) { btn.disabled = true; setTimeout(() => { btn.disabled = false; }, 600); }
+        if (btn) {
+            btn.disabled = true;
+            setTimeout(() => { btn.disabled = false; }, 400);
+        }
         const docTypes = [
             'إجراءات عمل / تعليمات العمل',
             'دراسات تقييم المخاطر / القياسات البيئية',
@@ -556,10 +748,8 @@ const ChangeManagement = {
     /** تبديل ملء الشاشة / استعادة لنموذج مقترح التغيير فقط */
     toggleChangeFormFullscreen(btn) {
         const modalContent = btn && btn.closest ? btn.closest('.change-form-modal') : null;
-        const overlay = modalContent && modalContent.closest ? modalContent.closest('.modal-overlay') : null;
         if (!modalContent) return;
         const isFull = modalContent.classList.toggle('change-form-modal-fullscreen');
-        if (overlay) overlay.classList.toggle('change-form-overlay-fullscreen', isFull);
         const icon = btn.querySelector('i');
         const label = btn.querySelector('.change-form-fullscreen-label');
         if (icon) icon.className = isFull ? 'fas fa-compress' : 'fas fa-expand';
@@ -805,11 +995,7 @@ const ChangeManagement = {
             }
         }
 
-        const requestNumberEl = document.getElementById('change-form-request-number');
-        const requestNumber = (requestNumberEl && requestNumberEl.textContent && requestNumberEl.textContent.trim() && requestNumberEl.textContent.trim() !== 'جاري التحميل...' && requestNumberEl.textContent.trim() !== 'سيُعيّن عند الحفظ') ? requestNumberEl.textContent.trim() : '';
         const data = {
-            id: requestNumber || undefined,
-            requestNumber: requestNumber || undefined,
             title: fd.get('title'),
             description: fd.get('description'),
             changeType: fd.get('changeType') || 'Administrative',
@@ -876,20 +1062,41 @@ const ChangeManagement = {
     },
 
     async showRequestDetail(requestId) {
-        try {
-            const response = await GoogleIntegration.sendRequest({
-                action: 'getChangeRequest',
-                data: { requestId: requestId }
-            });
-            if (!response || !response.success || !response.data) {
-                if (typeof Notification !== 'undefined' && Notification.error) Notification.error('طلب التغيير غير موجود');
+        const overlay = document.querySelector('.modal-overlay');
+        if (overlay) return;
+
+        // محاولة استخدام البيانات المخزنة محلياً أولاً لتسريع الفتح
+        let req = null;
+        if (Array.isArray(this.state.lastRequests) && this.state.lastRequests.length) {
+            req = this.state.lastRequests.find(r => String(r.id) === String(requestId));
+        }
+
+        // إذا لم نجدها أو أردنا أحدث نسخة من Google Sheets، نستدعي السيرفر
+        if (!req) {
+            if (typeof Loading !== 'undefined' && Loading.show) Loading.show('جاري تحميل التفاصيل...');
+            try {
+                const response = await GoogleIntegration.sendRequest({
+                    action: 'getChangeRequest',
+                    data: { requestId: requestId }
+                });
+                if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
+                if (!response || !response.success || !response.data) {
+                    if (typeof Notification !== 'undefined' && Notification.error) Notification.error('طلب التغيير غير موجود');
+                    return;
+                }
+                req = response.data;
+            } catch (err) {
+                if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
+                if (typeof Utils !== 'undefined' && Utils.safeError) Utils.safeError('showRequestDetail:', err);
+                if (typeof Notification !== 'undefined' && Notification.error) Notification.error('حدث خطأ في تحميل التفاصيل');
                 return;
             }
-            const req = response.data;
-            this.state.currentRequest = req;
+        }
 
-            const safe = (v) => (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML(String(v || '')) : String(v || '');
-            const canApprove = typeof Permissions !== 'undefined' && Permissions.hasAccess && Permissions.hasAccess('change-management');
+        this.state.currentRequest = req;
+
+        const safe = (v) => (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML(String(v || '')) : String(v || '');
+        const canApprove = typeof Permissions !== 'undefined' && Permissions.hasAccess && Permissions.hasAccess('change-management');
             const isDraft = req.status === 'Draft';
             const isInReview = req.status === 'In Review';
             const isApproved = req.status === 'Approved';
@@ -898,35 +1105,37 @@ const ChangeManagement = {
             const isCompleted = req.status === 'Completed';
             const isClosed = req.status === 'Closed';
 
-            let timeLogHTML = '';
-            try {
-                const log = req.timeLog;
-                const arr = Array.isArray(log) ? log : (typeof log === 'string' && log ? JSON.parse(log) : []);
-                if (arr.length) {
-                    timeLogHTML = arr.slice().reverse().map(entry => `
+        let timeLogHTML = '';
+        try {
+            const log = req.timeLog;
+            const arr = Array.isArray(log) ? log : (typeof log === 'string' && log ? JSON.parse(log) : []);
+            if (arr.length) {
+                timeLogHTML = arr.slice().reverse().map(entry => `
                         <div class="border-b border-gray-100 pb-2 mb-2 last:border-0">
                             <span class="text-sm font-medium">${safe(entry.action || '')}</span>
                             <span class="text-gray-500 text-sm"> — ${safe(entry.user || '')} — ${this.formatDate(entry.timestamp)}</span>
                             ${entry.note ? `<p class="text-sm text-gray-600 mt-1">${safe(entry.note)}</p>` : ''}
                         </div>
                     `).join('');
-                } else {
-                    timeLogHTML = '<p class="text-gray-500 text-sm">لا يوجد سجل</p>';
-                }
-            } catch (e) {
+            } else {
                 timeLogHTML = '<p class="text-gray-500 text-sm">لا يوجد سجل</p>';
             }
+        } catch (e) {
+            timeLogHTML = '<p class="text-gray-500 text-sm">لا يوجد سجل</p>';
+        }
 
-            const modal = document.createElement('div');
-            modal.className = 'modal-overlay';
-            modal.innerHTML = `
+        const displayNumber = this.getDisplayRequestNumber(req) || (req.requestNumber || req.id || '');
+
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
                 <div class="modal-content" style="max-width: 900px;">
-                    <div class="modal-header">
-                        <h2 class="modal-title">${safe(req.requestNumber || req.id)} — ${safe(req.title)}</h2>
-                        <button type="button" onclick="this.closest('.modal-overlay').remove()" class="modal-close"><i class="fas fa-times"></i></button>
+                    <div class="modal-header" style="display:flex;align-items:center;justify-content:center;position:relative;">
+                        <button type="button" onclick="this.closest('.modal-overlay').remove()" class="modal-close" style="position:absolute;right:0;top:50%;transform:translateY(-50%);"><i class="fas fa-times"></i></button>
+                        <h2 class="modal-title" style="margin:0;text-align:center;flex:1;">${safe(displayNumber)} — ${safe(req.title)}</h2>
                     </div>
-                    <div class="modal-body">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div class="modal-body" style="padding:0;">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-4" style="background:linear-gradient(135deg,rgba(59,130,246,0.08),rgba(14,165,233,0.06));border-bottom:1px solid rgba(59,130,246,0.2);">
                             <div><span class="text-gray-500">الحالة:</span> <strong>${this.getStatusLabel(req.status)}</strong></div>
                             <div><span class="text-gray-500">نوع التغيير:</span> ${this.getChangeTypeLabel(req.changeType)}</div>
                             <div><span class="text-gray-500">الأولوية:</span> ${this.getPriorityLabel(req.priority)}</div>
@@ -935,35 +1144,36 @@ const ChangeManagement = {
                             <div><span class="text-gray-500">التاريخ:</span> ${this.formatDate(req.requestedAt || req.createdAt)}</div>
                             ${req.relatedModule ? `<div><span class="text-gray-500">الموديول المرتبط:</span> ${safe(req.relatedModule)}</div>` : ''}
                         </div>
-                        <div class="mb-4">
+                        <div class="p-4 mb-0" style="background:rgba(251,191,36,0.06);border-bottom:1px solid rgba(251,191,36,0.2);">
                             <span class="text-gray-500 block mb-1">الوصف:</span>
                             <p class="text-gray-800">${safe(req.description || '—')}</p>
                         </div>
-                        ${req.riskAssessment ? `<div class="mb-4"><span class="text-gray-500 block mb-1">تقييم المخاطر:</span><p class="text-gray-800">${safe(req.riskAssessment)}</p></div>` : ''}
-                        ${req.mitigationActions ? `<div class="mb-4"><span class="text-gray-500 block mb-1">إجراءات التخفيف:</span><p class="text-gray-800">${safe(req.mitigationActions)}</p></div>` : ''}
-                        <div class="mb-4">
-                            <h3 class="font-semibold mb-2">سجل الأنشطة</h3>
-                            <div class="bg-gray-50 p-3 rounded max-h-48 overflow-y-auto">${timeLogHTML}</div>
+                        ${(req.riskAssessment || req.mitigationActions) ? `<div class="p-4 mb-0" style="background:rgba(239,68,68,0.05);border-bottom:1px solid rgba(239,68,68,0.15);">
+                            ${req.riskAssessment ? `<div class="mb-3"><span class="text-gray-500 block mb-1">تقييم المخاطر:</span><p class="text-gray-800">${safe(req.riskAssessment)}</p></div>` : ''}
+                            ${req.mitigationActions ? `<div><span class="text-gray-500 block mb-1">إجراءات التخفيف:</span><p class="text-gray-800">${safe(req.mitigationActions)}</p></div>` : ''}
+                        </div>` : ''}
+                        <div class="p-4" style="background:rgba(148,163,184,0.08);">
+                            <h3 class="font-semibold mb-2" style="background:rgba(71,85,105,0.15);padding:8px 12px;margin:-16px -16px 12px -16px;border-radius:4px;">سجل الأنشطة</h3>
+                            <div class="p-3 rounded" style="background:#f8fafc;max-height:200px;overflow-y:auto;overflow-x:hidden;border:1px solid #e2e8f0;">${timeLogHTML}</div>
                         </div>
-                        <div class="flex flex-wrap gap-2 mt-4">
-                            ${isDraft && canApprove ? `<button type="button" onclick="ChangeManagement.updateRequestStatus('${safe(req.id)}','In Review'); this.closest('.modal-overlay').remove();" class="btn-primary"><i class="fas fa-paper-plane ml-2"></i> إرسال للمراجعة</button>` : ''}
-                            ${isInReview && canApprove ? `
-                                <button type="button" onclick="ChangeManagement.updateRequestStatus('${safe(req.id)}','Approved'); this.closest('.modal-overlay').remove();" class="btn-primary"><i class="fas fa-check ml-2"></i> موافقة</button>
-                                <button type="button" onclick="ChangeManagement.rejectRequest('${safe(req.id)}');" class="btn-secondary btn-danger"><i class="fas fa-times ml-2"></i> رفض</button>
-                            ` : ''}
-                            ${isApproved && canApprove ? `<button type="button" onclick="ChangeManagement.updateRequestStatus('${safe(req.id)}','In Implementation'); this.closest('.modal-overlay').remove();" class="btn-primary"><i class="fas fa-play ml-2"></i> بدء التنفيذ</button>` : ''}
-                            ${isInImpl && canApprove ? `<button type="button" onclick="ChangeManagement.updateRequestStatus('${safe(req.id)}','Completed'); this.closest('.modal-overlay').remove();" class="btn-primary"><i class="fas fa-check-double ml-2"></i> تم التنفيذ</button>` : ''}
-                            ${(isCompleted || isInImpl) && canApprove && !isClosed ? `<button type="button" onclick="ChangeManagement.updateRequestStatus('${safe(req.id)}','Closed'); this.closest('.modal-overlay').remove();" class="btn-secondary"><i class="fas fa-lock ml-2"></i> إغلاق</button>` : ''}
-                            <button type="button" onclick="this.closest('.modal-overlay').remove()" class="btn-secondary">إغلاق</button>
-                        </div>
+                    </div>
+                    <div class="modal-footer" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:1rem 1.5rem;border-top:1px solid var(--border-color, #e5e7eb);background:var(--bg-secondary, #f9fafb);">
+                        <button type="button" onclick="ChangeManagement.exportSingleRequestToPDF('${safe(req.id)}');" class="btn-secondary">
+                            <i class="fas fa-file-pdf ml-1"></i> تصدير تقرير الطلب
+                        </button>
+                        ${isDraft && canApprove ? `<button type="button" onclick="ChangeManagement.updateRequestStatus('${safe(req.id)}','In Review'); this.closest('.modal-overlay').remove();" class="btn-primary"><i class="fas fa-paper-plane ml-2"></i> إرسال للمراجعة</button>` : ''}
+                        ${isInReview && canApprove ? `
+                            <button type="button" onclick="ChangeManagement.updateRequestStatus('${safe(req.id)}','Approved'); this.closest('.modal-overlay').remove();" class="btn-primary"><i class="fas fa-check ml-2"></i> موافقة</button>
+                            <button type="button" onclick="ChangeManagement.rejectRequest('${safe(req.id)}');" class="btn-secondary btn-danger"><i class="fas fa-times ml-2"></i> رفض</button>
+                        ` : ''}
+                        ${isApproved && canApprove ? `<button type="button" onclick="ChangeManagement.updateRequestStatus('${safe(req.id)}','In Implementation'); this.closest('.modal-overlay').remove();" class="btn-primary"><i class="fas fa-play ml-2"></i> بدء التنفيذ</button>` : ''}
+                        ${isInImpl && canApprove ? `<button type="button" onclick="ChangeManagement.updateRequestStatus('${safe(req.id)}','Completed'); this.closest('.modal-overlay').remove();" class="btn-primary"><i class="fas fa-check-double ml-2"></i> تم التنفيذ</button>` : ''}
+                        ${(isCompleted || isInImpl) && canApprove && !isClosed ? `<button type="button" onclick="ChangeManagement.updateRequestStatus('${safe(req.id)}','Closed'); this.closest('.modal-overlay').remove();" class="btn-secondary"><i class="fas fa-lock ml-2"></i> إغلاق</button>` : ''}
+                        <button type="button" onclick="this.closest('.modal-overlay').remove()" class="btn-secondary">إغلاق</button>
                     </div>
                 </div>
             `;
-            document.body.appendChild(modal);
-        } catch (err) {
-            if (typeof Utils !== 'undefined' && Utils.safeError) Utils.safeError('showRequestDetail:', err);
-            if (typeof Notification !== 'undefined' && Notification.error) Notification.error('حدث خطأ في تحميل التفاصيل');
-        }
+        document.body.appendChild(modal);
     },
 
     async updateRequestStatus(requestId, status) {
@@ -1023,12 +1233,18 @@ const ChangeManagement = {
 
     async showStatistics() {
         const btn = document.getElementById('change-btn-statistics');
-        if (btn) { btn.disabled = true; setTimeout(() => { btn.disabled = false; }, 800); }
+        const originalHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin ml-2"></i> جاري التحميل...';
+        }
+        if (typeof Loading !== 'undefined' && Loading.show) Loading.show('جاري تحميل الإحصائيات...');
         try {
             const response = await GoogleIntegration.sendRequest({
                 action: 'getChangeRequestStatistics',
                 data: { filters: this.buildFilters() }
             });
+            if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
             if (!response || !response.success) {
                 if (typeof Notification !== 'undefined' && Notification.error) Notification.error('فشل تحميل الإحصائيات');
                 return;
@@ -1078,7 +1294,13 @@ const ChangeManagement = {
             `;
             document.body.appendChild(modal);
         } catch (err) {
+            if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
             if (typeof Notification !== 'undefined' && Notification.error) Notification.error('حدث خطأ في تحميل الإحصائيات');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml || '<i class="fas fa-chart-bar ml-2"></i> الإحصائيات';
+            }
         }
     },
 
@@ -1106,6 +1328,36 @@ const ChangeManagement = {
     getModuleOptions() {
         const list = ['incidents', 'nearmiss', 'ptw', 'training', 'clinic', 'fire-equipment', 'ppe', 'violations', 'contractors', 'daily-observations', 'risk-assessment', 'sop-jha', 'action-tracking', 'settings', 'Other'];
         return list.map(m => `<option value="${m}">${m}</option>`).join('');
+    },
+
+    /** وصف الخطوة الحالية في دائرة الاعتماد */
+    getCurrentApprovalStepLabel(req) {
+        try {
+            let flow = [];
+            if (Array.isArray(req.approvalFlowJson)) {
+                flow = req.approvalFlowJson;
+            } else if (typeof req.approvalFlowJson === 'string' && req.approvalFlowJson) {
+                try { flow = JSON.parse(req.approvalFlowJson); } catch (e) { flow = []; }
+            }
+            if (!flow || !flow.length) {
+                return { stepLabel: 'غير محدد', statusLabel: this.getStatusLabel(req.status) };
+            }
+            const pending = flow.find(s => s && s.status === 'pending');
+            const rejected = flow.find(s => s && s.status === 'rejected');
+            const step = pending || rejected || flow[flow.length - 1];
+
+            let stepLabel = step && step.name ? step.name : 'غير محدد';
+            let statusLabel = '';
+            const status = (step && step.status) || '';
+            if (status === 'pending') statusLabel = 'قيد الاعتماد';
+            else if (status === 'approved') statusLabel = 'معتمد';
+            else if (status === 'rejected') statusLabel = 'مرفوض';
+            else statusLabel = this.getStatusLabel(req.status);
+
+            return { stepLabel, statusLabel };
+        } catch (e) {
+            return { stepLabel: 'غير محدد', statusLabel: this.getStatusLabel(req.status) };
+        }
     },
 
     getStatusLabel(s) {
@@ -1144,8 +1396,10 @@ const ChangeManagement = {
             const desc = r.description || '';
             const adminSub = r.administrativeChangeSubType ? (r.administrativeChangeSubType === 'AssignmentRequest' ? 'طلب تكليف' : r.administrativeChangeSubType === 'TransferTechnicians' ? 'نقل للفنيين' : 'أخرى') : '';
             const techSub = r.technicalChangeSubType ? (r.technicalChangeSubType === 'ProductionProcess' ? 'عملية إنتاجية' : 'عملية غير إنتاجية') : '';
+            const displayNumber = this.getDisplayRequestNumber(r);
             return {
-                'رقم الطلب': r.requestNumber || r.id,
+                'رقم الطلب (MOC)': displayNumber || r.requestNumber || r.id,
+                'رقم النظام (CRQ)': r.id || '',
                 'التاريخ': this.formatDate(r.requestedAt || r.createdAt),
                 'الموضوع': r.title || '—',
                 'نوع التغيير': this.getChangeTypeLabel(r.changeType),
@@ -1343,6 +1597,401 @@ ${data.map(r => '<tr>' + (Object.keys(data[0] || {})).map(k => '<td>' + safe(r[k
         }
     },
 
+    /**
+     * تنفيذ إجراء اعتماد / رفض على خطوة دائرة الاعتماد الحالية
+     */
+    async handleApprovalAction(requestId, decision) {
+        try {
+            if (!requestId || (decision !== 'approve' && decision !== 'reject')) return;
+            const user = (typeof AppState !== 'undefined' && AppState.currentUser) ? AppState.currentUser : {};
+            const approverName = user.name || user.email || 'غير محدد';
+            const approverEmail = user.email || user.id || '';
+
+            let rejectionReason = '';
+            if (decision === 'reject') {
+                rejectionReason = window.prompt('برجاء توضيح سبب الرفض:', '') || 'بدون سبب';
+            }
+
+            if (typeof Loading !== 'undefined' && Loading.show) Loading.show('جاري تحديث حالة الاعتماد...');
+
+            // الحصول على آخر نسخة من الطلب من الخادم
+            const response = await GoogleIntegration.sendRequest({
+                action: 'getChangeRequest',
+                data: { requestId }
+            });
+            if (!response || !response.success || !response.data) {
+                if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
+                if (typeof Notification !== 'undefined' && Notification.error) Notification.error('تعذر تحميل بيانات الطلب');
+                return;
+            }
+            const req = response.data;
+
+            let flow = [];
+            if (Array.isArray(req.approvalFlowJson)) {
+                flow = req.approvalFlowJson;
+            } else if (typeof req.approvalFlowJson === 'string' && req.approvalFlowJson) {
+                try { flow = JSON.parse(req.approvalFlowJson); } catch (e) { flow = []; }
+            }
+            if (!flow || !flow.length) {
+                if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
+                if (typeof Notification !== 'undefined' && Notification.warning) Notification.warning('لا توجد دائرة اعتماد معرفة لهذا الطلب');
+                return;
+            }
+
+            const pendingIndex = flow.findIndex(s => s && s.status === 'pending');
+            if (pendingIndex === -1) {
+                if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
+                if (typeof Notification !== 'undefined' && Notification.info) Notification.info('لا توجد خطوة قيد الاعتماد حالياً');
+                return;
+            }
+
+            const step = flow[pendingIndex];
+            const nowIso = new Date().toISOString();
+
+            if (decision === 'approve') {
+                step.status = 'approved';
+                step.approvedByEmail = approverEmail;
+                step.approvedByName = approverName;
+                step.approvedAt = nowIso;
+            } else {
+                step.status = 'rejected';
+                step.rejectedByEmail = approverEmail;
+                step.rejectedByName = approverName;
+                step.rejectedAt = nowIso;
+                step.rejectionReason = rejectionReason;
+            }
+
+            // إعادة حساب حالة الاعتماد العامة
+            let approvalStatus = 'in_progress';
+            let currentApprovalStep = '';
+            let newStatus = req.status || 'Draft';
+            const hasRejected = flow.some(s => s && s.status === 'rejected');
+            let nextPending = null;
+            if (!hasRejected) {
+                nextPending = flow.find(s => s && s.status === 'pending');
+            }
+
+            if (hasRejected) {
+                approvalStatus = 'rejected';
+                const rejectedStep = flow.find(s => s && s.status === 'rejected');
+                currentApprovalStep = rejectedStep && rejectedStep.id ? rejectedStep.id : '';
+                newStatus = 'Rejected';
+            } else if (!nextPending) {
+                approvalStatus = 'approved';
+                currentApprovalStep = '';
+                if (newStatus === 'Draft' || newStatus === 'In Review' || !newStatus) {
+                    newStatus = 'Approved';
+                }
+            } else {
+                approvalStatus = 'in_progress';
+                currentApprovalStep = nextPending.id || '';
+                if (newStatus === 'Draft') {
+                    newStatus = 'In Review';
+                }
+            }
+
+            const updateData = {
+                approvalFlowJson: JSON.stringify(flow),
+                approvalStatus: approvalStatus,
+                currentApprovalStep: currentApprovalStep,
+                status: newStatus,
+                updatedBy: approverEmail || approverName,
+                updateNote: decision === 'approve'
+                    ? 'اعتماد خطوة في دائرة اعتماد إدارة التغيرات'
+                    : 'رفض خطوة في دائرة اعتماد إدارة التغيرات'
+            };
+
+            if (approvalStatus === 'approved') {
+                updateData.approvedBy = approverName;
+                updateData.approvedAt = nowIso;
+            }
+            if (approvalStatus === 'rejected') {
+                updateData.rejectedBy = approverName;
+                updateData.rejectedAt = nowIso;
+                updateData.rejectionReason = rejectionReason;
+            }
+
+            const updateResponse = await GoogleIntegration.sendRequest({
+                action: 'updateChangeRequest',
+                data: {
+                    requestId: requestId,
+                    updateData: updateData
+                }
+            });
+
+            if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
+
+            if (!updateResponse || !updateResponse.success) {
+                if (typeof Notification !== 'undefined' && Notification.error) Notification.error(updateResponse?.message || 'فشل تحديث حالة الاعتماد');
+                return;
+            }
+
+            if (typeof Notification !== 'undefined' && Notification.success) {
+                Notification.success(decision === 'approve' ? 'تم اعتماد الطلب بنجاح' : 'تم رفض الطلب بنجاح');
+            }
+            // إعادة تحميل الطلبات لتحديث التبويبات
+            this.loadChangeRequests();
+        } catch (error) {
+            if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
+            if (typeof Utils !== 'undefined' && Utils.safeError) Utils.safeError('handleApprovalAction:', error);
+            if (typeof Notification !== 'undefined' && Notification.error) Notification.error('حدث خطأ أثناء تنفيذ إجراء الاعتماد');
+        }
+    },
+
+    /**
+     * تصدير تقرير مفصل لطلب تغيير واحد إلى PDF بنفس تصميم نماذج النظام
+     */
+    async exportSingleRequestToPDF(requestId) {
+        try {
+            const list = Array.isArray(this.state.lastRequests) ? this.state.lastRequests : [];
+            let req = list.find(r => String(r.id) === String(requestId));
+
+            // إذا لم يكن موجوداً في الذاكرة، نحاول جلبه من Google Apps Script
+            if (!req && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.sendRequest) {
+                if (typeof Loading !== 'undefined' && Loading.show) Loading.show('جاري تحميل بيانات الطلب...');
+                const response = await GoogleIntegration.sendRequest({
+                    action: 'getChangeRequest',
+                    data: { requestId }
+                });
+                if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
+                if (response && response.success && response.data) {
+                    req = response.data;
+                } else {
+                    if (typeof Notification !== 'undefined' && Notification.error) Notification.error('تعذر تحميل بيانات الطلب للتصدير');
+                    return;
+                }
+            }
+
+            if (!req) {
+                if (typeof Notification !== 'undefined' && Notification.warning) Notification.warning('لا توجد بيانات الطلب للتصدير');
+                return;
+            }
+
+            const safe = (v) => (typeof Utils !== 'undefined' && Utils.escapeHTML)
+                ? Utils.escapeHTML(String(v || ''))
+                : String(v || '');
+
+            const displayNumber = this.getDisplayRequestNumber(req) || (req.requestNumber || req.id || '');
+            const formCode = `MOC-${safe(req.id || '')}`;
+            const formTitle = 'طلب إدارة التغيرات - نموذج مقترح تغيير';
+
+            const changeTypeLabel = this.getChangeTypeLabel(req.changeType);
+            const priorityLabel = this.getPriorityLabel(req.priority);
+            const impactLabel = this.getImpactLabel(req.impact);
+
+            const requestedAt = this.formatDate(req.requestedAt || req.createdAt);
+            const dueDate = this.formatDate(req.dueDate);
+
+            const continuity = req.changeContinuity === 'Permanent'
+                ? 'دائم'
+                : req.changeContinuity === 'Temporary'
+                    ? `مؤقت حتى ${this.formatDate(req.temporaryUntilDate)}`
+                    : 'غير محدد';
+
+            const sectionRow = (label, value) => `
+                <tr>
+                    <td style="border:1px solid #e5e7eb;padding:8px 10px;background:#f9fafb;font-weight:600;width:28%;">${label}</td>
+                    <td style="border:1px solid #e5e7eb;padding:8px 10px;">${safe(value || '—')}</td>
+                </tr>
+            `;
+
+            let documentsHtml = '';
+            try {
+                let docs = req.documentsToAmendJson;
+                if (typeof docs === 'string' && docs) {
+                    docs = JSON.parse(docs);
+                }
+                if (Array.isArray(docs) && docs.length) {
+                    documentsHtml = `
+                        <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:11px;">
+                            <thead>
+                                <tr>
+                                    <th style="border:1px solid #e5e7eb;padding:6px 8px;background:#f3f4f6;">نوع الوثيقة</th>
+                                    <th style="border:1px solid #e5e7eb;padding:6px 8px;background:#f3f4f6;">اسم الوثيقة</th>
+                                    <th style="border:1px solid #e5e7eb;padding:6px 8px;background:#f3f4f6;">الكود</th>
+                                    <th style="border:1px solid #e5e7eb;padding:6px 8px;background:#f3f4f6;">المسئول</th>
+                                    <th style="border:1px solid #e5e7eb;padding:6px 8px;background:#f3f4f6;">تاريخ مخطط</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${docs.map(d => `
+                                    <tr>
+                                        <td style="border:1px solid #e5e7eb;padding:6px 8px;">${safe(d.documentType)}</td>
+                                        <td style="border:1px solid #e5e7eb;padding:6px 8px;">${safe(d.documentName)}</td>
+                                        <td style="border:1px solid #e5e7eb;padding:6px 8px;">${safe(d.documentCode)}</td>
+                                        <td style="border:1px solid #e5e7eb;padding:6px 8px;">${safe(d.responsibleForAmendment)}</td>
+                                        <td style="border:1px solid #e5e7eb;padding:6px 8px;">${safe(this.formatDate(d.plannedAmendmentDate))}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                }
+            } catch (e) {
+                documentsHtml = '';
+            }
+
+            let trainingHtml = '';
+            try {
+                let training = req.trainingRequirementsJson;
+                if (typeof training === 'string' && training) {
+                    training = JSON.parse(training);
+                }
+                if (Array.isArray(training) && training.length) {
+                    trainingHtml = `
+                        <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:11px;">
+                            <thead>
+                                <tr>
+                                    <th style="border:1px solid #e5e7eb;padding:6px 8px;background:#f3f4f6;">المتطلب</th>
+                                    <th style="border:1px solid #e5e7eb;padding:6px 8px;background:#f3f4f6;">تاريخ مخطط</th>
+                                    <th style="border:1px solid #e5e7eb;padding:6px 8px;background:#f3f4f6;">مسئول التنفيذ</th>
+                                    <th style="border:1px solid #e5e7eb;padding:6px 8px;background:#f3f4f6;">تاريخ التنفيذ</th>
+                                    <th style="border:1px solid #e5e7eb;padding:6px 8px;background:#f3f4f6;">ملاحظات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${training.map(t => `
+                                    <tr>
+                                        <td style="border:1px solid #e5e7eb;padding:6px 8px;">${safe(t.requirement)}</td>
+                                        <td style="border:1px solid #e5e7eb;padding:6px 8px;">${safe(this.formatDate(t.plannedDate))}</td>
+                                        <td style="border:1px solid #e5e7eb;padding:6px 8px;">${safe(t.responsible)}</td>
+                                        <td style="border:1px solid #e5e7eb;padding:6px 8px;">${safe(this.formatDate(t.executionDate))}</td>
+                                        <td style="border:1px solid #e5e7eb;padding:6px 8px;">${safe(t.notes)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                }
+            } catch (e) {
+                trainingHtml = '';
+            }
+
+            const content = `
+                <div style="margin-bottom:18px;">
+                    <h2 style="text-align:center;color:#111827;margin:0 0 6px;font-size:18px;">نموذج مقترح تغيير (فني / إداري)</h2>
+                    <p style="text-align:center;color:#4b5563;margin:0;font-size:12px;">رقم الطلب: ${safe(displayNumber)}</p>
+                </div>
+
+                <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:12px;">
+                    ${sectionRow('رقم النظام (CRQ)', req.id)}
+                    ${sectionRow('التاريخ', requestedAt)}
+                    ${sectionRow('من / إدارة', req.fromDepartment)}
+                    ${sectionRow('إلى / إدارة (موقع التغيير)', req.toDepartment)}
+                    ${sectionRow('المصنع', req.factoryName)}
+                    ${sectionRow('الموقع الفرعي', req.subLocationName)}
+                    ${sectionRow('موقع آخر', req.locationOther)}
+                    ${sectionRow('نوع التغيير', changeTypeLabel)}
+                    ${sectionRow('أولوية التغيير', priorityLabel)}
+                    ${sectionRow('الأثر', impactLabel)}
+                    ${sectionRow('استمرارية التغيير', continuity)}
+                    ${sectionRow('تاريخ مستهدف للتنفيذ', dueDate)}
+                    ${sectionRow('مقدم الطلب', req.requestedBy)}
+                </table>
+
+                <div style="margin-top:16px;margin-bottom:10px;font-weight:700;color:#111827;">وصف التغيير المقترح</div>
+                <div style="border:1px solid #e5e7eb;padding:10px 12px;border-radius:6px;min-height:60px;font-size:12px;">${safe(req.description || '')}</div>
+
+                ${req.attachedDocumentsText ? `
+                    <div style="margin-top:16px;margin-bottom:10px;font-weight:700;color:#111827;">المستندات المرفقة</div>
+                    <div style="border:1px solid #e5e7eb;padding:10px 12px;border-radius:6px;min-height:40px;font-size:12px;">${safe(req.attachedDocumentsText)}</div>
+                ` : ''}
+
+                ${(req.requestingDepartment || req.otherDepartments || req.affectedDepartments) ? `
+                    <div style="margin-top:18px;margin-bottom:10px;font-weight:700;color:#111827;">لجنة إدارة التغيرات</div>
+                    <table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:12px;">
+                        ${req.requestingDepartment ? sectionRow('الإدارة / القسم الطالب للتغيير', req.requestingDepartment) : ''}
+                        ${req.otherDepartments ? sectionRow('إدارات / أقسام أخرى', req.otherDepartments) : ''}
+                        ${req.affectedDepartments ? sectionRow('الإدارات أو الأقسام المتأثرة', req.affectedDepartments) : ''}
+                    </table>
+                ` : ''}
+
+                ${(req.employeeCode || req.employeeName || req.adminChangeLocation) ? `
+                    <div style="margin-top:18px;margin-bottom:10px;font-weight:700;color:#111827;">بيانات الموظف (للتغييرات الإدارية)</div>
+                    <table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:12px;">
+                        ${req.employeeCode ? sectionRow('الكود الوظيفي', req.employeeCode) : ''}
+                        ${req.employeeName ? sectionRow('اسم الموظف', req.employeeName) : ''}
+                        ${req.adminChangeLocation ? sectionRow('موقع التغيير', req.adminChangeLocation) : ''}
+                        ${req.currentTasksDescription ? sectionRow('وصف المهام الحالية', req.currentTasksDescription) : ''}
+                        ${req.newTasksDescription ? sectionRow('وصف المهام الجديدة', req.newTasksDescription) : ''}
+                        ${req.responsibleRequestingDepartment ? sectionRow('مسئول الإدارة / القسم الطالب للتغيير', req.responsibleRequestingDepartment) : ''}
+                        ${req.responsibleImplementingDepartment ? sectionRow('مسئول الإدارة / القسم المنفذ', req.responsibleImplementingDepartment) : ''}
+                    </table>
+                ` : ''}
+
+                ${(req.previousInjury || req.chronicDiseases || req.healthNotes) ? `
+                    <div style="margin-top:18px;margin-bottom:10px;font-weight:700;color:#111827;">الحالة الصحية للموظف</div>
+                    <table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:12px;">
+                        ${req.previousInjury ? sectionRow('إصابة سابقة', req.previousInjury) : ''}
+                        ${req.chronicDiseases ? sectionRow('أمراض مزمنة', req.chronicDiseases) : ''}
+                        ${req.healthNotes ? sectionRow('ملاحظات صحية', req.healthNotes) : ''}
+                    </table>
+                ` : ''}
+
+                ${trainingHtml ? `
+                    <div style="margin-top:18px;margin-bottom:10px;font-weight:700;color:#111827;">برامج التدريب والتوعية والمتطلبات الأخرى</div>
+                    ${trainingHtml}
+                ` : ''}
+
+                ${documentsHtml ? `
+                    <div style="margin-top:18px;margin-bottom:10px;font-weight:700;color:#111827;">الوثائق المطلوب تعديلها</div>
+                    ${documentsHtml}
+                ` : ''}
+
+                ${(req.committeeMembersJson || req.committeeRecommendations) ? `
+                    <div style="margin-top:18px;margin-bottom:10px;font-weight:700;color:#111827;">لجنة دراسة التغييرات</div>
+                    <table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:12px;">
+                        ${req.committeeMembersJson ? sectionRow('أعضاء اللجنة', req.committeeMembersJson) : ''}
+                        ${req.committeeRecommendations ? sectionRow('توصيات اللجنة', req.committeeRecommendations) : ''}
+                    </table>
+                ` : ''}
+
+                ${(req.riskAssessment || req.mitigationActions) ? `
+                    <div style="margin-top:18px;margin-bottom:10px;font-weight:700;color:#111827;">تقييم المخاطر وإجراءات التخفيف</div>
+                    ${req.riskAssessment ? `
+                        <div style="margin-bottom:8px;font-size:12px;">
+                            <div style="font-weight:600;margin-bottom:4px;">تقييم المخاطر</div>
+                            <div style="border:1px solid #e5e7eb;padding:8px 10px;border-radius:6px;">${safe(req.riskAssessment)}</div>
+                        </div>
+                    ` : ''}
+                    ${req.mitigationActions ? `
+                        <div style="font-size:12px;">
+                            <div style="font-weight:600;margin-bottom:4px;">إجراءات التخفيف</div>
+                            <div style="border:1px solid #e5e7eb;padding:8px 10px;border-radius:6px;">${safe(req.mitigationActions)}</div>
+                        </div>
+                    ` : ''}
+                ` : ''}
+            `;
+
+            const createdAt = req.createdAt || new Date().toISOString();
+            const updatedAt = req.updatedAt || req.createdAt || new Date().toISOString();
+
+            const htmlContent = (typeof FormHeader !== 'undefined' && typeof FormHeader.generatePDFHTML === 'function')
+                ? FormHeader.generatePDFHTML(
+                    formCode,
+                    formTitle,
+                    content,
+                    false,
+                    true,
+                    { source: 'ChangeManagement', changeType: req.changeType || '', id: req.id || '', requestNumber: req.requestNumber || '' },
+                    createdAt,
+                    updatedAt
+                )
+                : `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"><title>${formTitle}</title></head><body style="font-family:'Cairo','Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;padding:20px;">${content}</body></html>`;
+
+            const blob = new Blob(['\ufeff' + htmlContent], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const win = window.open(url, '_blank');
+            if (!win && typeof Notification !== 'undefined' && Notification.error) {
+                Notification.error('يرجى السماح بالنوافذ المنبثقة لتصدير التقرير');
+            }
+        } catch (error) {
+            if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
+            if (typeof Utils !== 'undefined' && Utils.safeError) Utils.safeError('خطأ في تصدير تقرير طلب التغيير:', error);
+            if (typeof Notification !== 'undefined' && Notification.error) Notification.error('فشل تصدير التقرير: ' + (error && error.message ? error.message : String(error)));
+        }
+    },
+
     handleSearch(value) {
         this.state.filters.search = value;
         if (this.state._searchDebounce) clearTimeout(this.state._searchDebounce);
@@ -1356,6 +2005,7 @@ ${data.map(r => '<tr>' + (Object.keys(data[0] || {})).map(k => '<td>' + safe(r[k
         this.state.activeTab = tab;
         const reqPanel = document.getElementById('change-tab-requests');
         const regPanel = document.getElementById('change-tab-register');
+        const apprPanel = document.getElementById('change-tab-approvals');
         const btns = document.querySelectorAll('.change-tab-btn');
         if (btns.length) {
             btns.forEach(function(b) {
@@ -1364,9 +2014,16 @@ ${data.map(r => '<tr>' + (Object.keys(data[0] || {})).map(k => '<td>' + safe(r[k
         }
         if (reqPanel) reqPanel.style.display = tab === 'requests' ? 'block' : 'none';
         if (regPanel) regPanel.style.display = tab === 'register' ? 'block' : 'none';
+        if (apprPanel) apprPanel.style.display = tab === 'approvals' ? 'block' : 'none';
         if (tab === 'register') {
             if (this.state.lastRequests && this.state.lastRequests.length > 0) {
                 this.renderRegisterTable(this.state.lastRequests);
+            } else {
+                this.loadChangeRequests();
+            }
+        } else if (tab === 'approvals') {
+            if (this.state.lastRequests && this.state.lastRequests.length > 0) {
+                this.renderApprovalsList(this.state.lastRequests);
             } else {
                 this.loadChangeRequests();
             }
@@ -1378,28 +2035,28 @@ ${data.map(r => '<tr>' + (Object.keys(data[0] || {})).map(k => '<td>' + safe(r[k
         if (!container) return;
         const safe = (v) => (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML(String(v || '')) : String(v || '');
         if (!requests || requests.length === 0) {
-            container.innerHTML = '<div class="empty-state"><i class="fas fa-inbox text-4xl text-gray-300 mb-4"></i><p class="text-gray-500">لا توجد طلبات في السجل</p></div>';
+            container.innerHTML = '<div class="empty-state py-8"><i class="fas fa-inbox text-4xl text-gray-300 mb-4"></i><p class="text-gray-500">لا توجد طلبات في السجل</p></div>';
             return;
         }
         const statusColors = { 'Draft': 'bg-gray-100 text-gray-800', 'In Review': 'bg-blue-100 text-blue-800', 'Approved': 'bg-green-100 text-green-800', 'Rejected': 'bg-red-100 text-red-800', 'In Implementation': 'bg-purple-100 text-purple-800', 'Completed': 'bg-teal-100 text-teal-800', 'Closed': 'bg-gray-100 text-gray-600' };
         container.innerHTML = `
-            <div class="overflow-x-auto change-register-table-wrap">
+            <div class="change-register-table-wrap" style="overflow-x:auto;">
                 <table class="w-full border-collapse text-sm" style="border-color: var(--border-color);">
                     <thead>
-                        <tr style="background: var(--bg-secondary); border-bottom: 1px solid var(--border-color);">
-                            <th class="p-3 text-right font-semibold" style="color: var(--text-primary);">رقم الطلب</th>
-                            <th class="p-3 text-right font-semibold" style="color: var(--text-primary);">الموضوع</th>
-                            <th class="p-3 text-right font-semibold" style="color: var(--text-primary);">نوع التغيير</th>
-                            <th class="p-3 text-right font-semibold" style="color: var(--text-primary);">الحالة</th>
-                            <th class="p-3 text-right font-semibold" style="color: var(--text-primary);">مقدم الطلب</th>
-                            <th class="p-3 text-right font-semibold" style="color: var(--text-primary);">التاريخ</th>
-                            <th class="p-3 text-right font-semibold" style="color: var(--text-primary);">إجراءات</th>
+                        <tr>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">رقم الطلب</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">الموضوع</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">نوع التغيير</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">الحالة</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">مقدم الطلب</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">التاريخ</th>
+                            <th class="p-3 text-right font-semibold" style="position:sticky;top:0;z-index:1;background:linear-gradient(135deg,#3b82f6,#0ea5e9);color:#fff;border-bottom:1px solid #0284c7;">إجراءات</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${requests.map(r => `
-                            <tr class="border-b hover:opacity-90" style="border-color: var(--border-color); background: var(--card-bg);">
-                                <td class="p-3">${safe(r.requestNumber || r.id)}</td>
+                        ${requests.map((r, i) => `
+                            <tr class="border-b hover:opacity-90" style="border-color: var(--border-color); background: ${i % 2 === 0 ? 'var(--card-bg)' : 'rgba(241,245,249,0.8)'};">
+                                <td class="p-3">${safe(this.getDisplayRequestNumber(r) || (r.requestNumber || r.id || ''))}</td>
                                 <td class="p-3">${safe(r.title || '—')}</td>
                                 <td class="p-3">${this.getChangeTypeLabel(r.changeType)}</td>
                                 <td class="p-3"><span class="px-2 py-1 rounded text-xs font-medium ${statusColors[r.status] || 'bg-gray-100'}">${this.getStatusLabel(r.status)}</span></td>
@@ -1448,4 +2105,3 @@ ${data.map(r => '<tr>' + (Object.keys(data[0] || {})).map(k => '<td>' + safe(r[k
         }
     }
 })();
-

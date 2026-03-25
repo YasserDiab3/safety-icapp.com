@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Dashboard Module - موديول لوحة التحكم
  * تم استخراجه من app-modules.js لتحسين الأداء
  */
@@ -9,8 +9,9 @@ const Dashboard = {
      * تحميل لوحة التحكم
      */
     load() {
-        // تحديث KPIs بشكل متزامن (مطابق للنظام على Google) — تحديث القيم في نفس الـ tick بدون rAF لتفادي وميض الكروت
+        // تحديث KPIs (يتضمن تحديث التقارير والإحصائيات تلقائياً)
         this.updateKPIs();
+        // إعداد معالجات النقر لكروت التقارير والإحصائيات مرة واحدة فقط (منع وميض)
         this.setupReportsStatisticsCardsClickHandlers();
         // تحميل الأنشطة والمهام
         this.loadRecentActivities();
@@ -760,10 +761,10 @@ const Dashboard = {
         const searchInput = document.getElementById('employee-code-search');
 
         if (searchBtn) {
-            searchBtn.addEventListener('click', () => {
+            searchBtn.addEventListener('click', async () => {
                 const code = searchInput?.value.trim();
                 if (code) {
-                    this.generateEmployeeReport(code);
+                    await this.generateEmployeeReport(code);
                 } else {
                     Notification.warning('يرجى إدخال الكود الوظيفي');
                 }
@@ -771,11 +772,11 @@ const Dashboard = {
         }
 
         if (searchInput) {
-            searchInput.addEventListener('keypress', (e) => {
+            searchInput.addEventListener('keypress', async (e) => {
                 if (e.key === 'Enter') {
                     const code = searchInput.value.trim();
                     if (code) {
-                        this.generateEmployeeReport(code);
+                        await this.generateEmployeeReport(code);
                     }
                 }
             });
@@ -827,12 +828,89 @@ const Dashboard = {
     },
 
     /**
+     * ضمان تحميل بيانات التقرير الشامل من الموديولات (إن لم تكن محمّلة) لظهور الأعداد في الكروت بدقة
+     */
+    async ensureEmployeeReportData() {
+        if (!AppState.appData) AppState.appData = {};
+        const ad = AppState.appData;
+        const sheetToKey = {
+            'Violations': 'violations',
+            'Training': 'training',
+            'TrainingAttendance': 'trainingAttendance',
+            'ClinicVisits': 'clinicVisits',
+            'PPE': 'ppe',
+            'BehaviorMonitoring': 'behaviorMonitoring',
+            'Incidents': 'incidents',
+            'SickLeave': 'sickLeave'
+        };
+        const toLoad = [];
+        for (const [sheetName, key] of Object.entries(sheetToKey)) {
+            const current = ad[key];
+            if (!Array.isArray(current) || current.length === 0) toLoad.push({ sheetName, key });
+        }
+        if (typeof Loading !== 'undefined' && Loading.show) Loading.show();
+        try {
+            for (const { sheetName, key } of toLoad) {
+                try {
+                    if (typeof GoogleIntegration === 'undefined' || !GoogleIntegration.readFromSheets) continue;
+                    const data = await GoogleIntegration.readFromSheets(sheetName);
+                    if (Array.isArray(data)) {
+                        AppState.appData[key] = data;
+                        if (Utils.safeLog) Utils.safeLog(`✅ تقرير الموظف: تم تحميل ${sheetName} (${data.length} سجل)`);
+                    }
+                } catch (err) {
+                    if (Utils.safeWarn) Utils.safeWarn(`⚠️ تقرير الموظف: فشل تحميل ${sheetName}:`, err?.message || err);
+                }
+            }
+            if ((!ad.training || ad.training.length === 0) && typeof GoogleIntegration !== 'undefined' && (GoogleIntegration.sendToAppsScript || GoogleIntegration.sendRequest)) {
+                try {
+                    const trainingRes = await (GoogleIntegration.sendToAppsScript ? GoogleIntegration.sendToAppsScript('getAllTrainings', {}) : Promise.resolve(GoogleIntegration.sendRequest({ action: 'getAllTrainings', data: {} })));
+                    const trainingData = (trainingRes && (trainingRes.data || trainingRes.value)) && (Array.isArray(trainingRes.data) ? trainingRes.data : Array.isArray(trainingRes.value) ? trainingRes.value : Array.isArray((trainingRes.value || {}).data) ? (trainingRes.value || {}).data : null);
+                    if (Array.isArray(trainingData) && trainingData.length > 0) {
+                        AppState.appData.training = trainingData;
+                        if (Utils.safeLog) Utils.safeLog('✅ تقرير الموظف: تم تحميل التدريب عبر getAllTrainings');
+                    }
+                } catch (e) {
+                    if (Utils.safeWarn) Utils.safeWarn('⚠️ تقرير الموظف: فشل getAllTrainings:', e?.message || e);
+                }
+            }
+            if ((!ad.trainingAttendance || ad.trainingAttendance.length === 0) && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.sendRequest) {
+                try {
+                    const attRes = await GoogleIntegration.sendRequest({ action: 'getAllTrainingAttendance', data: {} });
+                    const attData = (attRes && attRes.value && Array.isArray(attRes.value.data) && attRes.value.data) ? attRes.value.data
+                        : (attRes && Array.isArray(attRes.data) ? attRes.data : (Array.isArray(attRes && attRes.value) ? attRes.value : null));
+                    if (Array.isArray(attData)) {
+                        AppState.appData.trainingAttendance = attData;
+                        if (Utils.safeLog) Utils.safeLog('✅ تقرير الموظف: تم تحميل سجل الحضور عبر getAllTrainingAttendance');
+                    }
+                } catch (e) {
+                    if (Utils.safeWarn) Utils.safeWarn('⚠️ تقرير الموظف: فشل getAllTrainingAttendance:', e?.message || e);
+                }
+            }
+            if (sheetToKey.PPE && (!ad.ppe || ad.ppe.length === 0) && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.sendToAppsScript) {
+                try {
+                    const ppeResult = await GoogleIntegration.sendToAppsScript('getAllPPE', {});
+                    if (ppeResult && ppeResult.success && Array.isArray(ppeResult.data)) {
+                        AppState.appData.ppe = ppeResult.data;
+                        if (Utils.safeLog) Utils.safeLog('✅ تقرير الموظف: تم تحميل PPE عبر getAllPPE');
+                    }
+                } catch (e) {
+                    if (Utils.safeWarn) Utils.safeWarn('⚠️ تقرير الموظف: فشل getAllPPE:', e?.message || e);
+                }
+            }
+        } finally {
+            if (typeof Loading !== 'undefined' && Loading.hide) Loading.hide();
+        }
+    },
+
+    /**
      * توليد تقرير شامل للموظف
      */
-    generateEmployeeReport(employeeCode) {
+    async generateEmployeeReport(employeeCode) {
+        if (!AppState.appData) AppState.appData = {};
         const data = AppState.appData;
+        const employees = Array.isArray(data.employees) ? data.employees : (Array.isArray(data.Employees) ? data.Employees : []);
         let employee = null;
-        const employees = Array.isArray(data.employees) ? data.employees : [];
         const searchCodeNorm = String(employeeCode || '').trim();
 
         const codeMatches = (emp, code) => {
@@ -909,7 +987,8 @@ const Dashboard = {
                 record.code,
                 record.sapId,
                 record.cardId,
-                record.nationalId
+                record.nationalId,
+                record.participantCode
             ];
             return recordIdentifiers.some(recordId => {
                 if (recordId == null || recordId === '') return false;
@@ -932,48 +1011,81 @@ const Dashboard = {
             return !isNaN(n) && isFinite(n) && employeeIdentifiers.has(String(n));
         };
 
+        // ضمان تحميل بيانات الموديولات قبل الفلترة لظهور الأعداد في الكروت بدقة
+        await this.ensureEmployeeReportData();
+        const dataForReport = AppState.appData || {};
+
+        const getReportArray = (key, altKey) => {
+            const arr = dataForReport[key] || dataForReport[altKey] || [];
+            return Array.isArray(arr) ? arr : [];
+        };
+
         // عرض السجلات المرتبطة بالموظف بالكود/المعرف فقط (بدون مطابقة بالاسم لتجنب بيانات خاطئة)
-        const violations = (data.violations || []).filter(v => {
+        const violations = getReportArray('violations').filter(v => {
             if (v.personType === 'contractor' || v.contractorName) return false;
             return matchesEmployeeIdentifier(v);
         });
 
-        const sickLeave = (data.sickLeave || []).filter(s => {
+        const sickLeave = getReportArray('sickLeave').filter(s => {
             if (s.personType === 'contractor' || s.contractorName) return false;
             return matchesEmployeeIdentifier(s);
         });
 
-        const trainingList = Array.isArray(data.training) ? data.training : [];
-        const training = trainingList.filter(t => {
+        const trainingList = getReportArray('training').concat(getReportArray('trainingRecords'));
+        const trainingAttendanceList = getReportArray('trainingAttendance');
+        const trainingFromAttendance = trainingAttendanceList.filter(att => matchesEmployeeIdentifier(att));
+        const sessionHasEmployee = (t) => {
             if (!t || typeof t !== 'object') return false;
             const recAsRecord = { ...t, code: t.code || t.participantCode, employeeCode: t.employeeCode || t.participantCode, employeeNumber: t.employeeNumber || t.participantCode };
-            if (t.employeeCode != null && t.employeeCode !== '' || t.employeeNumber != null && t.employeeNumber !== '' || t.employeeId != null && t.employeeId !== '' || t.participantCode != null && t.participantCode !== '') {
+            if ((t.employeeCode != null && t.employeeCode !== '') || (t.employeeNumber != null && t.employeeNumber !== '') || (t.employeeId != null && t.employeeId !== '') || (t.participantCode != null && t.participantCode !== '')) {
                 if (matchesEmployeeIdentifier(recAsRecord)) return true;
             }
-            const participants = t.participants;
+            let participants = t.participants;
+            if (typeof participants === 'string') {
+                try {
+                    const parsed = JSON.parse(participants);
+                    participants = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.participants) ? parsed.participants : []);
+                } catch (_) {
+                    participants = [];
+                }
+            }
             if (participants && Array.isArray(participants)) {
                 return participants.some(p => {
-                    if (!p) return false;
+                    if (!p || typeof p !== 'object') return false;
                     if (p.personType === 'contractor' || p.type === 'contractor' || p.contractorName) return false;
                     return matchesEmployeeIdentifier(p);
                 });
             }
             return false;
-        });
+        };
+        const trainingFromSessions = trainingList.filter(sessionHasEmployee);
+        const training = [
+            ...trainingFromSessions,
+            ...trainingFromAttendance.map(att => ({
+                id: att.id,
+                name: att.topic || att.trainingType || 'تدريب',
+                trainer: att.trainer || '',
+                startDate: att.date || att.attendanceDate || att.createdAt,
+                status: 'مكتمل'
+            }))
+        ];
 
-        const ppe = (data.ppe || []).filter(p => matchesEmployeeIdentifier(p));
+        const ppe = getReportArray('ppe').filter(p => matchesEmployeeIdentifier(p));
 
-        const behaviorMonitoring = (data.behaviorMonitoring || []).filter(b => matchesEmployeeIdentifier(b));
+        const behaviorMonitoring = getReportArray('behaviorMonitoring').filter(b => matchesEmployeeIdentifier(b));
 
-        const clinicVisits = (data.clinicVisits || []).filter(c => {
+        const clinicVisits = getReportArray('clinicVisits', 'Clinic').filter(c => {
             if (c.personType === 'contractor' || c.contractorName) return false;
             return matchesEmployeeIdentifier(c);
         });
 
-        const incidents = (data.incidents || []).filter(i => {
+        const incidents = getReportArray('incidents').filter(i => {
             if (i.personType === 'contractor' || i.contractorName) return false;
             if (matchesEmployeeIdentifier(i)) return true;
             if (i.affectedCode && singleCodeMatchesEmployee(i.affectedCode)) return true;
+            if (i.entries && Array.isArray(i.entries)) {
+                if (i.entries.some(e => matchesEmployeeIdentifier(e) || singleCodeMatchesEmployee(e?.affectedCode || e?.employeeCode))) return true;
+            }
             return false;
         });
 
@@ -1993,6 +2105,12 @@ const Dashboard = {
             const totalIncidentsCount = (registryData && registryData.length > 0)
                 ? registryData.length
                 : incidents.length;
+            const allIncidentRecords = (registryData && registryData.length > 0) ? registryData : incidents;
+            const currentYear = new Date().getFullYear();
+            const totalIncidentsThisYear = allIncidentRecords.filter(r => {
+                const d = r && (r.incidentDate || r.date || r.createdAt);
+                return d && new Date(d).getFullYear() === currentYear;
+            }).length;
             const activeUsersCount = users.filter(u => u && u.active !== false).length;
 
             const openPTWCount = ptw.filter(p => {
@@ -2039,13 +2157,18 @@ const Dashboard = {
             const reportsUpdates = this.getReportsStatisticsUpdates();
             const self = this;
 
-            // تنفيذ كل التحديثات بشكل متزامن في نفس الـ tick (مطابق للنظام على Google) — لا rAF لتفادي إطار فارغ ثم إطار بالقيم
+            // تنفيذ التحديثات بشكل متزامن في نفس الـ tick لتفادي وميض: تأجيلها إلى rAF يعرض إطاراً بقيم ابتدائية ثم إطاراً محدثاً.
             (function applyAllKPIsSync() {
                 try {
                     const totalIncidentsEl = document.getElementById('total-incidents');
                     if (totalIncidentsEl) {
                         totalIncidentsEl.textContent = self.formatNumber(totalIncidentsCount);
                         self.applyEnglishNumberFormat(totalIncidentsEl);
+                    }
+                    const totalIncidentsThisYearEl = document.getElementById('total-incidents-this-year');
+                    if (totalIncidentsThisYearEl) {
+                        totalIncidentsThisYearEl.textContent = self.formatNumber(totalIncidentsThisYear);
+                        self.applyEnglishNumberFormat(totalIncidentsThisYearEl);
                     }
                     const activeUsersEl = document.getElementById('active-users');
                     if (activeUsersEl) {
@@ -2345,10 +2468,10 @@ const Dashboard = {
                         userTasks = Array.isArray(response.data) ? response.data : [];
                     }
                 } catch (apiError) {
-                    // تجاهل أخطاء Circuit Breaker والخادم غير المفعل
+                    // تجاهل أخطاء Circuit Breaker و Google Apps Script غير المفعل
                     const errorMsg = String(apiError?.message || '').toLowerCase();
                     if (!errorMsg.includes('circuit breaker') &&
-                        !errorMsg.includes('الاتصال بالخادم غير مفعل') &&
+                        !errorMsg.includes('google apps script غير مفعل') &&
                         !errorMsg.includes('غير مفعل')) {
                         // تسجيل الأخطاء الأخرى فقط
                         Utils.safeWarn('⚠️ خطأ في جلب المهام من API:', apiError);
@@ -2644,7 +2767,6 @@ const Dashboard = {
                 ['training-sessions-value', training.length, 'report'],
                 ['violations-value', violations.length, 'report'],
                 ['approved-contractors-value', approvedContractorsCount, 'report'],
-                ['approved-contractors-card-value', approvedContractorsCount, 'report'],
                 ['ptw-reports-value', ptw.length, 'report'],
                 ['audits-value', audits.length, 'report'],
                 ['electricity-consumption-value', electricityTotal, 'consumption'],
@@ -3050,4 +3172,3 @@ const Dashboard = {
 if (typeof window !== "undefined") {
     window.Dashboard = window.Dashboard || Dashboard;
 }
-

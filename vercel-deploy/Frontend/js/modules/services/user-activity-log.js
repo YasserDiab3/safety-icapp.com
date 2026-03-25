@@ -1,4 +1,4 @@
-﻿/**
+/**
  * User Activity Log Service
  * Handles user activity logging with UI rendering and export functionality
  */
@@ -77,7 +77,7 @@ const UserActivityLog = {
         // حفظ البيانات
         try {
             DataManager.save();
-            // حفظ السجلات في الخادم
+            // حفظ السجلات في Google Sheets
             if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                 GoogleIntegration.autoSave('UserActivityLog', AppState.appData.user_activity_log).catch(() => {});
             }
@@ -85,9 +85,9 @@ const UserActivityLog = {
             // إرسال السجل مباشرة إلى قاعدة البيانات (Backend)
             if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.sendToAppsScript) {
                 GoogleIntegration.sendToAppsScript('addUserActivityLog', entry).catch(err => {
-                    // لا نسجل الخطأ إذا كان الخادم غير مفعّل (متوقع)
+                    // لا نسجل الخطأ إذا كانت Google Apps Script غير مفعّلة (متوقع)
                     const errorMsg = err?.message || String(err || '');
-                    if (!errorMsg.includes('الاتصال بالخادم غير مفعل')) {
+                    if (!errorMsg.includes('Google Apps Script غير مفعل')) {
                         Utils.safeWarn('فشل إرسال سجل النشاط إلى قاعدة البيانات:', err);
                     }
                 });
@@ -484,7 +484,7 @@ const UserActivityLog = {
                                 <td>${Utils.formatDateTime(log.timestamp)}</td>
                                 <td>
                                     <span class="badge badge-${this.getActionTypeBadgeColor(log.actionType)}">
-                                        ${Utils.escapeHTML(this.getActionTypeLabel(log.actionType))}
+                                        ${this.getActionTypeLabel(log.actionType)}
                                     </span>
                                 </td>
                                 <td>${Utils.escapeHTML(log.module || '')}</td>
@@ -758,5 +758,4 @@ const UserActivityLog = {
 if (typeof window !== 'undefined') {
     window.UserActivityLog = UserActivityLog;
 }
-
 

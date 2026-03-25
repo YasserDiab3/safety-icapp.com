@@ -1,9 +1,14 @@
-﻿/**
+/**
  * Modules Loader
  * محمل الموديولات - يقوم بتحميل جميع الموديولات المقسمة
  * 
  * هذا الملف يحل محل app-modules.js بعد التقسيم
  */
+
+// 🔥 IMMEDIATE DEBUG - Log that this file is executing
+console.log('🔥🔥🔥 modules-loader.js IS EXECUTING NOW!');
+console.log('🔥 Document readyState:', document.readyState);
+console.log('🔥 Current time:', new Date().toISOString());
 
 // قائمة الموديولات المطلوب تحميلها (32 موديول)
 const MODULES_TO_LOAD = [
@@ -44,25 +49,33 @@ const MODULES_TO_LOAD = [
     'apptester'
 ];
 
+/** عدد إعادة المحاولات عند 503 أو فشل التحميل */
+const MODULE_LOAD_MAX_RETRIES = 2;
+/** التأخير قبل إعادة المحاولة (ms) */
+const MODULE_LOAD_RETRY_DELAY = 1000;
+
 /**
- * تحميل موديول واحد
+ * تحميل موديول واحد (مع إعادة محاولة عند 503)
+ * @param {string} moduleName - اسم الموديول
+ * @param {number} retryCount - عدد المحاولات السابقة (داخلي)
  */
-function loadModule(moduleName) {
+function loadModule(moduleName, retryCount) {
+    if (retryCount === undefined) retryCount = 0;
     return new Promise((resolve) => {
         const basePath = 'js/modules/modules/';
         const log = (typeof Utils !== 'undefined' && Utils.safeLog) ? Utils.safeLog : console.log;
         const logError = (typeof Utils !== 'undefined' && Utils.safeError) ? Utils.safeError : console.error;
+        const warn = (typeof Utils !== 'undefined' && Utils.safeWarn) ? Utils.safeWarn : console.warn;
 
-        // ✅ إضافة timeout عام لمنع Promise غير المحلولة (10 ثوان - مناسب للشبكات البطيئة)
+        // ✅ إضافة timeout عام لمنع Promise غير المحلولة (6 ثوان - يوازن بين السرعة والاستقرار)
         let isResolved = false;
         const timeoutId = setTimeout(() => {
             if (!isResolved) {
                 isResolved = true;
-                const warn = (typeof Utils !== 'undefined' && Utils.safeWarn) ? Utils.safeWarn : console.warn;
-                warn(`⚠️ Timeout: تحميل ${moduleName} استغرق أكثر من 10 ثوان - الاستمرار...`);
+                warn(`⚠️ Timeout: تحميل ${moduleName} استغرق أكثر من 6 ثوان - الاستمرار...`);
                 resolve(); // الاستمرار حتى لو انتهى الوقت
             }
-        }, 10000); // 10 ثوان (تقليل تحذيرات Timeout على الشبكات البطيئة)
+        }, 6000); // 6 ثوان لتقليل التأخير في الإنتاج
 
         const safeResolve = () => {
             if (!isResolved) {
@@ -80,15 +93,24 @@ function loadModule(moduleName) {
         // ✅ إضافة timestamp لتتبع وقت التحميل
         const startTime = Date.now();
         
+        // 🔍 DEBUG: Log the exact URL being loaded (تقليل الضجيج بعد المحاولة الأولى)
+        if (retryCount === 0) {
+            console.log(`🔍 Loading module: ${moduleName} from URL: ${script.src}`);
+        }
+        
         script.onload = () => {
             const loadTime = Date.now() - startTime;
             log(`✅ تم تحميل الموديول: ${moduleName} (${loadTime}ms)`);
+            
+            // 🔍 DEBUG: Verify module is on window
+            const globalModule = window[moduleName.charAt(0).toUpperCase() + moduleName.slice(1)] || window[moduleName];
+            console.log(`🔍 Module ${moduleName} on window:`, typeof globalModule !== 'undefined' ? '✅ Found' : '❌ Not found');
 
             // التحقق من تحميل الموديولات المهمة بشكل خاص
             if (moduleName === 'fireequipment') {
                 // التحقق من تحميل موديول FireEquipment
                 let checkCount = 0;
-                const maxChecks = 20; // زيادة عدد المحاولات
+                const maxChecks = 10; // تقليل زمن الانتظار
                 const checkInterval = setInterval(() => {
                     checkCount++;
                     // ✅ التحقق الآمن من وجود الموديول ودالة load
@@ -111,7 +133,7 @@ function loadModule(moduleName) {
             } else if (moduleName === 'violations') {
                 // التحقق من تحميل موديول Violations
                 let checkCount = 0;
-                const maxChecks = 20; // زيادة عدد المحاولات
+                const maxChecks = 10; // تقليل زمن الانتظار
                 const checkInterval = setInterval(() => {
                     checkCount++;
                     // ✅ التحقق الآمن من وجود الموديول ودالة load
@@ -157,7 +179,7 @@ function loadModule(moduleName) {
             } else if (moduleName === 'contractors') {
                 // التحقق من تحميل موديول المقاولين
                 let checkCount = 0;
-                const maxChecks = 30; // زيادة عدد المحاولات
+                const maxChecks = 15; // تقليل زمن الانتظار
                 const checkInterval = setInterval(() => {
                     checkCount++;
                     // ✅ التحقق الآمن من وجود الموديول ودالة load
@@ -180,7 +202,7 @@ function loadModule(moduleName) {
             } else if (moduleName === 'clinic') {
                 // ✅ التحقق من تحميل موديول العيادة (Clinic)
                 let checkCount = 0;
-                const maxChecks = 50; // 50 × 100ms = 5 ثوان
+                const maxChecks = 25; // 25 × 100ms = 2.5 ثوان
                 const checkInterval = setInterval(() => {
                     checkCount++;
                     if (typeof window.Clinic !== 'undefined' && 
@@ -199,6 +221,48 @@ function loadModule(moduleName) {
                     }
                 }, 100);
                 return;
+            } else if (moduleName === 'ppe') {
+                // التحقق من تحميل موديول PPE
+                let checkCount = 0;
+                const maxChecks = 10;
+                const checkInterval = setInterval(() => {
+                    checkCount++;
+                    if (typeof window.PPE !== 'undefined' && typeof window.PPE.load === 'function') {
+                        log(`✅ PPE متاح على window.PPE مع دالة load`);
+                        clearInterval(checkInterval);
+                        safeResolve();
+                    } else if (checkCount >= maxChecks) {
+                        if (typeof window.PPE !== 'undefined') {
+                            logError(`⚠️ PPE متاح لكن دالة load غير موجودة أو ليست function`);
+                        } else {
+                            logError(`⚠️ PPE غير متاح على window بعد ${maxChecks} محاولة`);
+                        }
+                        clearInterval(checkInterval);
+                        safeResolve();
+                    }
+                }, 100);
+                return;
+            } else if (moduleName === 'periodicinspections') {
+                // التحقق من تحميل موديول الفحوصات الدورية
+                let checkCount = 0;
+                const maxChecks = 10;
+                const checkInterval = setInterval(() => {
+                    checkCount++;
+                    if (typeof window.PeriodicInspections !== 'undefined' && typeof window.PeriodicInspections.load === 'function') {
+                        log(`✅ PeriodicInspections متاح على window.PeriodicInspections مع دالة load`);
+                        clearInterval(checkInterval);
+                        safeResolve();
+                    } else if (checkCount >= maxChecks) {
+                        if (typeof window.PeriodicInspections !== 'undefined') {
+                            logError(`⚠️ PeriodicInspections متاح لكن دالة load غير موجودة أو ليست function`);
+                        } else {
+                            logError(`⚠️ PeriodicInspections غير متاح على window بعد ${maxChecks} محاولة`);
+                        }
+                        clearInterval(checkInterval);
+                        safeResolve();
+                    }
+                }, 100);
+                return;
             }
 
             // ✅ للمواديل الأخرى: انتظار قصير ثم resolve
@@ -209,12 +273,54 @@ function loadModule(moduleName) {
         };
         script.onerror = (error) => {
             const loadTime = Date.now() - startTime;
-            logError(`❌ فشل تحميل الموديول: ${moduleName} بعد ${loadTime}ms`);
+            logError(`❌ فشل تحميل الموديول: ${moduleName} بعد ${loadTime}ms${retryCount > 0 ? ` (محاولة ${retryCount + 1}/${MODULE_LOAD_MAX_RETRIES + 1})` : ''}`);
             logError(`   المسار: ${script.src}`);
-            if (error && error.message) {
-                logError(`   الخطأ: ${error.message}`);
-            }
-            safeResolve(); // عدم رفض Promise للسماح بتحميل باقي الموديولات
+            logError(`   نوع الخطأ:`, error?.type || 'unknown');
+            
+            // التحقق من حالة HTTP (503 = إعادة محاولة تلقائية)
+            fetch(script.src, { method: 'HEAD', cache: 'no-store' })
+                .then(response => {
+                    if (typeof console !== 'undefined' && console.log) {
+                        console.log(`🔍 HTTP Status for ${moduleName}:`, response.status, response.statusText);
+                    }
+                    const is503 = response.status === 503;
+                    const canRetry = retryCount < MODULE_LOAD_MAX_RETRIES;
+                    if (is503 && canRetry) {
+                        if (!isResolved) {
+                            warn(`🔄 إعادة محاولة تحميل ${moduleName} بعد ${MODULE_LOAD_RETRY_DELAY / 1000} ثانية (503)`);
+                            clearTimeout(timeoutId);
+                            isResolved = true;
+                            setTimeout(() => {
+                                loadModule(moduleName, retryCount + 1).then(resolve);
+                            }, MODULE_LOAD_RETRY_DELAY);
+                        }
+                        return;
+                    }
+                    if (response.status === 503 && !canRetry) {
+                        logError(`🚨 503 Service Unavailable - تعذر تحميل ${moduleName}.js بعد ${MODULE_LOAD_MAX_RETRIES + 1} محاولات`);
+                    }
+                    if (error && error.message) {
+                        logError(`   الخطأ: ${error.message}`);
+                    }
+                    safeResolve();
+                })
+                .catch(() => {
+                    // عند فشل fetch (شبكة/CORS): إعادة محاولة مرة واحدة إن أمكن
+                    const canRetry = retryCount < MODULE_LOAD_MAX_RETRIES;
+                    if (canRetry && !isResolved) {
+                        warn(`🔄 إعادة محاولة تحميل ${moduleName} بعد ${MODULE_LOAD_RETRY_DELAY / 1000} ثانية (فشل الاتصال)`);
+                        clearTimeout(timeoutId);
+                        isResolved = true;
+                        setTimeout(() => {
+                            loadModule(moduleName, retryCount + 1).then(resolve);
+                        }, MODULE_LOAD_RETRY_DELAY);
+                        return;
+                    }
+                    if (error && error.message) {
+                        logError(`   الخطأ: ${error.message}`);
+                    }
+                    safeResolve();
+                });
         };
         document.head.appendChild(script);
     });
@@ -232,7 +338,7 @@ async function loadAllModules() {
         let utilsReady = typeof Utils !== 'undefined';
         let appStateReady = typeof AppState !== 'undefined';
         let waitCount = 0;
-        const maxWait = 50; // 5 ثوان
+        const maxWait = 30; // 3 ثوان
 
         while ((!utilsReady || !appStateReady) && waitCount < maxWait) {
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -252,7 +358,7 @@ async function loadAllModules() {
             log('📦 بدء تحميل موديول المقاولين...');
             await loadModule('contractors');
             // انتظار أطول للتأكد من تحميله بالكامل وتصديره
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 250));
             
             // التحقق النهائي من تحميل الموديول
             if (typeof window.Contractors !== 'undefined') {
@@ -271,7 +377,7 @@ async function loadAllModules() {
             try {
                 await loadModule(moduleName);
                 // انتظار قصير بين المواديل لضمان الاستقرار
-                await new Promise(resolve => setTimeout(resolve, 50));
+                await new Promise(resolve => setTimeout(resolve, 25));
             } catch (error) {
                 logError(`❌ خطأ في تحميل ${moduleName}:`, error);
                 // الاستمرار حتى لو فشل تحميل موديول واحد
@@ -279,7 +385,7 @@ async function loadAllModules() {
         }
 
         // انتظار قصير للتأكد من تصدير جميع الموديولات إلى window
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 100));
 
         log('✅ تم تحميل جميع الموديولات بنجاح');
     } catch (error) {
@@ -288,9 +394,39 @@ async function loadAllModules() {
 }
 
 // تحميل الموديولات عند جاهزية DOM
+console.log('🔥 Setting up module loading...');
+console.log('🔥 Document readyState:', document.readyState);
+
+// Force immediate execution - don't wait for DOMContentLoaded
+(async function immediateLoad() {
+    console.log('🔥 IMMEDIATE LOAD FUNCTION EXECUTING');
+    
+    // Wait a tiny bit for Utils to be available
+    let waitCount = 0;
+    while (typeof Utils === 'undefined' && waitCount < 30) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        waitCount++;
+    }
+    
+    if (typeof Utils === 'undefined') {
+        console.error('❌ Utils not available after 5 seconds - loading anyway');
+    } else {
+        console.log('✅ Utils is available');
+    }
+    
+    // Start loading immediately
+    console.log('🔥 Starting loadAllModules NOW');
+    loadAllModules();
+})();
+
+// Also set up the normal DOMContentLoaded listener as backup
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', loadAllModules);
+    console.log('🔥 Document still loading - adding DOMContentLoaded listener');
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('🔥 DOMContentLoaded fired - calling loadAllModules');
+        loadAllModules();
+    });
 } else {
+    console.log('🔥 Document already loaded - calling loadAllModules immediately');
     loadAllModules();
 }
-

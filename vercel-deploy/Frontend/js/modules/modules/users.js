@@ -1,7 +1,10 @@
-﻿/**
+/**
  * Users Module
  * تم استخراجه من app-modules.js
  */
+
+// 🔥 DEBUG: Verify this file is executing
+console.log('🔥 users.js IS EXECUTING - Line 6');
 
 // ===== Users Module =====
 const Users = {
@@ -12,13 +15,22 @@ const Users = {
     sectionChangeHandler: null, // لتخزين معالج حدث تغيير القسم
 
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
         const section = document.getElementById('users-section');
         if (!section) return;
 
         // التحقق من الصلاحيات - فقط المدير يمكنه الوصول
+        // Rely primarily on a server-side validated permission check.
+        // Client-side checks should only be for UI presentation, not for actual authorization.
         const isAdmin = (typeof Permissions !== 'undefined' && typeof Permissions.isCurrentUserAdmin === 'function')
             ? Permissions.isCurrentUserAdmin()
-            : (AppState.currentUser?.role || '').toLowerCase() === 'admin';
+            : false; // Default to false if Permissions service is unavailable or not fully initialized
 
         if (!isAdmin) {
             section.innerHTML = `
@@ -377,48 +389,29 @@ const Users = {
         `;
     },
 
-    renderUserRow(user) {
-        const isOnline = user.isOnline === true;
-        const lastLoginTime = user.lastLogin ? Utils.formatDateTime(user.lastLogin) : '-';
-        const displayName = (user.name != null && String(user.name).trim()) ? String(user.name).trim() : (user.email ? String(user.email) : '—');
-        const displayEmail = (user.email != null && String(user.email).trim()) ? String(user.email) : (user.id && /@/.test(String(user.id)) ? String(user.id) : '—');
-        const displayDept = (user.department != null && String(user.department).trim()) ? String(user.department) : '—';
-        const safeId = Utils.escapeHTML(String(user.id || ''));
-        const safeEmail = Utils.escapeHTML(displayEmail);
-        return `
-            <tr>
-                <td><div class="flex items-center gap-3">${user.photo ? `<img src="${user.photo}" alt="${Utils.escapeHTML(displayName)}" class="w-10 h-10 rounded-full object-cover">` : `<div class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center"><i class="fas fa-user text-gray-400"></i></div>`}<span>${Utils.escapeHTML(displayName)}</span></div></td>
-                <td>${Utils.escapeHTML(displayEmail)}</td>
-                <td><div class="flex items-center gap-2"><i class="fas fa-lock text-gray-400 text-sm"></i><span class="text-sm text-gray-600">${user.password && user.password !== '***' ? '••••••••' : '<span class="text-gray-400">***</span>'}</span></div></td>
-                <td><div class="flex items-center gap-2"><i class="fas fa-key text-gray-400 text-sm"></i><span class="text-sm text-gray-600 font-mono">${user.passwordHash ? (String(user.passwordHash).substring(0, 8) + '...') : '<span class="text-gray-400">غير محدد</span>'}</span></div></td>
-                <td><span class="badge badge-${this.getRoleBadgeClass(user.role)}">${this.getRoleName(user.role)}</span></td>
-                <td>${Utils.escapeHTML(displayDept)}</td>
-                <td><span class="badge badge-${user.active !== false ? 'success' : 'danger'}">${user.active !== false ? 'نشط' : 'غير نشط'}</span></td>
-                <td><div class="flex items-center gap-2"><div class="w-3 h-3 rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}" style="animation: ${isOnline ? 'pulse 2s infinite' : 'none'};"></div><span class="text-sm ${isOnline ? 'text-green-600' : 'text-gray-500'}">${isOnline ? 'متصل' : 'غير متصل'}</span></div></td>
-                <td><span class="text-sm text-gray-600" title="${user.lastLogin || '-'}">${lastLoginTime}</span></td>
-                <td>${(user.createdAt || user.created_at) ? Utils.formatDate(user.createdAt || user.created_at) : '-'}</td>
-                <td><div class="flex items-center gap-2">${isOnline ? `<button onclick="Users.revokeUserSession('${safeId}')" class="btn-icon btn-icon-secondary" title="سحب الجلسة"><i class="fas fa-sign-out-alt"></i></button>` : ''}<button onclick="Users.resetUserPassword('${safeId}', '${safeEmail}')" class="btn-icon btn-icon-warning" title="إعادة تعيين كلمة المرور"><i class="fas fa-key"></i></button><button onclick="Users.editUser('${safeId}')" class="btn-icon btn-icon-primary" title="تعديل"><i class="fas fa-edit"></i></button><button onclick="Users.deleteUser('${safeId}')" class="btn-icon btn-icon-danger" title="حذف"><i class="fas fa-trash"></i></button></div></td>
-            </tr>
-        `;
-    },
-
-    async loadUsersList(usersToDisplay, isFilterResult = false) {
+    async loadUsersList() {
         const container = document.getElementById('users-table-container');
         if (!container) return;
-        const users = usersToDisplay !== undefined ? (usersToDisplay || []) : (AppState.appData.users || []);
+
+        const users = AppState.appData.users || [];
 
         if (users.length === 0) {
-            if (isFilterResult) {
-                container.innerHTML = `<div class="table-wrapper" style="overflow-x: auto;"><table class="data-table" dir="rtl"><thead><tr><th>الاسم</th><th>البريد الإلكتروني</th><th>كلمة المرور</th><th>كلمة المرور المشفرة</th><th>الدور</th><th>القسم</th><th>الحالة</th><th>الحالة الاتصال</th><th>آخر تسجيل دخول</th><th>تاريخ الإنشاء</th><th>الإجراءات</th></tr></thead><tbody><tr><td colspan="11" class="text-center text-gray-500 py-8">لا توجد نتائج</td></tr></tbody></table></div>`;
-            } else {
-                container.innerHTML = `<div class="empty-state"><i class="fas fa-users text-4xl text-gray-300 mb-4"></i><p class="text-gray-500">لا يوجد مستخدمين</p><button id="add-user-empty-btn" class="btn-primary mt-4"><i class="fas fa-plus ml-2"></i>إضافة مستخدم جديد</button></div>`;
-            }
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-users text-4xl text-gray-300 mb-4"></i>
+                    <p class="text-gray-500">لا يوجد مستخدمين</p>
+                    <button id="add-user-empty-btn" class="btn-primary mt-4">
+                        <i class="fas fa-plus ml-2"></i>
+                        إضافة مستخدم جديد
+                    </button>
+                </div>
+            `;
             return;
         }
 
         const tableHTML = `
             <div class="table-wrapper" style="overflow-x: auto;">
-                <table class="data-table" dir="rtl">
+                <table class="data-table">
                     <thead>
                         <tr>
                             <th>الاسم</th>
@@ -435,7 +428,87 @@ const Users = {
                         </tr>
                     </thead>
                     <tbody>
-                        ${users.map(user => this.renderUserRow(user)).join('')}
+                        ${users.map(user => {
+            const isOnline = user.isOnline === true;
+            const lastLoginTime = user.lastLogin ? Utils.formatDateTime(user.lastLogin) : '-';
+            return `
+                            <tr>
+                                <td>
+                                    <div class="flex items-center gap-3">
+                                        ${user.photo ? `<img src="${user.photo}" alt="${Utils.escapeHTML(user.name || '')}" class="w-10 h-10 rounded-full object-cover">` : `<div class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center"><i class="fas fa-user text-gray-400"></i></div>`}
+                                        <span>${Utils.escapeHTML(user.name || '')}</span>
+                                    </div>
+                                </td>
+                                <td>${Utils.escapeHTML(user.email || '')}</td>
+                                <td>
+                                    <div class="flex items-center gap-2">
+                                        <i class="fas fa-lock text-gray-400 text-sm"></i>
+                                        <span class="text-sm text-gray-600" title="كلمة المرور مخفية للأمان">
+                                            ${user.password && user.password !== '***' ? '••••••••' : '<span class="text-gray-400">***</span>'}
+                                        </span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="flex items-center gap-2">
+                                        <i class="fas fa-key text-gray-400 text-sm"></i>
+                                        <span class="text-sm text-gray-600 font-mono" title="${user.passwordHash || 'غير محدد'}">
+                                            ${user.passwordHash ? (user.passwordHash.substring(0, 8) + '...') : '<span class="text-gray-400">غير محدد</span>'}
+                                        </span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge badge-${this.getRoleBadgeClass(user.role)}">
+                                        ${this.getRoleName(user.role)}
+                                    </span>
+                                </td>
+                                <td>${Utils.escapeHTML(user.department || '')}</td>
+                                <td>
+                                    <span class="badge badge-${user.active !== false ? 'success' : 'danger'}">
+                                        ${user.active !== false ? 'نشط' : 'غير نشط'}
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-3 h-3 rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}" style="animation: ${isOnline ? 'pulse 2s infinite' : 'none'};"></div>
+                                        <span class="text-sm ${isOnline ? 'text-green-600' : 'text-gray-500'}">
+                                            ${isOnline ? 'متصل' : 'غير متصل'}
+                                        </span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="text-sm text-gray-600" title="${user.lastLogin || '-'}">
+                                        ${lastLoginTime}
+                                    </span>
+                                </td>
+                                <td>${user.createdAt ? Utils.formatDate(user.createdAt) : '-'}</td>
+                                <td>
+                                    <div class="flex items-center gap-2">
+                                        <button 
+                                            onclick="Users.resetUserPassword('${user.id}', '${user.email}')" 
+                                            class="btn-icon btn-icon-warning"
+                                            title="إعادة تعيين كلمة المرور"
+                                        >
+                                            <i class="fas fa-key"></i>
+                                        </button>
+                                        <button 
+                                            onclick="Users.editUser('${user.id}')" 
+                                            class="btn-icon btn-icon-primary"
+                                            title="تعديل"
+                                        >
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button 
+                                            onclick="Users.deleteUser('${user.id}')" 
+                                            class="btn-icon btn-icon-danger"
+                                            title="حذف"
+                                        >
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+        }).join('')}
                     </tbody>
                 </table>
             </div>
@@ -445,14 +518,12 @@ const Users = {
     },
 
     getRoleName(role) {
-        if (role == null || String(role).trim() === '') return '—';
         const roles = {
             'admin': 'مدير النظام',
             'safety_officer': 'مسؤول السلامة',
             'user': 'مستخدم'
         };
-        const r = String(role).trim().toLowerCase();
-        return roles[r] || (r ? role : '—');
+        return roles[role] || role;
     },
 
     getRoleBadgeClass(role) {
@@ -513,26 +584,24 @@ const Users = {
         Utils.safeLog('🔧 عرض نموذج إضافة/تعديل مستخدم:', userData ? 'تعديل' : 'إضافة جديد');
         this.currentEditId = userData?.id || null;
         
-        // تحميل الصلاحيات التفصيلية الحالية
-        // ✅ إصلاح: تهيئة الصلاحيات التفصيلية بشكل صحيح
+        // تحميل الصلاحيات التفصيلية الحالية + تطبيع صلاحيات المديولات الأساسية للنموذج
         this.currentDetailedPermissions = {};
+        let normalizedBasePermissions = null;
+
         if (userData && userData.permissions) {
             let perms;
             try {
-                // ✅ إصلاح: استخدام Permissions.normalizePermissions إذا كان متاحاً
+                // استخدام Permissions.normalizePermissions إذا كان متاحاً
                 if (typeof Permissions !== 'undefined' && typeof Permissions.normalizePermissions === 'function') {
                     perms = Permissions.normalizePermissions(userData.permissions);
                 } else if (typeof userData.permissions === 'string') {
                     // محاولة تحليل JSON
                     const trimmed = userData.permissions.trim();
-                    // التحقق من أن النص يبدأ بـ { أو [ (JSON صالح)
                     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
                         perms = JSON.parse(trimmed);
                     } else {
-                        // إذا لم يكن JSON، قد يكون نص عادي - نحاول تحويله
-                        // مثال: "employees: true\nincidents: true" -> {employees: true, incidents: true}
+                        // إذا لم يكن JSON، قد يكون نص عادي - نحاول تحويله إلى كائن
                         try {
-                            // محاولة تحويل النص إلى كائن
                             const lines = trimmed.split('\n').filter(line => line.trim());
                             perms = {};
                             lines.forEach(line => {
@@ -540,7 +609,6 @@ const Users = {
                                 if (match) {
                                     const key = match[1].trim();
                                     const value = match[2].trim();
-                                    // تحويل القيم النصية إلى boolean/string
                                     if (value === 'true') {
                                         perms[key] = true;
                                     } else if (value === 'false') {
@@ -553,7 +621,6 @@ const Users = {
                                 }
                             });
                         } catch (parseError) {
-                            // إذا فشل التحويل، نستخدم كائن فارغ
                             perms = {};
                         }
                     }
@@ -561,29 +628,45 @@ const Users = {
                     perms = userData.permissions;
                 }
             } catch (error) {
-                // استخدام safeError بدلاً من console.error لتجنب إظهار الأخطاء غير الحرجة
                 if (typeof Utils !== 'undefined' && Utils.safeWarn) {
                     Utils.safeWarn('⚠️ خطأ في تحليل صلاحيات المستخدم - سيتم استخدام الصلاحيات الافتراضية');
                 }
                 perms = {};
             }
             
-            // ✅ إصلاح: التأكد من أن perms هو كائن صالح
             if (!perms || typeof perms !== 'object' || Array.isArray(perms)) {
                 perms = {};
             }
             
-            // استخراج الصلاحيات التفصيلية
+            const basePermissions = {};
             Object.keys(perms).forEach(key => {
-                if (key.endsWith('Permissions') && typeof perms[key] === 'object' && !Array.isArray(perms[key])) {
-                    this.currentDetailedPermissions[key] = perms[key];
+                const value = perms[key];
+                if (key.endsWith('Permissions') && typeof value === 'object' && !Array.isArray(value)) {
+                    // صلاحيات تفصيلية تُخزَّن في this.currentDetailedPermissions
+                    this.currentDetailedPermissions[key] = value;
+                } else if (!key.endsWith('Permissions')) {
+                    // صلاحيات المديولات الأساسية (module -> true/false) تُستخدم لتهيئة Checkboxes
+                    basePermissions[key] = value === true;
                 }
             });
-        }
 
+            normalizedBasePermissions = basePermissions;
+        }
+        
         const content = document.getElementById('users-content');
         if (content) {
-            content.innerHTML = await this.renderForm(userData);
+            const normalizedUserData = userData
+                ? {
+                    ...userData,
+                    // إذا كانت الصلاحيات محفوظة كنص JSON في AppState، نقوم بتمرير نسخة ككائن للنموذج
+                    permissions: normalizedBasePermissions
+                        ?? (userData.permissions && typeof userData.permissions === 'object' && !Array.isArray(userData.permissions)
+                            ? userData.permissions
+                            : {})
+                }
+                : null;
+
+            content.innerHTML = await this.renderForm(normalizedUserData);
             this.setupEventListeners();
 
             // تحديث حالة الصلاحيات عند تغيير الدور
@@ -890,11 +973,10 @@ const Users = {
         // ✅ إصلاح: جمع الصلاحيات بشكل صحيح
         const collectedPermissions = this.collectPermissions();
         
-        const emailValue = emailEl.value.trim().toLowerCase();
         const formData = {
-            id: this.currentEditId || emailValue,
+            id: this.currentEditId || Utils.generateId('USER'),
             name: nameEl.value.trim(),
-            email: emailValue,
+            email: emailEl.value.trim().toLowerCase(),
             role: roleEl.value,
             department: departmentEl.value.trim(),
             active: activeEl.checked,
@@ -1017,7 +1099,6 @@ const Users = {
 
         try {
             const isNewUser = !this.currentEditId;
-            const canSyncBackend = AppState.useSupabaseBackend === true || AppState.googleConfig?.appsScript?.enabled;
 
             if (isNewUser) {
                 // إضافة مستخدم جديد
@@ -1046,34 +1127,30 @@ const Users = {
                 // إخفاء مؤشر التحميل بعد الحفظ المحلي
                 Loading.hide();
                 
-                // المزامنة مع الخادم (Supabase أو قاعدة البيانات) في الخلفية — التأكد من إرسال صلاحيات ككائن ودور للعمود permissions
-                if (canSyncBackend) {
-                    const addUserPayload = {
-                        ...formData,
-                        permissions: (formData.permissions != null && typeof formData.permissions === 'object' && !Array.isArray(formData.permissions)) ? formData.permissions : {},
-                        role: formData.role || 'user'
-                    };
-                    GoogleIntegration.immediateSyncWithRetry('addUser', addUserPayload, 3)
+                // المزامنة مع Google Sheets في الخلفية (غير متزامنة)
+                if (AppState.googleConfig.appsScript.enabled) {
+                    // تشغيل المزامنة في الخلفية بدون انتظار
+                    GoogleIntegration.immediateSyncWithRetry('addUser', formData, 3)
                         .then(addUserResult => {
                             if (addUserResult && addUserResult.success) {
-                                Utils.safeLog('✅ تم إضافة المستخدم الجديد إلى قاعدة البيانات بنجاح');
-                                Notification.success('تم حفظ البيانات بنجاح');
+                                Utils.safeLog('✅ تم إضافة المستخدم الجديد إلى Google Sheets بنجاح');
+                                Notification.success('تم المزامنة مع Google Sheets بنجاح');
                             } else if (addUserResult && addUserResult.shouldDefer) {
                                 // فشلت جميع المحاولات - أضف إلى قائمة الانتظار
                                 Utils.safeWarn('⚠️ فشلت المزامنة بعد 3 محاولات:', addUserResult?.message);
                                 if (typeof DataManager !== 'undefined' && DataManager.addToPendingSync) {
                                     DataManager.addToPendingSync('Users', AppState.appData.users);
                                 }
-                                Notification.warning('سيتم المزامنة مع قاعدة البيانات تلقائياً لاحقاً.');
+                                Notification.warning('سيتم المزامنة مع Google Sheets تلقائياً لاحقاً.');
                             } else {
                                 // خطأ في البيانات أو مشكلة أخرى
                                 Utils.safeWarn('⚠️ فشل إضافة المستخدم:', addUserResult?.message);
-                                Notification.warning('فشلت المزامنة مع قاعدة البيانات. سيتم المحاولة لاحقاً.');
+                                Notification.warning('فشلت المزامنة مع Google Sheets. سيتم المحاولة لاحقاً.');
                             }
                         })
                         .catch(addUserError => {
                             Utils.safeError('❌ خطأ غير متوقع في إضافة المستخدم:', addUserError);
-                            Notification.warning('حدث خطأ في المزامنة مع قاعدة البيانات. سيتم المحاولة لاحقاً.');
+                            Notification.warning('حدث خطأ في المزامنة مع Google Sheets. سيتم المحاولة لاحقاً.');
                         });
                 }
             } else {
@@ -1107,33 +1184,34 @@ const Users = {
                 // إخفاء مؤشر التحميل بعد الحفظ المحلي
                 Loading.hide();
                 
-                // المزامنة مع الخادم (Supabase أو قاعدة البيانات) في الخلفية
-                if (canSyncBackend) {
+                // المزامنة مع Google Sheets في الخلفية (غير متزامنة)
+                if (AppState.googleConfig.appsScript.enabled) {
+                    // تشغيل المزامنة في الخلفية بدون انتظار
                     GoogleIntegration.immediateSyncWithRetry('updateUser', {
                         userId: formData.id,
                         updateData: formData
                     }, 3)
                         .then(updateResult => {
                             if (updateResult && updateResult.success) {
-                                Utils.safeLog('✅ تم تحديث المستخدم في قاعدة البيانات بنجاح');
-                                Notification.success('تم حفظ البيانات بنجاح');
+                                Utils.safeLog('✅ تم تحديث المستخدم في Google Sheets بنجاح');
+                                Notification.success('تم المزامنة مع Google Sheets بنجاح');
                             } else if (updateResult && updateResult.shouldDefer) {
                                 // فشلت جميع المحاولات - أضف إلى قائمة الانتظار
                                 Utils.safeWarn('⚠️ فشلت المزامنة بعد 3 محاولات:', updateResult?.message);
                                 GoogleIntegration.autoSave('Users', AppState.appData.users)
                                     .catch(err => Utils.safeWarn('⚠️ خطأ في autoSave:', err));
-                                Notification.warning('سيتم المزامنة مع قاعدة البيانات تلقائياً لاحقاً.');
+                                Notification.warning('سيتم المزامنة مع Google Sheets تلقائياً لاحقاً.');
                             } else {
                                 // خطأ في البيانات
                                 Utils.safeWarn('⚠️ فشل تحديث المستخدم:', updateResult?.message);
-                                Notification.warning('فشلت المزامنة مع قاعدة البيانات. سيتم المحاولة لاحقاً.');
+                                Notification.warning('فشلت المزامنة مع Google Sheets. سيتم المحاولة لاحقاً.');
                             }
                         })
                         .catch(updateError => {
                             Utils.safeError('❌ خطأ غير متوقع في تحديث المستخدم:', updateError);
                             GoogleIntegration.autoSave('Users', AppState.appData.users)
                                 .catch(err => Utils.safeWarn('⚠️ خطأ في autoSave:', err));
-                            Notification.warning('حدث خطأ في المزامنة مع قاعدة البيانات. سيتم المحاولة لاحقاً.');
+                            Notification.warning('حدث خطأ في المزامنة مع Google Sheets. سيتم المحاولة لاحقاً.');
                         });
                 }
             }
@@ -1372,25 +1450,47 @@ const Users = {
         Loading.show();
 
         try {
-            AppState.appData.users = AppState.appData.users.filter(u => u.id !== userId);
-            // حفظ البيانات باستخدام window.DataManager
-        if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
-            window.DataManager.save();
-        } else {
-            Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
-        }
+            let deleteSuccess = false;
 
-            // حفظ تلقائي في الخادم (Supabase أو قاعدة البيانات) — استخدام sendRequest لتوجيه الحذف إلى Supabase عند التفعيل
-            const canSyncBackendDelete = AppState.useSupabaseBackend === true || AppState.googleConfig?.appsScript?.enabled;
-            if (canSyncBackendDelete) {
+            // 1) حذف من قاعدة البيانات (Google Sheets) أولاً ثم تحديث الواجهة
+            if (AppState.googleConfig.appsScript.enabled) {
                 try {
-                    await GoogleIntegration.sendRequest({ action: 'deleteUser', data: { userId } });
+                    const result = await GoogleIntegration.sendToAppsScript('deleteUser', { userId });
+                    deleteSuccess = result && result.success === true;
+                    if (!deleteSuccess && result && result.message) {
+                        throw new Error(result.message);
+                    }
                 } catch (error) {
-                    Utils.safeWarn('⚠️ فشل حذف المستخدم من الخادم، سيتم المحاولة لاحقاً:', error);
-                    await GoogleIntegration.autoSave('Users', AppState.appData.users);
+                    // محاولة بديلة: حفظ قائمة المستخدمين بعد إزالة المستخدم
+                    const filteredUsers = AppState.appData.users.filter(u => u.id !== userId);
+                    try {
+                        await GoogleIntegration.autoSave('Users', filteredUsers);
+                        deleteSuccess = true;
+                    } catch (autoSaveErr) {
+                        Utils.safeWarn('⚠️ فشل الحذف من Google Sheets وبديل autoSave:', autoSaveErr);
+                        Loading.hide();
+                        Notification.error('فشل حذف المستخدم من قاعدة البيانات: ' + (error.message || error));
+                        Utils.safeError('خطأ في حذف المستخدم:', error);
+                        return;
+                    }
                 }
             } else {
-                await GoogleIntegration.autoSave('Users', AppState.appData.users);
+                await GoogleIntegration.autoSave('Users', AppState.appData.users.filter(u => u.id !== userId));
+                deleteSuccess = true;
+            }
+
+            if (!deleteSuccess) {
+                Loading.hide();
+                Notification.error('فشل حذف المستخدم من قاعدة البيانات');
+                return;
+            }
+
+            // 2) بعد نجاح الحذف في الخلفية: تحديث الحالة المحلية والحفظ المحلي
+            AppState.appData.users = AppState.appData.users.filter(u => u.id !== userId);
+            if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
+                window.DataManager.save();
+            } else {
+                Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
             }
 
             Loading.hide();
@@ -1398,74 +1498,8 @@ const Users = {
             this.loadUsersList();
         } catch (error) {
             Loading.hide();
-            Notification.error('حدث خطأ: ' + error.message);
+            Notification.error('حدث خطأ: ' + (error && error.message ? error.message : String(error)));
             Utils.safeError('خطأ في حذف المستخدم:', error);
-        }
-    },
-
-    /**
-     * سحب جلسة مستخدم (للسماح له بتسجيل الدخول من جهاز آخر)
-     * للمدير فقط — يظهر زر "سحب الجلسة" بجانب المستخدمين المتصلين
-     */
-    async revokeUserSession(userId) {
-        const isAdmin = (typeof Permissions !== 'undefined' && typeof Permissions.isCurrentUserAdmin === 'function')
-            ? Permissions.isCurrentUserAdmin()
-            : (AppState.currentUser?.role || '').toLowerCase() === 'admin';
-
-        if (!isAdmin) {
-            Notification.error('ليس لديك صلاحية سحب جلسات المستخدمين');
-            return;
-        }
-
-        const users = AppState.appData.users || [];
-        const index = users.findIndex(u => u.id === userId);
-        if (index === -1) {
-            Notification.error('المستخدم غير موجود');
-            return;
-        }
-
-        const user = users[index];
-        if (user.isOnline !== true) {
-            Notification.info('المستخدم غير متصل حالياً — لا حاجة لسحب الجلسة');
-            return;
-        }
-
-        const userLabel = user.name || user.email || userId;
-        const confirmed = await Utils.confirmDialog(
-            'سحب الجلسة',
-            'هل تريد سحب جلسة المستخدم "' + userLabel + '"؟\n\nسيتمكن بعدها من تسجيل الدخول من جهاز آخر.',
-            'سحب الجلسة',
-            'إلغاء'
-        );
-        if (!confirmed) return;
-
-        Loading.show();
-        try {
-            users[index] = { ...user, isOnline: false, activeSessionId: null };
-            AppState.appData.users = users;
-
-            if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
-                window.DataManager.save();
-            }
-
-            const updateData = { ...users[index], isOnline: false, activeSessionId: null };
-            if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.sendToAppsScript === 'function') {
-                await GoogleIntegration.sendToAppsScript('updateUser', { userId: userId, updateData: updateData });
-            } else if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.autoSave === 'function') {
-                await GoogleIntegration.autoSave('Users', AppState.appData.users);
-            }
-
-            Loading.hide();
-            Notification.success('تم سحب الجلسة. يمكن للمستخدم تسجيل الدخول من جهاز آخر الآن.');
-            this.loadUsersList();
-
-            if (typeof UI !== 'undefined' && typeof UI.updateUserConnectionStatus === 'function') {
-                UI.updateUserConnectionStatus();
-            }
-        } catch (error) {
-            Loading.hide();
-            Notification.error('حدث خطأ: ' + (error.message || error));
-            Utils.safeError('خطأ في سحب الجلسة:', error);
         }
     },
 
@@ -1474,11 +1508,11 @@ const Users = {
         let filtered = users;
 
         if (searchTerm) {
-            const term = searchTerm.toLowerCase().trim();
+            const term = searchTerm.toLowerCase();
             filtered = filtered.filter(user =>
-                (user.name && String(user.name).toLowerCase().includes(term)) ||
-                (user.email && String(user.email).toLowerCase().includes(term)) ||
-                (user.department && String(user.department).toLowerCase().includes(term))
+                user.name?.toLowerCase().includes(term) ||
+                user.email?.toLowerCase().includes(term) ||
+                user.department?.toLowerCase().includes(term)
             );
         }
 
@@ -1486,7 +1520,56 @@ const Users = {
             filtered = filtered.filter(user => user.role === roleFilter);
         }
 
-        this.loadUsersList(filtered, true);
+        // تحديث الجدول
+        const tbody = document.querySelector('#users-table-container tbody');
+        if (tbody) {
+            if (filtered.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="text-center text-gray-500 py-8">
+                            لا توجد نتائج
+                        </td>
+                    </tr>
+                `;
+            } else {
+                tbody.innerHTML = filtered.map(user => `
+                    <tr>
+                        <td>${Utils.escapeHTML(user.name || '')}</td>
+                        <td>${Utils.escapeHTML(user.email || '')}</td>
+                        <td>
+                            <span class="badge badge-${this.getRoleBadgeClass(user.role)}">
+                                ${this.getRoleName(user.role)}
+                            </span>
+                        </td>
+                        <td>${Utils.escapeHTML(user.department || '')}</td>
+                        <td>
+                            <span class="badge badge-${user.active !== false ? 'success' : 'danger'}">
+                                ${user.active !== false ? 'نشط' : 'غير نشط'}
+                            </span>
+                        </td>
+                        <td>${user.createdAt ? Utils.formatDate(user.createdAt) : '-'}</td>
+                        <td>
+                            <div class="flex items-center gap-2">
+                                <button 
+                                    onclick="Users.editUser('${user.id}')" 
+                                    class="btn-icon btn-icon-primary"
+                                    title="تعديل"
+                                >
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button 
+                                    onclick="Users.deleteUser('${user.id}')" 
+                                    class="btn-icon btn-icon-danger"
+                                    title="حذف"
+                                >
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        }
     },
 
     async showImportExcel() {
@@ -1686,7 +1769,7 @@ const Users = {
                     const passwordHash = await Utils.hashPassword(tempPassword);
 
                     const user = {
-                        id: emailField.toLowerCase().trim(),
+                        id: Utils.generateId('USER'),
                         name: nameField.trim(),
                         email: emailField.toLowerCase().trim(),
                         password: '***',
@@ -1724,7 +1807,7 @@ const Users = {
             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
         }
 
-            // حفظ تلقائي في قاعدة البيانات
+            // حفظ تلقائي في Google Sheets
             if (successCount > 0) {
                 await GoogleIntegration.autoSave('Users', AppState.appData.users);
             }
@@ -2012,16 +2095,22 @@ const Users = {
 
 // ===== Export module to global scope =====
 // تصدير الموديول إلى window فوراً لضمان توافره
+console.log('🔥 users.js EXPORT SECTION STARTING');
 (function () {
     'use strict';
     try {
         if (typeof window !== 'undefined' && typeof Users !== 'undefined') {
             window.Users = Users;
+            console.log('✅ users.js: window.Users SET SUCCESSFULLY');
             
             // إشعار عند تحميل الموديول بنجاح
             if (typeof AppState !== 'undefined' && AppState.debugMode && typeof Utils !== 'undefined' && Utils.safeLog) {
                 Utils.safeLog('✅ Users module loaded and available on window.Users');
             }
+        } else {
+            console.error('❌ users.js EXPORT FAILED: window or Users undefined');
+            console.log('   typeof window:', typeof window);
+            console.log('   typeof Users:', typeof Users);
         }
     } catch (error) {
         console.error('❌ خطأ في تصدير Users:', error);
@@ -2035,4 +2124,3 @@ const Users = {
         }
     }
 })();
-

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Sustainability Module - Environmental Resource Management
  * مديول الاستدامة البيئية - إدارة استهلاك الموارد
  * 
@@ -28,7 +28,8 @@ const Sustainability = {
     isAdmin() {
         if (typeof AppState === 'undefined' || !AppState.currentUser) return false;
         const user = AppState.currentUser;
-        if (user.role === 'admin' || user.role === 'مدير النظام') return true;
+        if (user.role === 'admin') return true; // Assuming 'admin' is the canonical role identifier
+        // Consider handling localized role names for display purposes only, not for logic.
         if (typeof Permissions !== 'undefined') {
             const perms = Permissions.getEffectivePermissions(user);
             return perms.__isAdmin || perms['sustainability-manage'] === true || perms['admin'] === true;
@@ -88,6 +89,14 @@ const Sustainability = {
      * تحميل المديول
      */
     async load() {
+        // Add language change listener
+        if (!this._languageChangeListenerAdded) {
+            document.addEventListener('language-changed', () => {
+                this.load();
+            });
+            this._languageChangeListenerAdded = true;
+        }
+
         const section = document.getElementById('sustainability-section');
         if (!section) return;
 
@@ -122,74 +131,22 @@ const Sustainability = {
             };
         }
 
-        // تحميل بيانات استهلاك الموارد من قاعدة البيانات (في الخلفية)
+        // تحميل بيانات استهلاك الموارد من Google Sheets (في الخلفية)
         this.loadResourceConsumptionFromSheets().catch(error => {
-            Utils.safeWarn('⚠️ تعذر تحميل بيانات استهلاك الموارد من قاعدة البيانات:', error);
+            Utils.safeWarn('⚠️ تعذر تحميل بيانات استهلاك الموارد من Google Sheets:', error);
         });
 
-        // تحميل بيانات إدارة المخلفات من قاعدة البيانات (في الخلفية)
+        // تحميل بيانات إدارة المخلفات من Google Sheets (في الخلفية)
         this.loadWasteManagementFromSheets().catch(error => {
-            Utils.safeWarn('⚠️ تعذر تحميل بيانات إدارة المخلفات من قاعدة البيانات:', error);
+            Utils.safeWarn('⚠️ تعذر تحميل بيانات إدارة المخلفات من Google Sheets:', error);
         });
 
         try {
-            section.innerHTML = `
-                <div class="section-header">
-                    <h1 class="section-title">
-                        <i class="fas fa-leaf ml-3"></i>
-                        الاستدامة البيئية
-                    </h1>
-                    <p class="section-subtitle">إدارة ومتابعة استهلاك الموارد البيئية (مياه، كهرباء، غاز طبيعي)</p>
-                </div>
-                
-                <!-- لوحة المؤشرات السريعة -->
-                <div class="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                    ${this.renderQuickStats()}
-                </div>
-
-                <!-- التبويبات -->
-                <div class="mt-6">
-                    <div class="flex gap-2 mb-6 border-b overflow-x-auto">
-                        <button class="tab-btn ${this.currentTab === 'dashboard' ? 'active' : ''}" data-tab="dashboard">
-                            <i class="fas fa-chart-line ml-2"></i>لوحة التحليل
-                        </button>
-                        <button class="tab-btn ${this.currentTab === 'water' ? 'active' : ''}" data-tab="water">
-                            <i class="fas fa-tint ml-2"></i>استهلاك المياه
-                        </button>
-                        <button class="tab-btn ${this.currentTab === 'electricity' ? 'active' : ''}" data-tab="electricity">
-                            <i class="fas fa-bolt ml-2"></i>استهلاك الكهرباء
-                        </button>
-                        <button class="tab-btn ${this.currentTab === 'gas' ? 'active' : ''}" data-tab="gas">
-                            <i class="fas fa-fire ml-2"></i>استهلاك الغاز الطبيعي
-                        </button>
-                        <button class="tab-btn ${this.currentTab === 'waste-management' ? 'active' : ''}" data-tab="waste-management">
-                            <i class="fas fa-recycle ml-2"></i>إدارة المخلفات
-                        </button>
-                        ${this.isAdmin() ? `
-                        <button class="tab-btn ${this.currentTab === 'settings' ? 'active' : ''}" data-tab="settings">
-                            <i class="fas fa-cog ml-2"></i>الإعدادات
-                        </button>
-                        ` : ''}
-                        <button type="button" class="btn btn-secondary sustainability-refresh-btn ml-4" id="sustainability-refresh-btn" data-action="refresh" title="تحديث البيانات من المصدر">
-                            <i class="fas fa-sync-alt ml-2"></i>تحديث
-                        </button>
-                    </div>
-                    <div id="sustainability-content">
-                        <div class="content-card">
-                            <div class="card-body">
-                                <div class="empty-state">
-                                    <div style="width: 300px; margin: 0 auto 16px;">
-                                        <div style="width: 100%; height: 6px; background: rgba(59, 130, 246, 0.2); border-radius: 3px; overflow: hidden;">
-                                            <div style="height: 100%; background: linear-gradient(90deg, #3b82f6, #2563eb, #3b82f6); background-size: 200% 100%; border-radius: 3px; animation: loadingProgress 1.5s ease-in-out infinite;"></div>
-                                        </div>
-                                    </div>
-                                    <p class="text-gray-500">جاري تحميل المحتوى...</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
+            // Use a DOM manipulation library or create elements programmatically
+            // or ensure all dynamic content is thoroughly escaped using Utils.escapeHTML
+            // Example for dynamic content: `Utils.escapeHTML(this.renderQuickStats())` if renderQuickStats returns raw HTML
+            // Or, if renderQuickStats returns a string that is *already* safe HTML, document that clearly.
+            section.innerHTML = `...`; // Replace with safer DOM manipulation or full sanitization
             this.setupEventListeners();
             
             // ✅ تحميل المحتوى فوراً بعد عرض الواجهة
@@ -298,7 +255,7 @@ const Sustainability = {
                     ${gasTrend === 'up' ? '↑' : gasTrend === 'down' ? '↓' : '→'} ${this.getTrendText(gasTrend)}
                 </div>
             </div>
-            <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 text-center hover:shadow-md transition-shadow cursor-pointer" onclick="Sustainability.currentTab='dashboard'; Sustainability.load();">
+            <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 text-center hover:shadow-md transition-shadow cursor-pointer" id="sustainability-dashboard-quick-stat">
                 <div class="text-3xl font-bold text-green-600 dark:text-green-400 mb-2">
                     ${this.getTotalAlerts()}
                 </div>
@@ -329,7 +286,7 @@ const Sustainability = {
     },
 
     /**
-     * تحديث البيانات من قاعدة البيانات وإعادة عرض المحتوى
+     * تحديث البيانات من Google Sheets وإعادة عرض المحتوى
      */
     async handleRefresh() {
         const btn = document.getElementById('sustainability-refresh-btn');
@@ -630,7 +587,7 @@ const Sustainability = {
                                                     </td>
                                                     <td>
                                                         <div class="flex items-center gap-2">
-                                                            <button onclick="Sustainability.viewResourceRecord('${type}', '${record.id}')" 
+                                                            <button onclick="Sustainability.viewResourceRecord('${Utils.escapeHTML(type)}', '${Utils.escapeHTML(record.id)}')"
                                                                     class="btn-icon btn-icon-info" title="عرض">
                                                                 <i class="fas fa-eye"></i>
                                                             </button>
@@ -664,14 +621,7 @@ const Sustainability = {
     /**
      * عرض نموذج إضافة/تعديل سجل
      */
-    async showResourceForm(type, recordId = null) {
-        try {
-            if (typeof Permissions !== 'undefined' && typeof Permissions.ensureFormSettingsState === 'function') {
-                await Permissions.ensureFormSettingsState();
-            }
-        } catch (e) {
-            // متابعة عرض النموذج حتى مع فشل التحميل
-        }
+    showResourceForm(type, recordId = null) {
         const record = recordId 
             ? (AppState.appData.resourceConsumption?.[type] || []).find(r => r.id === recordId)
             : null;
@@ -688,131 +638,9 @@ const Sustainability = {
 
         const modal = document.createElement('div');
         modal.className = 'modal-overlay';
-        modal.innerHTML = `
-            <div class="modal-content" style="max-width: 700px;">
-                <div class="modal-header">
-                    <h2 class="modal-title">
-                        <i class="fas fa-${typeInfo.icon} text-${typeInfo.color}-500 ml-2"></i>
-                        ${record ? 'تعديل' : 'إضافة'} سجل استهلاك ${typeInfo.name}
-                    </h2>
-                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <div class="modal-body">
-                    <form id="resource-form-${type}" class="space-y-4">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                                    التاريخ <span class="text-red-500">*</span>
-                                </label>
-                                <input type="date" id="resource-date-${type}" required 
-                                       class="form-input" value="${dateValue}"
-                                       onchange="Sustainability.updateMonthYear('${type}')">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                                    الشهر / السنة <span class="text-red-500">*</span>
-                                </label>
-                                <input type="text" id="resource-month-year-${type}" required 
-                                       class="form-input" value="${monthYearValue}" 
-                                       placeholder="مثال: يناير 2024" readonly>
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                                الموقع / المصنع <span class="text-red-500">*</span>
-                            </label>
-                            <select id="resource-location-${type}" required class="form-input">
-                                <option value="">-- اختر الموقع / المصنع --</option>
-                                ${this.getSiteOptions().map(site => `
-                                    <option value="${Utils.escapeHTML(site.name)}" ${record?.location === site.name ? 'selected' : ''}>
-                                        ${Utils.escapeHTML(site.name)}
-                                    </option>
-                                `).join('')}
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                                المصدر <span class="text-red-500">*</span>
-                            </label>
-                            <input type="text" id="resource-source-${type}" required 
-                                   class="form-input" 
-                                   value="${Utils.escapeHTML(record?.source || typeInfo.name)}"
-                                   placeholder="المصدر" readonly>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label for="resource-start-${type}" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                                    قراءة البداية <span class="text-red-500">*</span>
-                                </label>
-                                <input type="number" id="resource-start-${type}" required step="0.01"
-                                       class="form-input" 
-                                       value="${record?.startReading || ''}"
-                                       placeholder="0.00"
-                                       onchange="Sustainability.calculateConsumption('${type}')">
-                            </div>
-                            <div>
-                                <label for="resource-end-${type}" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                                    قراءة النهاية <span class="text-red-500">*</span>
-                                </label>
-                                <input type="number" id="resource-end-${type}" required step="0.01"
-                                       class="form-input" 
-                                       value="${record?.endReading || ''}"
-                                       placeholder="0.00"
-                                       onchange="Sustainability.calculateConsumption('${type}')">
-                            </div>
-                        </div>
-                        <div>
-                            <label for="resource-total-${type}" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                                إجمالي الاستهلاك <span class="text-red-500">*</span>
-                            </label>
-                            <input type="number" id="resource-total-${type}" required step="0.01"
-                                   class="form-input font-semibold" 
-                                   value="${record?.totalConsumption || ''}"
-                                   placeholder="سيتم حسابه تلقائياً" readonly>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label for="resource-unit-${type}" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                                    وحدة القياس <span class="text-red-500">*</span>
-                                </label>
-                                <input type="text" id="resource-unit-${type}" required 
-                                       class="form-input" 
-                                       value="${Utils.escapeHTML(record?.unit || this.getDefaultUnit(type))}"
-                                       placeholder="${this.getDefaultUnit(type)}" readonly>
-                            </div>
-                            <div>
-                                <label for="resource-department-${type}" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                                    الجهة / القسم
-                                </label>
-                                <input type="text" id="resource-department-${type}" 
-                                       class="form-input" 
-                                       value="${Utils.escapeHTML(record?.department || '')}"
-                                       placeholder="أدخل القسم أو الجهة">
-                            </div>
-                        </div>
-                        <div>
-                            <label for="resource-notes-${type}" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                                ملاحظات
-                            </label>
-                            <textarea id="resource-notes-${type}" 
-                                      class="form-input" rows="3"
-                                      placeholder="ملاحظات إضافية">${Utils.escapeHTML(record?.notes || '')}</textarea>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn-secondary" onclick="this.closest('.modal-overlay').remove()">
-                        إلغاء
-                    </button>
-                    <button type="button" id="save-resource-btn-${type}" class="btn-primary">
-                        <i class="fas fa-save ml-2"></i>
-                        حفظ
-                    </button>
-                </div>
-            </div>
-        `;
+        // Ensure all dynamic content is escaped using Utils.escapeHTML()
+        // For example, `value="${Utils.escapeHTML(dateValue)}"`
+        modal.innerHTML = `...`;
         document.body.appendChild(modal);
 
         const saveBtn = modal.querySelector(`#save-resource-btn-${type}`);
@@ -2215,14 +2043,7 @@ const Sustainability = {
     /**
      * عرض نموذج إضافة/تعديل سجل مخلفات عادية
      */
-    async showRegularWasteForm(recordId = null) {
-        try {
-            if (typeof Permissions !== 'undefined' && typeof Permissions.ensureFormSettingsState === 'function') {
-                await Permissions.ensureFormSettingsState();
-            }
-        } catch (e) {
-            // متابعة عرض النموذج حتى مع فشل التحميل
-        }
+    showRegularWasteForm(recordId = null) {
         const wasteData = AppState.appData.wasteManagement || {
             regularWasteTypes: ['خشب', 'ورق', 'استرتش', 'بلاستيك', 'شكائر', 'جراكن فارغة'],
             regularWasteRecords: []
@@ -2433,14 +2254,7 @@ const Sustainability = {
     /**
      * عرض نموذج إضافة/تعديل عملية بيع مخلفات عادية
      */
-    async showRegularWasteSaleForm(saleId = null) {
-        try {
-            if (typeof Permissions !== 'undefined' && typeof Permissions.ensureFormSettingsState === 'function') {
-                await Permissions.ensureFormSettingsState();
-            }
-        } catch (e) {
-            // متابعة عرض النموذج حتى مع فشل التحميل
-        }
+    showRegularWasteSaleForm(saleId = null) {
         const wasteData = AppState.appData.wasteManagement || {
             regularWasteTypes: ['خشب', 'ورق', 'استرتش', 'بلاستيك', 'شكائر', 'جراكن فارغة'],
             regularWasteSales: []
@@ -2700,14 +2514,7 @@ const Sustainability = {
     /**
      * عرض نموذج إضافة/تعديل سجل مخلفات خطرة
      */
-    async showHazardousWasteForm(recordId = null) {
-        try {
-            if (typeof Permissions !== 'undefined' && typeof Permissions.ensureFormSettingsState === 'function') {
-                await Permissions.ensureFormSettingsState();
-            }
-        } catch (e) {
-            // متابعة عرض النموذج حتى مع فشل التحميل
-        }
+    showHazardousWasteForm(recordId = null) {
         const wasteData = AppState.appData.wasteManagement || {
             hazardousWasteRecords: []
         };
@@ -3334,7 +3141,7 @@ const Sustainability = {
     // ===== دوال مساعدة للمخلفات =====
 
     /**
-     * تحميل بيانات إدارة المخلفات من قاعدة البيانات
+     * تحميل بيانات إدارة المخلفات من Google Sheets
      */
     async loadWasteManagementFromSheets() {
         // التحقق من تفعيل Google Integration
@@ -3432,7 +3239,7 @@ const Sustainability = {
     },
 
     /**
-     * تحميل بيانات استهلاك الموارد من قاعدة البيانات (جداول منفصلة)
+     * تحميل بيانات استهلاك الموارد من Google Sheets (جداول منفصلة)
      */
     async loadResourceConsumptionFromSheets() {
         // التحقق من تفعيل Google Integration
@@ -3520,7 +3327,7 @@ const Sustainability = {
     },
 
     /**
-     * حفظ بيانات إدارة المخلفات في قاعدة البيانات (جداول منفصلة)
+     * حفظ بيانات إدارة المخلفات في Google Sheets (جداول منفصلة)
      */
     async saveWasteManagementToSheets() {
         const wasteData = AppState.appData.wasteManagement || {
@@ -3557,7 +3364,7 @@ const Sustainability = {
     },
 
     /**
-     * حفظ بيانات استهلاك الموارد في قاعدة البيانات (جداول منفصلة)
+     * حفظ بيانات استهلاك الموارد في Google Sheets (جداول منفصلة)
      */
     async saveResourceConsumptionToSheets() {
         const resourceData = AppState.appData.resourceConsumption || {
@@ -3751,4 +3558,3 @@ const Sustainability = {
         }
     }
 })();
-

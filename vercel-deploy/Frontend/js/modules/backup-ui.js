@@ -1,4 +1,4 @@
-﻿/* ========================================
+/* ========================================
    واجهة إدارة النسخ الاحتياطية
    Backup Management UI
    ======================================== */
@@ -198,10 +198,10 @@ const BackupUI = {
                 }
             }
         } catch (error) {
-            // تجاهل أخطاء Circuit Breaker والخادم غير المفعل
+            // تجاهل أخطاء Circuit Breaker و Google Apps Script غير المفعل
             const errorMsg = String(error?.message || '').toLowerCase();
             if (!errorMsg.includes('circuit breaker') && 
-                !errorMsg.includes('الاتصال بالخادم غير مفعل') &&
+                !errorMsg.includes('google apps script غير مفعل') &&
                 !errorMsg.includes('غير مفعل')) {
                 // تسجيل الأخطاء الأخرى فقط
                 if (typeof Utils !== 'undefined' && Utils.safeError) {
@@ -299,10 +299,10 @@ const BackupUI = {
                 listContainer.innerHTML = '<p class="text-red-500 text-center py-4">خطأ في تحميل النسخ الاحتياطية</p>';
             }
         } catch (error) {
-            // تجاهل أخطاء Circuit Breaker والخادم غير المفعل
+            // تجاهل أخطاء Circuit Breaker و Google Apps Script غير المفعل
             const errorMsg = String(error?.message || '').toLowerCase();
             if (!errorMsg.includes('circuit breaker') && 
-                !errorMsg.includes('الاتصال بالخادم غير مفعل') &&
+                !errorMsg.includes('google apps script غير مفعل') &&
                 !errorMsg.includes('غير مفعل')) {
                 // تسجيل الأخطاء الأخرى فقط
                 if (typeof Utils !== 'undefined' && Utils.safeError) {
@@ -342,10 +342,10 @@ const BackupUI = {
                 }
             }
         } catch (error) {
-            // تجاهل أخطاء Circuit Breaker والخادم غير المفعل
+            // تجاهل أخطاء Circuit Breaker و Google Apps Script غير المفعل
             const errorMsg = String(error?.message || '').toLowerCase();
             if (!errorMsg.includes('circuit breaker') && 
-                !errorMsg.includes('الاتصال بالخادم غير مفعل') &&
+                !errorMsg.includes('google apps script غير مفعل') &&
                 !errorMsg.includes('غير مفعل')) {
                 // تسجيل الأخطاء الأخرى فقط
                 if (typeof Utils !== 'undefined' && Utils.safeError) {
@@ -487,4 +487,3 @@ const BackupUI = {
 if (typeof window !== 'undefined') {
     window.BackupUI = BackupUI;
 }
-
