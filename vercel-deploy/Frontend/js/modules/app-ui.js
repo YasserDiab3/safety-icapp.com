@@ -1,7 +1,20 @@
 // تطبيق الوضع الليلي فوراً عند تحميل الصفحة (قبل تعريف UI)
 (function applyThemeImmediately() {
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', savedTheme);
+    try {
+        const savedTheme =
+            typeof localStorage !== 'undefined'
+                ? localStorage.getItem('theme') || 'light'
+                : 'light';
+        if (document.documentElement) {
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        }
+    } catch (e) {
+        try {
+            if (document.documentElement) {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        } catch (e2) { /* ignore */ }
+    }
 })();
 
 // تعريف UI كمتغير عام (global) ليكون متاحاً لجميع الملفات
@@ -9065,12 +9078,7 @@ window.UI = {
     }
 };
 
-// Export to global scope (already done at the top, but kept for safety)
-if (typeof window !== 'undefined' && !window.UI) {
-    window.UI = UI;
-}
-
-// تصدير UI كـ const أيضاً للتوافق مع الكود القديم
+// تصدير UI كـ const للتوافق مع الكود القديم (window.UI عُرّف في أعلى الملف)
 const UI = window.UI;
 
 // إضافة اسم بديل AppUI للتوافق مع الكود القديم

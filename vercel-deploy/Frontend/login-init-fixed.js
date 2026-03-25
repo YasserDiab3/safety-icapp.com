@@ -1,4 +1,4 @@
-﻿// ===== تهيئة مباشرة لشاشة تسجيل الدخول - نسخة محسنة ومحلولة =====
+// ===== تهيئة مباشرة لشاشة تسجيل الدخول - نسخة محسنة ومحلولة =====
 
 // عزل هذا الملف بالكامل لتجنب تلويث الـ global scope (خصوصاً اسم log)
 (function () {
@@ -712,10 +712,17 @@ Yasser.diab@icapp.com.eg`;
     'use strict';
     
     function checkDependencies() {
-        return typeof window.Auth !== 'undefined' && 
-               typeof window.DataManager !== 'undefined' && 
-               typeof window.UI !== 'undefined' && 
-               typeof window.Notification !== 'undefined';
+        // Notification: يجب أن يكون كائن الإشعارات من app-utils (له .show)، وليس Web Notification API فقط
+        const hasAppNotification =
+            typeof window.Notification !== 'undefined' &&
+            typeof window.Notification.show === 'function';
+        return (
+            typeof window.Auth !== 'undefined' &&
+            typeof window.DataManager !== 'undefined' &&
+            typeof window.UI !== 'undefined' &&
+            typeof window.UI.showLoginScreen === 'function' &&
+            hasAppNotification
+        );
     }
     
     function setupLoginForm() {
@@ -1062,7 +1069,7 @@ Yasser.diab@icapp.com.eg`;
         
         log('⏳ انتظار تحميل الوحدات المطلوبة...');
         let attempts = 0;
-        const maxAttempts = 200; // 20 ثانية كحد أقصى
+        const maxAttempts = 400; // 40 ثانية كحد أقصى (أجهزة بطيئة / تحميل كبير)
         
         const checkInterval = setInterval(function() {
             attempts++;
@@ -1077,9 +1084,20 @@ Yasser.diab@icapp.com.eg`;
                 console.error('الوحدات المفقودة:', {
                     Auth: typeof window.Auth === 'undefined' ? '❌' : '✅',
                     DataManager: typeof window.DataManager === 'undefined' ? '❌' : '✅',
-                    UI: typeof window.UI === 'undefined' ? '❌' : '✅',
-                    Notification: typeof window.Notification === 'undefined' ? '❌' : '✅'
+                    UI:
+                        typeof window.UI === 'undefined' ||
+                        typeof window.UI.showLoginScreen !== 'function'
+                            ? '❌'
+                            : '✅',
+                    Notification:
+                        typeof window.Notification === 'undefined' ||
+                        typeof window.Notification.show !== 'function'
+                            ? '❌'
+                            : '✅'
                 });
+                console.error(
+                    '💡 إن بقي UI ❌ فابحث في Console عن أول خطأ أحمر قبل هذا السطر (غالباً فشل تنفيذ app-ui.js).'
+                );
             }
         }, 100);
     }
