@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Supabase Backend Integration
  * واجهة مطابقة لـ GoogleIntegration لاستخدام نفس التطبيق مع Supabase Edge Functions
  * يستخدم: AppState.useSupabaseBackend, AppState.supabaseUrl, AppState.supabaseAnonKey
@@ -6,8 +6,9 @@
 (function (global) {
     'use strict';
 
-    var DEFAULT_SUPABASE_URL = 'https://rtxleteymcqmtzrozckh.supabase.co';
-    var DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ0eGxldGV5bWNxbXR6cm96Y2toIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2ODk1MTMsImV4cCI6MjA4NzI2NTUxM30.f5WdaRZXCTpRF65HWA2bZk7sXYxNKVhUtunuuGRX4rs';
+    /** يجب أن تطابق app-utils.js (AppState) — تجنب الاتصال بمشروع قديم إذا تأخر تحميل AppState */
+    var DEFAULT_SUPABASE_URL = 'https://fcdsiwjtrjrbtznnmhmx.supabase.co';
+    var DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZjZHNpd2p0cmpyYnR6bm5taG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NzE2MzIsImV4cCI6MjA5MDA0NzYzMn0.LHn09oWlW4JZCvk3yWO3Bd5qfphL6t0KSW8JLBfx0GQ';
 
     function getConfig() {
         var state = global.AppState || {};
