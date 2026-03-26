@@ -6173,6 +6173,80 @@ if (typeof window !== 'undefined') {
     window.AppState = AppState;
     window.MODULE_PERMISSIONS_CONFIG = MODULE_PERMISSIONS_CONFIG;
     window.DEFAULT_ROLE_PERMISSIONS = DEFAULT_ROLE_PERMISSIONS;
+
+    // Minimal i18n facade used by modules (e.g. Settings)
+    // Some modules call I18n.t(...) directly; if I18n isn't defined, the whole section can fail to render.
+    if (!window.I18n) {
+        const AR = {
+            'settings.title': 'الإعدادات',
+            'settings.subtitle': 'إدارة إعدادات النظام والتكامل والصلاحيات',
+            'settings.tabs.company': 'بيانات الشركة',
+            'settings.tabs.integration': 'التكامل',
+            'settings.tabs.cloud': 'التخزين السحابي',
+            'settings.tabs.drive': 'Google Drive',
+            'settings.tabs.sharepoint': 'SharePoint',
+            'settings.tabs.system': 'إعدادات النظام',
+            'settings.tabs.forms': 'إعدادات النماذج',
+            'settings.tabs.violations': 'أنواع المخالفات',
+            'settings.tabs.reports': 'التقارير',
+            'settings.tabs.email': 'الإشعارات',
+            'settings.tabs.permissions': 'الصلاحيات',
+            'settings.tabs.circuit': 'دائرة الاعتمادات',
+            'settings.tabs.logs': 'السجلات',
+            'settings.company.title': 'بيانات الشركة',
+            'settings.company.subtitle': 'تحديث اسم الشركة والشعار وإعدادات التواصل',
+            'settings.company.name': 'اسم الشركة',
+            'settings.company.nameHint': 'سيظهر الاسم في شاشة الدخول والهيدر',
+            'settings.company.fontSize': 'حجم خط الاسم',
+            'settings.company.fontSizeHint': 'يؤثر على عرض الاسم في الواجهة',
+            'settings.company.secondaryName': 'اسم إضافي (اختياري)',
+            'settings.company.secondaryNameHint': 'يظهر تحت اسم الشركة'
+        };
+        const EN = {
+            'settings.title': 'Settings',
+            'settings.subtitle': 'Manage system, integration, and permissions',
+            'settings.tabs.company': 'Company',
+            'settings.tabs.integration': 'Integration',
+            'settings.tabs.cloud': 'Cloud storage',
+            'settings.tabs.drive': 'Google Drive',
+            'settings.tabs.sharepoint': 'SharePoint',
+            'settings.tabs.system': 'System',
+            'settings.tabs.forms': 'Forms',
+            'settings.tabs.violations': 'Violation types',
+            'settings.tabs.reports': 'Reports',
+            'settings.tabs.email': 'Notifications',
+            'settings.tabs.permissions': 'Permissions',
+            'settings.tabs.circuit': 'Approval circuit',
+            'settings.tabs.logs': 'Logs',
+            'settings.company.title': 'Company',
+            'settings.company.subtitle': 'Update company name, logo, and contact',
+            'settings.company.name': 'Company name',
+            'settings.company.nameHint': 'Shown on login and header',
+            'settings.company.fontSize': 'Name font size',
+            'settings.company.fontSizeHint': 'Affects header/login display',
+            'settings.company.secondaryName': 'Secondary name (optional)',
+            'settings.company.secondaryNameHint': 'Shown below the main name'
+        };
+        window.I18n = {
+            t: function (key) {
+                try {
+                    const lang = (window.AppState && window.AppState.currentLanguage) || localStorage.getItem('language') || 'ar';
+                    const dict = lang === 'en' ? EN : AR;
+                    return dict[key] || key;
+                } catch (e) {
+                    return key;
+                }
+            },
+            isRTL: function () {
+                try {
+                    const lang = (window.AppState && window.AppState.currentLanguage) || localStorage.getItem('language') || 'ar';
+                    return lang !== 'en';
+                } catch (e) {
+                    return true;
+                }
+            }
+        };
+    }
 }
 
 /**

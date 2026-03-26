@@ -17,6 +17,13 @@ CREATE TABLE IF NOT EXISTS public.users (
   updated_at timestamptz DEFAULT now()
 );
 
+-- لو كان users موجوداً مسبقاً (من ترحيلات أقدم) فقد لا يحتوي الأعمدة المطلوبة.
+-- لذلك نضيفها بأمان قبل أي INSERT/UPDATE.
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS password_hash text;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS permissions jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+
 CREATE TABLE IF NOT EXISTS public.password_reset_tokens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   email text NOT NULL,
