@@ -158,10 +158,12 @@ window.Auth = {
         // استخدام البيانات المحلية أولاً لتسريع تسجيل الدخول
         // ⚠️ مهم: في أول تشغيل (users=0) يجب أن ننتظر مزامنة Users قبل محاولة التحقق من الحساب
         let localUsersCount = Array.isArray(AppState.appData.users) ? AppState.appData.users.length : 0;
-        const canSyncUsers = !!(AppState.googleConfig &&
+        const isSupabaseBackend = AppState.useSupabaseBackend === true;
+        const hasGoogleScript = !!(AppState.googleConfig &&
             AppState.googleConfig.appsScript &&
             AppState.googleConfig.appsScript.enabled &&
-            AppState.googleConfig.appsScript.scriptUrl &&
+            AppState.googleConfig.appsScript.scriptUrl);
+        const canSyncUsers = !!((isSupabaseBackend || hasGoogleScript) &&
             typeof GoogleIntegration !== 'undefined' &&
             typeof GoogleIntegration.syncUsers === 'function');
 
@@ -1028,7 +1030,7 @@ window.Auth = {
 
                 // ✅ الخطوة 2: تحميل البيانات الأساسية بشكل متسلسل (مهم جداً)
                 // البيانات الأساسية: Users, Employees, Contractors, ApprovedContractors
-                if (AppState.googleConfig && AppState.googleConfig.appsScript && AppState.googleConfig.appsScript.enabled && typeof GoogleIntegration !== 'undefined') {
+                if ((isSupabaseBackend || hasGoogleScript) && typeof GoogleIntegration !== 'undefined') {
                     const prioritySheets = ['Users', 'Employees', 'Contractors', 'ApprovedContractors'];
                     const sheetMapping = {
                         'Users': 'users',
@@ -1159,8 +1161,8 @@ window.Auth = {
                         Utils.safeWarn('⚠️ فشل تحميل بيانات الموديولات:', err);
                     });
                 } else {
-                    // إذا لم يكن Google Sheets مفعّل، نستخدم البيانات المحلية فقط
-                    Utils.safeLog('ℹ️ Google Sheets غير مفعّل - استخدام البيانات المحلية فقط');
+                    // إذا لم تكن المزامنة الخلفية مفعّلة، نستخدم البيانات المحلية فقط
+                    Utils.safeLog('ℹ️ المزامنة الخلفية غير مفعّلة - استخدام البيانات المحلية فقط');
                 }
             } catch (err) {
                 Utils.safeError('❌ خطأ عام في تحميل البيانات:', err);
@@ -1887,7 +1889,9 @@ window.Auth = {
      * يتم تحميل البيانات بشكل متتالي لضمان عدم فقدان أي بيانات
      */
     async loadModulesDataSequentially() {
-        if (!AppState.googleConfig?.appsScript?.enabled || typeof GoogleIntegration === 'undefined') {
+        const isSupabaseBackend = AppState.useSupabaseBackend === true;
+        const hasGoogleScript = !!AppState.googleConfig?.appsScript?.enabled;
+        if ((!isSupabaseBackend && !hasGoogleScript) || typeof GoogleIntegration === 'undefined') {
             return;
         }
 

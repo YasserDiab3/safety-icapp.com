@@ -12489,8 +12489,33 @@
             (function () {
                 "use strict";
 
+                function hasAuthenticatedUser() {
+                    try {
+                        return !!(window.AppState && window.AppState.currentUser);
+                    } catch (e) {
+                        return false;
+                    }
+                }
+
+                function enforceAuthVisibility() {
+                    try {
+                        var isAuth = hasAuthenticatedUser();
+                        var mainApp = document.getElementById("main-app");
+                        var loginScreen = document.getElementById("login-screen");
+                        if (!isAuth) {
+                            if (mainApp) mainApp.style.display = "none";
+                            if (loginScreen) {
+                                loginScreen.style.display = "flex";
+                                loginScreen.classList.add("active", "show");
+                            }
+                            document.body.classList.remove("app-active");
+                        }
+                    } catch (e) {}
+                }
+
                 function clearUiLock() {
                     try {
+                        if (!hasAuthenticatedUser()) return;
                         document.documentElement.classList.remove("hse-post-login-overlay-active");
                         document.body.classList.remove("hse-post-login-overlay-active");
                         var overlay = document.getElementById("hse-post-login-overlay");
@@ -12500,8 +12525,15 @@
 
                 function showMainAppIfHidden() {
                     try {
+                        if (!hasAuthenticatedUser()) return;
                         var mainApp = document.getElementById("main-app");
-                        if (mainApp && mainApp.style.display === "none") {
+                        var loginScreen = document.getElementById("login-screen");
+                        if (
+                            mainApp &&
+                            mainApp.style.display === "none" &&
+                            loginScreen &&
+                            loginScreen.style.display === "none"
+                        ) {
                             mainApp.style.display = "flex";
                             document.body.classList.add("app-active");
                         }
@@ -12599,6 +12631,7 @@
                 }
 
                 function runRecovery() {
+                    enforceAuthVisibility();
                     clearUiLock();
                     showMainAppIfHidden();
                     bindEmergencyNavigation();
