@@ -1,0 +1,11 @@
+---
+description: Enforce chat work in safety-icapp.com only
+alwaysApply: true
+---
+
+# Chat Scope Rule
+
+- All implementation tasks in this chat must target `D:\Apps\2026\safety-icapp.com`.
+- `D:\Apps\2026\v-012` is audit-only unless the user explicitly requests edits there.
+- Before editing, verify paths belong to `D:\Apps\2026\safety-icapp.com`.
+- If accidental edits appear in `D:\Apps\2026\v-012`, revert immediately and report.

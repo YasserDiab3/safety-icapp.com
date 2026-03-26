@@ -2,6 +2,17 @@
 <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8" />
+        <!-- تعطيل قمع console: أضف ?debug=1 للرابط أو localStorage.setItem('HSE_DEBUG_CONSOLE','1') -->
+        <script>
+            (function () {
+                try {
+                    var q = new URLSearchParams(window.location.search || "");
+                    if (q.get("debug") === "1" || (typeof localStorage !== "undefined" && localStorage.getItem("HSE_DEBUG_CONSOLE") === "1")) {
+                        window.__HSE_DEBUG_CONSOLE = true;
+                    }
+                } catch (e) {}
+            })();
+        </script>
         <script>
             (function () {
                 try {
@@ -43,6 +54,7 @@
             // ========================================
             (function () {
                 "use strict";
+                if (window.__HSE_DEBUG_CONSOLE) return;
 
                 // ✅ LAYER -3: أول شيء - اعتراض console قبل أي سطر آخر (Chrome يطبع Uncaught عبر console)
                 function _isUploadManagerLog() {
@@ -917,6 +929,12 @@
             // يجب أن يكون هذا أول JavaScript يتم تنفيذه
             (function () {
                 "use strict";
+                if (window.__HSE_DEBUG_CONSOLE) {
+                    try {
+                        console.info("[HSE] وضع التصحيح: قمع أخطاء uploadmanager معطّل (?debug=1 أو HSE_DEBUG_CONSOLE)");
+                    } catch (e) {}
+                    return;
+                }
 
                 // قمع console.error فوراً - فحص كل المعاملات (الرسالة قد تكون في كائن Error)
                 if (typeof console !== "undefined" && console.error) {
@@ -989,12 +1007,16 @@
 
                     if (
                         msgLower.includes("uploadmanager") ||
-                        msgLower.includes("cannot read") ||
-                        msgLower.includes("htmlstyleelement") ||
-                        msgLower.includes("anonymous") ||
+                        urlLower.includes("uploadmanager") ||
+                        (msgLower.includes("cannot read") &&
+                            (msgLower.includes("document") ||
+                                msgLower.includes("htmlstyleelement") ||
+                                msgLower.includes("htmlimageelement") ||
+                                urlLower.includes("518") ||
+                                String(line) === "518")) ||
+                        (msgLower.includes("htmlstyleelement") && msgLower.includes("anonymous")) ||
                         msgLower.includes("contentdocument") ||
                         msgLower.includes("contentwindow") ||
-                        urlLower.includes("uploadmanager") ||
                         urlLower.includes("518")
                     ) {
                         return true; // قمع
@@ -1019,12 +1041,15 @@
 
                         if (
                             msg.includes("uploadmanager") ||
-                            msg.includes("cannot read") ||
-                            msg.includes("htmlstyleelement") ||
-                            msg.includes("anonymous") ||
+                            file.includes("uploadmanager") ||
+                            (msg.includes("cannot read") &&
+                                (msg.includes("document") ||
+                                    msg.includes("htmlstyleelement") ||
+                                    msg.includes("htmlimageelement") ||
+                                    file.includes("518"))) ||
+                            (msg.includes("htmlstyleelement") && msg.includes("anonymous")) ||
                             msg.includes("contentdocument") ||
                             msg.includes("contentwindow") ||
-                            file.includes("uploadmanager") ||
                             file.includes("518")
                         ) {
                             e.preventDefault();
@@ -1041,10 +1066,15 @@
                     "unhandledrejection",
                     function (e) {
                         const reason = String(e.reason || "").toLowerCase();
+                        const msg = (e.reason && e.reason.message) ? String(e.reason.message).toLowerCase() : reason;
+                        const combined = reason + " " + msg;
                         if (
-                            reason.includes("uploadmanager") ||
-                            reason.includes("cannot read") ||
-                            reason.includes("518")
+                            combined.includes("uploadmanager") ||
+                            (combined.includes("cannot read") &&
+                                (combined.includes("document") ||
+                                    combined.includes("htmlstyleelement") ||
+                                    combined.includes("518"))) ||
+                            combined.includes("518")
                         ) {
                             e.preventDefault();
                             return false;
@@ -1088,6 +1118,7 @@
             // ✅ قمع فوري وشامل قبل أي شيء آخر
             (function () {
                 "use strict";
+                if (window.__HSE_DEBUG_CONSOLE) return;
 
                 // دالة فحص شاملة ومحسّنة لأخطاء uploadmanager
                 const isUploadManagerError = function (text) {
@@ -12250,8 +12281,22 @@
         <!-- 5. Events (Event listeners and initialization) -->
         <script src="js/modules/app-events.js" defer></script>
         
-        <!-- Test Module Loading - Debug 503 errors -->
-        <script src="test-module-loading.js" defer></script>
+        <!-- Test Module Loading - Debug only in development -->
+        <script>
+            (function () {
+                try {
+                    const isDev =
+                        window.location.hostname === "localhost" ||
+                        window.location.hostname === "127.0.0.1" ||
+                        window.location.search.includes("debug=1");
+                    if (!isDev) return;
+                    const s = document.createElement("script");
+                    s.src = "test-module-loading.js";
+                    s.defer = true;
+                    document.head.appendChild(s);
+                } catch (e) {}
+            })();
+        </script>
 
         <!-- Login Init - تحميل مباشر -->
         <script src="login-init-fixed.js?v=8" defer></script>

@@ -170,7 +170,7 @@ window.Auth = {
         } else if (canSyncUsers) {
             Utils.safeLog('🔄 لا توجد بيانات محلية - مزامنة Users من Google Sheets قبل تسجيل الدخول...');
             try {
-                const timeoutMs = 8000; // تقليل مهلة مزامنة المستخدمين لتسريع الدخول
+                const timeoutMs = 2500; // مهلة قصيرة لتجنب تعليق تجربة الدخول على الشبكة
                 const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(false), timeoutMs));
                 const syncOk = await Promise.race([GoogleIntegration.syncUsers(true), timeoutPromise]);
                 if (syncOk) {

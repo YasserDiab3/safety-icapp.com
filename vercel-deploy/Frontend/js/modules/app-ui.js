@@ -2207,10 +2207,18 @@ window.UI = {
             (AppState.companySettings.postLoginItems === undefined || (hasNoItems && !AppState._companySettingsLoadedAfterLogin));
         if (shouldLoadSettings) {
             try {
-                await DataManager.loadCompanySettings(true);
-                AppState._companySettingsLoadedAfterLogin = true;
+                // لا نسمح لبطء الشبكة بتعليق الانتقال بعد تسجيل الدخول
+                const settingsLoad = DataManager.loadCompanySettings(true)
+                    .then(() => { AppState._companySettingsLoadedAfterLogin = true; })
+                    .catch((e) => {
+                        if (AppState.debugMode) Utils.safeWarn('⚠️ فشل تحميل إعدادات الشركة لعرض السياسة:', e);
+                    });
+                await Promise.race([
+                    settingsLoad,
+                    new Promise(resolve => setTimeout(resolve, 1200))
+                ]);
             } catch (e) {
-                if (AppState.debugMode) Utils.safeWarn('⚠️ فشل تحميل إعدادات الشركة لعرض السياسة:', e);
+                if (AppState.debugMode) Utils.safeWarn('⚠️ تجاوز مهلة تحميل إعدادات الشركة لعرض السياسة:', e);
             }
         }
         if (AppState.companySettings.postLoginItems === undefined) {
