@@ -9089,6 +9089,7 @@
                             id="login-submit-btn"
                             class="btn-primary w-full"
                             aria-label="تسجيل الدخول"
+                            onclick="return window.__HSEDirectLoginFromButton ? window.__HSEDirectLoginFromButton(event) : true;"
                         >
                             <i
                                 class="fas fa-sign-in-alt ml-2"
@@ -12304,7 +12305,100 @@
         </script>
 
         <!-- Login Init - تحميل مباشر -->
-        <script src="login-init-fixed.js?v=8" defer></script>
+        <script src="login-init-fixed.js?v=10" defer></script>
+        <script>
+            (function () {
+                "use strict";
+
+                if (window.__HSE_DIRECT_LOGIN_INSTALLED) return;
+                window.__HSE_DIRECT_LOGIN_INSTALLED = true;
+                window.__HSE_DIRECT_LOGIN_BUSY = false;
+
+                function showError(message) {
+                    try {
+                        if (window.Notification && typeof window.Notification.error === "function") {
+                            window.Notification.error(message);
+                            return;
+                        }
+                    } catch (e) {}
+                    alert(message);
+                }
+
+                function getCredentials() {
+                    var emailEl = document.getElementById("username");
+                    var passEl = document.getElementById("password");
+                    var rememberEl = document.getElementById("remember-me");
+                    return {
+                        email: emailEl ? String(emailEl.value || "").trim() : "",
+                        password: passEl ? String(passEl.value || "") : "",
+                        remember: !!(rememberEl && rememberEl.checked),
+                    };
+                }
+
+                async function doDirectLogin() {
+                    if (window.__HSE_DIRECT_LOGIN_BUSY) return false;
+                    var cred = getCredentials();
+                    if (!cred.email || !cred.password) {
+                        showError("يرجى إدخال البريد الإلكتروني وكلمة المرور");
+                        return false;
+                    }
+                    if (!window.Auth || typeof window.Auth.login !== "function") {
+                        showError("نظام المصادقة غير جاهز. يرجى تحديث الصفحة.");
+                        return false;
+                    }
+
+                    var btn = document.getElementById("login-submit-btn");
+                    var original = btn ? btn.innerHTML : "";
+                    window.__HSE_DIRECT_LOGIN_BUSY = true;
+                    try {
+                        if (btn) {
+                            btn.disabled = true;
+                            btn.innerHTML = '<i class="fas fa-spinner fa-spin ml-2"></i> جاري تسجيل الدخول...';
+                        }
+                        var result = await window.Auth.login(cred.email, cred.password, cred.remember);
+                        var success = result === true || (result && result.success === true);
+                        if (!success) {
+                            showError((result && (result.message || result.error)) || "البريد الإلكتروني أو كلمة المرور غير صحيحة");
+                            return false;
+                        }
+                        if (window.UI && typeof window.UI.showMainApp === "function") {
+                            await window.UI.showMainApp();
+                        }
+                        return true;
+                    } catch (err) {
+                        showError("حدث خطأ أثناء تسجيل الدخول. يرجى المحاولة مرة أخرى.");
+                        return false;
+                    } finally {
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.innerHTML = original;
+                        }
+                        window.__HSE_DIRECT_LOGIN_BUSY = false;
+                    }
+                }
+
+                window.__HSEDirectLoginFromButton = function (e) {
+                    try {
+                        if (e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        }
+                    } catch (x) {}
+                    doDirectLogin();
+                    return false;
+                };
+
+                // Enter key support حتى لو submit listeners تعطلوا
+                document.addEventListener("keydown", function (e) {
+                    if (e.key !== "Enter") return;
+                    var target = e.target || document.activeElement;
+                    var isLoginField = target && (target.id === "username" || target.id === "password");
+                    if (!isLoginField) return;
+                    e.preventDefault();
+                    doDirectLogin();
+                }, true);
+            })();
+        </script>
 
         <!-- App Bootstrap - نظام بدء التطبيق (يدير عملية التحميل) -->
         <!-- يجب تحميله بعد جميع الملفات الأخرى لضمان تحميل DataManager و Auth -->
