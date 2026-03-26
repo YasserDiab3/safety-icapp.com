@@ -3070,20 +3070,19 @@ window.UI = {
         const companyTextGroup = document.getElementById('header-company-text-group');
         const header = document.getElementById('company-logo-header');
 
-        // معالج النقر الموحد لفتح القائمة الجانبية
+        // معالج النقر الموحد: فتح/إغلاق القائمة الجانبية (toggle)
         const handleHeaderClick = (e) => {
             e.preventDefault();
             e.stopPropagation();
-            // يجب أن يكون الوصول للقائمة سهل دائمًا: نفتحها (بدون toggle للإغلاق)
-            this.toggleSidebar(true);
+            this.toggleSidebar();
         };
 
         // ربط حدث النقر على الشعار
         if (logoImg && !logoImg.dataset.clickBound) {
             logoImg.style.cursor = 'pointer';
-            logoImg.setAttribute('title', 'انقر لفتح القائمة الجانبية');
+            logoImg.setAttribute('title', 'انقر لفتح أو إغلاق القائمة الجانبية');
             logoImg.setAttribute('role', 'button');
-            logoImg.setAttribute('aria-label', 'فتح القائمة الجانبية');
+            logoImg.setAttribute('aria-label', 'فتح أو إغلاق القائمة الجانبية');
             logoImg.addEventListener('click', handleHeaderClick);
             logoImg.dataset.clickBound = 'true';
         }
@@ -3091,9 +3090,9 @@ window.UI = {
         // ربط حدث النقر على اسم الشركة
         if (companyNameText && !companyNameText.dataset.clickBound) {
             companyNameText.style.cursor = 'pointer';
-            companyNameText.setAttribute('title', 'انقر لفتح القائمة الجانبية');
+            companyNameText.setAttribute('title', 'انقر لفتح أو إغلاق القائمة الجانبية');
             companyNameText.setAttribute('role', 'button');
-            companyNameText.setAttribute('aria-label', 'فتح القائمة الجانبية');
+            companyNameText.setAttribute('aria-label', 'فتح أو إغلاق القائمة الجانبية');
             companyNameText.addEventListener('click', handleHeaderClick);
             companyNameText.dataset.clickBound = 'true';
         }
@@ -3101,9 +3100,9 @@ window.UI = {
         // ربط حدث النقر على النص الثانوي
         if (companySecondaryText && !companySecondaryText.dataset.clickBound) {
             companySecondaryText.style.cursor = 'pointer';
-            companySecondaryText.setAttribute('title', 'انقر لفتح القائمة الجانبية');
+            companySecondaryText.setAttribute('title', 'انقر لفتح أو إغلاق القائمة الجانبية');
             companySecondaryText.setAttribute('role', 'button');
-            companySecondaryText.setAttribute('aria-label', 'فتح القائمة الجانبية');
+            companySecondaryText.setAttribute('aria-label', 'فتح أو إغلاق القائمة الجانبية');
             companySecondaryText.addEventListener('click', handleHeaderClick);
             companySecondaryText.dataset.clickBound = 'true';
         }
@@ -4341,11 +4340,15 @@ window.UI = {
         };
 
         if (AppState.currentUser) {
-            if (nameEl) nameEl.textContent = AppState.currentUser.name;
-            if (emailEl) emailEl.textContent = AppState.currentUser.email;
+            const cu = AppState.currentUser;
+            const rawName = (cu.name || cu.displayName || '').toString().trim();
+            const displayName = rawName || (cu.email || '').toString().trim() || 'مستخدم';
+            const displayEmail = (cu.email || '').toString().trim() || '—';
+            if (nameEl) nameEl.textContent = displayName;
+            if (emailEl) emailEl.textContent = displayEmail;
             if (mobileUserName) {
-                mobileUserName.textContent = AppState.currentUser.email || '';
-                mobileUserName.style.display = AppState.currentUser.email ? 'block' : 'none';
+                mobileUserName.textContent = displayEmail !== '—' ? displayEmail : '';
+                mobileUserName.style.display = displayEmail !== '—' ? 'block' : 'none';
             }
 
             if (factoryEl) {
@@ -4378,8 +4381,9 @@ window.UI = {
     updateUserProfilePhoto() {
         if (!AppState.currentUser) return;
 
+        const usersList = (AppState.appData && Array.isArray(AppState.appData.users)) ? AppState.appData.users : [];
         // البحث عن المستخدم ي قاعدة البيانات (مع إعادة تحميل البيانات إذا لزم الأمر)
-        let user = AppState.appData.users.find(u => {
+        let user = usersList.find(u => {
             if (!u || !u.email || !AppState.currentUser.email) return false;
             return u.email.toLowerCase().trim() === AppState.currentUser.email.toLowerCase().trim();
         });
@@ -4393,7 +4397,7 @@ window.UI = {
                     const parsedData = JSON.parse(savedData);
                     if (parsedData.users) {
                         AppState.appData.users = parsedData.users;
-                        user = AppState.appData.users.find(u => {
+                        user = (Array.isArray(AppState.appData.users) ? AppState.appData.users : []).find(u => {
                             if (!u || !u.email || !AppState.currentUser.email) return false;
                             return u.email.toLowerCase().trim() === AppState.currentUser.email.toLowerCase().trim();
                         });
@@ -6471,7 +6475,7 @@ window.UI = {
 
                     // إنشاء handler جديد مع استخدام self بدلاً من this
                     // ✅ إصلاح: منع إغلاق القائمة عند النقر على الزر (لا stopImmediatePropagation) حتى يعمل فتح القائمة بشكل موثوق
-                    const clickHandler = (e) => {
+                    const clickHandler = async (e) => {
                         try {
                             if (e) {
                                 e.preventDefault();
@@ -7922,14 +7926,16 @@ window.UI = {
         const syncBtn = document.getElementById('sync-btn');
         if (!syncBtn) return;
 
-        // التحقق من حالة الاتصال
+        // التحقق من حالة الاتصال (Supabase أو Google أو ConnectionMonitor)
         let isConnected = false;
-        if (typeof ConnectionMonitor !== 'undefined' && ConnectionMonitor.getStatus) {
+        if (AppState.useSupabaseBackend === true && AppState.supabaseUrl &&
+            (AppState.supabaseAnonKey || AppState.supabasePublishableKey)) {
+            isConnected = true;
+        } else if (typeof ConnectionMonitor !== 'undefined' && ConnectionMonitor.getStatus) {
             const status = ConnectionMonitor.getStatus();
             isConnected = status.isConnected === true;
         } else {
-            // إذا لم يكن ConnectionMonitor متاحاً، نتحقق من إعدادات Google
-            isConnected = !!(AppState.googleConfig?.appsScript?.enabled && 
+            isConnected = !!(AppState.googleConfig?.appsScript?.enabled &&
                            AppState.googleConfig?.appsScript?.scriptUrl);
         }
 
@@ -8087,6 +8093,14 @@ window.UI = {
         const statusText = document.getElementById('user-connection-text');
         
         if (!statusBtn || !statusIcon || !statusText) return;
+
+        // إزالة النص الافتراضي «جاري التحميل» فور وجود جلسة (يُحدَّد «متصل/غير متصل» أدناه)
+        if (AppState.currentUser && AppState.currentUser.email) {
+            const t = (statusText.textContent || '').trim();
+            if (t === 'جاري التحميل' || t === 'جاري التحقق...') {
+                statusText.textContent = 'متصل';
+            }
+        }
 
         // إذا لم يكن هناك مستخدم مسجل دخول
         if (!AppState.currentUser || !AppState.currentUser.email) {
