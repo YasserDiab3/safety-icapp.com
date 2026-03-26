@@ -7,8 +7,8 @@
 (function() {
     'use strict';
     
-    // التحقق من أن الحماية الأساسية موجودة
-    if (!window.__errorSuppressorActive) {
+    // التحقق من أن الحماية الأساسية موجودة (في ?debug=1 يُعطّل القمع الأساسي عمداً — لا نُظهر تحذيراً مزعجاً)
+    if (!window.__errorSuppressorActive && !window.__HSE_DEBUG_CONSOLE) {
         console.warn('⚠️ Primary error suppressor not detected - activating backup');
     }
     
@@ -308,5 +308,7 @@
         }, true);
     }
     
-    console.log('✅ uploadmanager error suppressor loaded successfully');
+    if (!window.__HSE_DEBUG_CONSOLE) {
+        console.log('✅ uploadmanager error suppressor loaded successfully');
+    }
 })();

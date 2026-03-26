@@ -5,6 +5,24 @@
 // ===== Settings Module =====
 const Settings = {
     currentApprovalCircuitOwner: '__default__',
+
+    /**
+     * مزامنة إعدادات الشركة مع الخادم (Supabase Edge أو Google Apps Script)
+     */
+    canSyncCompanySettingsToBackend() {
+        try {
+            if (typeof GoogleIntegration === 'undefined' || typeof GoogleIntegration.sendToAppsScript !== 'function') {
+                return false;
+            }
+            if (AppState && AppState.useSupabaseBackend === true) {
+                return true;
+            }
+            return !!(AppState && AppState.googleConfig && AppState.googleConfig.appsScript &&
+                AppState.googleConfig.appsScript.enabled && AppState.googleConfig.appsScript.scriptUrl);
+        } catch (e) {
+            return false;
+        }
+    },
     
     /**
      * ضغط الصورة لتقليل الحجم (للتأكد من أن base64 string أقل من 50,000 حرف)
@@ -1296,7 +1314,7 @@ const Settings = {
                         }
                         
                         // حفظ الشعار في قاعدة البيانات (Google Sheets) عند التحميل الأول
-                        if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
+                        if (Settings.canSyncCompanySettingsToBackend()) {
                             try {
                                 const userData = AppState.currentUser || {};
                                 const result = await GoogleIntegration.sendToAppsScript('saveCompanySettings', {
@@ -1398,7 +1416,7 @@ const Settings = {
                         }
                         
                         // حفظ إزالة الشعار في قاعدة البيانات (Google Sheets)
-                        if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
+                        if (Settings.canSyncCompanySettingsToBackend()) {
                             try {
                                 const userData = AppState.currentUser || {};
                                 const result = await GoogleIntegration.sendToAppsScript('saveCompanySettings', {
@@ -1551,7 +1569,7 @@ const Settings = {
                     DataManager.saveCompanySettings();
                     
                     // حفظ في Google Sheets إذا كان متاحاً
-                    if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
+                    if (Settings.canSyncCompanySettingsToBackend()) {
                         try {
                             const userData = AppState.currentUser || {};
                             const result = await GoogleIntegration.sendToAppsScript('saveCompanySettings', {
@@ -1588,12 +1606,18 @@ const Settings = {
                     if (typeof UI !== 'undefined' && typeof UI.updateCompanyBranding === 'function') {
                         UI.updateCompanyBranding();
                     }
+                    if (typeof UI !== 'undefined' && typeof UI.updateCompanyLogoHeader === 'function') {
+                        UI.updateCompanyLogoHeader();
+                    }
                     // إعادة تحميل إعدادات الشركة من المصدر بعد الحفظ لضمان تحميل اسم الشركة (نفس زمن تحميل الشعار)
                     if (typeof DataManager !== 'undefined' && DataManager.loadCompanySettings) {
                         setTimeout(async () => {
                             try {
                                 await DataManager.loadCompanySettings(true);
                                 Utils.safeLog('✅ تم تحميل إعدادات الشركة بعد الحفظ');
+                                if (typeof UI !== 'undefined' && UI.updateCompanyLogoHeader) {
+                                    UI.updateCompanyLogoHeader();
+                                }
                             } catch (reloadError) {
                                 Utils.safeWarn('⚠️ فشل إعادة تحميل إعدادات الشركة:', reloadError);
                             }
@@ -1640,7 +1664,7 @@ const Settings = {
                 if (typeof DataManager !== 'undefined' && DataManager.saveCompanySettings) {
                     DataManager.saveCompanySettings();
                 }
-                if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
+                if (Settings.canSyncCompanySettingsToBackend()) {
                     try {
                         const userData = AppState.currentUser || {};
                         const payload = {
@@ -1788,7 +1812,7 @@ const Settings = {
                     DataManager.saveCompanySettings();
                     
                     // حفظ في Google Sheets إذا كان متاحاً
-                    if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
+                    if (Settings.canSyncCompanySettingsToBackend()) {
                         try {
                             const userData = AppState.currentUser || {};
                             const result = await GoogleIntegration.sendToAppsScript('saveCompanySettings', {
@@ -3240,7 +3264,7 @@ const Settings = {
         }
 
                         // حفظ الشعار في قاعدة البيانات (Google Sheets)
-                        if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
+                        if (Settings.canSyncCompanySettingsToBackend()) {
                             try {
                                 const userData = AppState.currentUser || {};
                                 const result = await GoogleIntegration.sendToAppsScript('saveCompanySettings', {
@@ -3325,7 +3349,7 @@ const Settings = {
         }
 
                     // حفظ إزالة الشعار في قاعدة البيانات (Google Sheets)
-                    if (AppState.googleConfig?.appsScript?.enabled && typeof GoogleIntegration !== 'undefined') {
+                    if (Settings.canSyncCompanySettingsToBackend()) {
                         try {
                             const userData = AppState.currentUser || {};
                             const result = await GoogleIntegration.sendToAppsScript('saveCompanySettings', {
