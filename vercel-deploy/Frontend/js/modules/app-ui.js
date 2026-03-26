@@ -2710,6 +2710,16 @@ window.UI = {
         }
         this.setupNavigationListeners();
         this.bindSidebarEvents();
+        // إظهار القائمة الجانبية تلقائياً بعد الدخول على الشاشات الكبيرة
+        // (المستخدم طلب ظهورها وعدم بقاء الشاشة ثابتة)
+        try {
+            const shouldAutoOpenSidebar = window.innerWidth > 1024;
+            if (shouldAutoOpenSidebar) {
+                // نفتح الشريط حتى لو كانت حالة "collapsed" محفوظة؛
+                // الطي يبقى طيّاً، لكن الشريط يظهر بدلاً من الاختفاء الكامل.
+                this.toggleSidebar(true);
+            }
+        } catch (e) { /* ignore */ }
         this.initSyncButton();
         this.initUserConnectionStatus();
 

@@ -12634,6 +12634,19 @@
                     } catch (e) {}
                 }
 
+                function ensureSidebarVisible() {
+                    try {
+                        if (!hasAuthenticatedUser()) return;
+                        if (window.innerWidth <= 1024) return;
+                        var sidebar = document.querySelector(".sidebar");
+                        if (!sidebar) return;
+                        // إذا لم تنفذ طبقة UI، نضمن أن الشريط مرئي
+                        sidebar.classList.add("open");
+                        var toggleBtn = document.getElementById("sidebar-toggle");
+                        if (toggleBtn) toggleBtn.setAttribute("aria-expanded", "true");
+                    } catch (e) {}
+                }
+
                 function bindEmergencyNavigation() {
                     if (window.__HSE_EMERGENCY_NAV_BOUND) return;
                     var items = document.querySelectorAll(".nav-item[data-section]");
@@ -12728,6 +12741,7 @@
                     enforceAuthVisibility();
                     clearUiLock();
                     showMainAppIfHidden();
+                    ensureSidebarVisible();
                     bindEmergencyNavigation();
                 }
 
