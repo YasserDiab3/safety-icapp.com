@@ -541,6 +541,157 @@
         const cleanLink = newLink.cloneNode(true);
         newLink.parentNode.replaceChild(cleanLink, newLink);
         
+        async function requestPasswordReset(email) {
+            const normalizedEmail = String(email || '').trim().toLowerCase();
+            if (!normalizedEmail) {
+                return { success: false, message: 'يرجى إدخال البريد الإلكتروني' };
+            }
+            if (typeof window.Utils !== 'undefined' && typeof window.Utils.isValidEmail === 'function' && !window.Utils.isValidEmail(normalizedEmail)) {
+                return { success: false, message: 'يرجى إدخال بريد إلكتروني صحيح' };
+            }
+
+            const appUrl = (window.location.origin || '') + (window.location.pathname || '/');
+
+            // المسار الأساسي: الطلب للخلفية (Supabase/Google عبر GoogleIntegration alias)
+            try {
+                if (window.GoogleIntegration && typeof window.GoogleIntegration.sendRequest === 'function') {
+                    const result = await window.GoogleIntegration.sendRequest({
+                        action: 'requestPasswordReset',
+                        data: { email: normalizedEmail, appUrl: appUrl }
+                    });
+                    if (result && result.success === true) {
+                        return {
+                            success: true,
+                            message: result.message || 'تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.'
+                        };
+                    }
+
+                    const msg = String(result?.message || result?.error || '');
+                    const likelyNotImplemented = /not implemented|unknown action|غير متاح|غير مدعوم/i.test(msg);
+                    if (!likelyNotImplemented) {
+                        return { success: false, message: msg || 'تعذر إرسال طلب استعادة كلمة المرور.' };
+                    }
+                }
+            } catch (err) {
+                const errMsg = String(err?.message || '');
+                const likelyNotImplemented = /not implemented|unknown action|غير متاح|غير مدعوم/i.test(errMsg);
+                if (!likelyNotImplemented) {
+                    return { success: false, message: errMsg || 'فشل الاتصال بالخادم.' };
+                }
+            }
+
+            // fallback: إذا لم يتوفر action في الخلفية، نستخدم Auth.resetPassword
+            try {
+                if (window.Auth && typeof window.Auth.resetPassword === 'function') {
+                    const fallbackResult = await window.Auth.resetPassword(normalizedEmail);
+                    if (fallbackResult && fallbackResult.success === true) {
+                        return {
+                            success: true,
+                            message: 'تم تنفيذ طلب استعادة كلمة المرور. يرجى متابعة بريدك الإلكتروني أو التواصل مع مدير النظام.'
+                        };
+                    }
+                    return {
+                        success: false,
+                        message: String(fallbackResult?.message || 'تعذر تنفيذ استعادة كلمة المرور.')
+                    };
+                }
+            } catch (fallbackErr) {
+                return { success: false, message: String(fallbackErr?.message || 'تعذر تنفيذ استعادة كلمة المرور.') };
+            }
+
+            return { success: false, message: 'خدمة استعادة كلمة المرور غير متاحة حالياً.' };
+        }
+
+        function showForgotPasswordDialog() {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.innerHTML = `
+                <div class="modal-content" style="max-width: 420px;">
+                    <div class="modal-header">
+                        <h2 class="modal-title">استعادة كلمة المرور</h2>
+                        <button type="button" class="modal-close" id="inline-forgot-close" aria-label="إغلاق">×</button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-4 text-gray-700">أدخل بريدك الإلكتروني لإرسال رابط/طلب استعادة كلمة المرور.</p>
+                        <form id="inline-forgot-form">
+                            <input type="email" id="inline-forgot-email" class="form-input w-full mb-3" placeholder="example@company.com" autocomplete="email" required>
+                            <div id="inline-forgot-status" class="text-sm mb-3" style="display:none;"></div>
+                            <div class="flex gap-3 justify-end">
+                                <button type="button" class="btn-secondary" id="inline-forgot-cancel">إلغاء</button>
+                                <button type="submit" class="btn-primary" id="inline-forgot-submit">
+                                    <i class="fas fa-paper-plane ml-2"></i>إرسال
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const close = () => { try { overlay.remove(); } catch (e) {} };
+            const closeBtn = overlay.querySelector('#inline-forgot-close');
+            const cancelBtn = overlay.querySelector('#inline-forgot-cancel');
+            if (closeBtn) closeBtn.addEventListener('click', close, true);
+            if (cancelBtn) cancelBtn.addEventListener('click', close, true);
+            overlay.addEventListener('click', function (ev) {
+                if (ev.target === overlay) close();
+            }, true);
+
+            const form = overlay.querySelector('#inline-forgot-form');
+            const emailInput = overlay.querySelector('#inline-forgot-email');
+            const statusEl = overlay.querySelector('#inline-forgot-status');
+            const submitBtn = overlay.querySelector('#inline-forgot-submit');
+            if (emailInput) {
+                const username = document.getElementById('username');
+                if (username && username.value) emailInput.value = username.value.trim();
+                setTimeout(() => { try { emailInput.focus(); } catch (e) {} }, 50);
+            }
+
+            if (!form) return;
+            form.addEventListener('submit', async function (ev) {
+                ev.preventDefault();
+                const email = String(emailInput?.value || '').trim();
+                if (statusEl) {
+                    statusEl.style.display = 'none';
+                    statusEl.textContent = '';
+                }
+                const original = submitBtn ? submitBtn.innerHTML : '';
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin ml-2"></i>جاري الإرسال...';
+                }
+
+                const result = await requestPasswordReset(email);
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = original;
+                }
+
+                if (result.success) {
+                    if (statusEl) {
+                        statusEl.style.display = 'block';
+                        statusEl.className = 'text-sm text-green-700 mb-3';
+                        statusEl.textContent = result.message;
+                    }
+                    const errorContact = document.getElementById('login-error-contact');
+                    if (errorContact) errorContact.style.display = 'none';
+                    return;
+                }
+
+                if (statusEl) {
+                    statusEl.style.display = 'block';
+                    statusEl.className = 'text-sm text-red-700 mb-3';
+                    statusEl.textContent = result.message || 'تعذر استعادة كلمة المرور.';
+                }
+                const errorContact = document.getElementById('login-error-contact');
+                if (errorContact) errorContact.style.display = 'block';
+            }, true);
+        }
+        // إتاحة fallback عالمي لإعادة الاستخدام بعد clone للنموذج
+        if (typeof window !== 'undefined') {
+            window.__HSEShowForgotPasswordDialog = showForgotPasswordDialog;
+        }
+
         cleanLink.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
@@ -551,11 +702,11 @@
                 try {
                     window.UI.showForgotPasswordModal();
                 } catch (error) {
-                    console.error('❌ خطأ في عرض نافذة استعادة كلمة المرور:', error);
-                    alert('ميزة استعادة كلمة المرور قيد التطوير.\n\nيرجى التواصل مع:\nYasser.diab@icapp.com.eg');
+                    console.error('❌ خطأ في عرض نافذة استعادة كلمة المرور من UI:', error);
+                    showForgotPasswordDialog();
                 }
             } else {
-                alert('ميزة استعادة كلمة المرور قيد التطوير.\n\nيرجى التواصل مع:\nYasser.diab@icapp.com.eg');
+                showForgotPasswordDialog();
             }
         }, true);
         
@@ -854,10 +1005,18 @@ Yasser.diab@icapp.com.eg`;
                                 window.UI.showForgotPasswordModal();
                             } catch (error) {
                                 console.error('❌ خطأ في عرض نافذة استعادة كلمة المرور:', error);
-                                alert('ميزة استعادة كلمة المرور قيد التطوير.\n\nيرجى التواصل مع:\nYasser.diab@icapp.com.eg');
+                                if (typeof window !== 'undefined' && typeof window.__HSEShowForgotPasswordDialog === 'function') {
+                                    window.__HSEShowForgotPasswordDialog();
+                                } else {
+                                    alert('تعذر فتح نافذة استعادة كلمة المرور. يرجى المحاولة مرة أخرى.');
+                                }
                             }
                         } else {
-                            alert('ميزة استعادة كلمة المرور قيد التطوير.\n\nيرجى التواصل مع:\nYasser.diab@icapp.com.eg');
+                            if (typeof window !== 'undefined' && typeof window.__HSEShowForgotPasswordDialog === 'function') {
+                                window.__HSEShowForgotPasswordDialog();
+                            } else {
+                                alert('تعذر فتح نافذة استعادة كلمة المرور. يرجى المحاولة مرة أخرى.');
+                            }
                         }
                     }, true);
                     forgotPasswordLink.dataset.handlerBound = 'true';
@@ -956,7 +1115,7 @@ Yasser.diab@icapp.com.eg`;
             const usernameInput = document.getElementById('username');
             const passwordInput = document.getElementById('password');
             const rememberCheckbox = document.getElementById('remember-me');
-            const submitBtn = newForm.querySelector('button[type="submit"]');
+            const submitBtn = newForm.querySelector('#login-submit-btn') || newForm.querySelector('button[type="submit"]');
             
             if (!usernameInput || !passwordInput) {
                 const errorMsg = 'خطأ في تحميل نموذج تسجيل الدخول';
@@ -986,9 +1145,11 @@ Yasser.diab@icapp.com.eg`;
             
             // تعطيل الزر ومنع الضغط المزدوج
             loginSubmitInProgress = true;
-            const originalBtnText = submitBtn.innerHTML;
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin ml-2"></i> جاري تسجيل الدخول...';
+            const originalBtnText = submitBtn ? submitBtn.innerHTML : '';
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin ml-2"></i> جاري تسجيل الدخول...';
+            }
             
             try {
                 log('🔐 استدعاء Auth.login...');
@@ -1086,8 +1247,10 @@ Yasser.diab@icapp.com.eg`;
                         alert(errorMsg);
                     }
                     
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = originalBtnText;
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = originalBtnText;
+                    }
                 }
             } catch (error) {
                 console.error('❌ خطأ في تسجيل الدخول:', error);
@@ -1116,8 +1279,10 @@ Yasser.diab@icapp.com.eg`;
                 
                 notifyError(errorMsg);
                 
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = originalBtnText;
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalBtnText;
+                }
             }
             finally {
                 loginSubmitInProgress = false;

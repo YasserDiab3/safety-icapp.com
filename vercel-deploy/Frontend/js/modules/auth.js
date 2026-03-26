@@ -2166,9 +2166,18 @@ window.Auth = {
             AppState.currentUser.forcePasswordChange = true;
         }
 
-        // حفظ تلقائياً في Google Sheets
+        // حفظ تلقائياً في الخلفية (Supabase / Google Apps Script)
         try {
-            if (AppState.googleConfig.appsScript.enabled && AppState.googleConfig.appsScript.scriptUrl) {
+            const isSupabaseBackend = AppState.useSupabaseBackend === true;
+            const hasGoogleScript = !!(AppState.googleConfig &&
+                AppState.googleConfig.appsScript &&
+                AppState.googleConfig.appsScript.enabled &&
+                AppState.googleConfig.appsScript.scriptUrl);
+            const canCallBackend = (isSupabaseBackend || hasGoogleScript) &&
+                typeof GoogleIntegration !== 'undefined' &&
+                typeof GoogleIntegration.sendToAppsScript === 'function';
+
+            if (canCallBackend) {
                 // استخدام resetUserPassword في Backend أولاً
                 let result = await GoogleIntegration.sendToAppsScript('resetUserPassword', {
                     userId: user.id,
@@ -2176,8 +2185,8 @@ window.Auth = {
                     newPassword: tempPassword
                 });
 
-                if (result && result.success) {
-                    Utils.safeLog('✅ تم تحديث كلمة المرور في Google Sheets بنجاح');
+                    if (result && result.success) {
+                        Utils.safeLog('✅ تم تحديث كلمة المرور في الخلفية بنجاح');
                     // استخدام كلمة المرور المؤقتة من Backend إذا كانت متاحة
                     if (result.tempPassword) {
                         tempPassword = result.tempPassword;
@@ -2195,7 +2204,7 @@ window.Auth = {
                     });
 
                     if (result && result.success) {
-                        Utils.safeLog('✅ تم تحديث كلمة المرور في Google Sheets بنجاح (عبر updateUser)');
+                        Utils.safeLog('✅ تم تحديث كلمة المرور في الخلفية بنجاح (عبر updateUser)');
                     } else {
                         // إذا فشل، نحاول autoSave
                         await GoogleIntegration.autoSave('Users', AppState.appData.users);
@@ -2203,7 +2212,7 @@ window.Auth = {
                 }
             }
         } catch (error) {
-            Utils.safeWarn('⚠ فشل تحديث كلمة المرور في Google Sheets:', error);
+            Utils.safeWarn('⚠ فشل تحديث كلمة المرور في الخلفية:', error);
             // نحاول autoSave كبديل
             try {
                 await GoogleIntegration.autoSave('Users', AppState.appData.users);

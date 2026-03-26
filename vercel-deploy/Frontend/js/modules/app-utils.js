@@ -2732,8 +2732,10 @@ const AppState = {
         userEmail: null // البريد الإلكتروني للمستخدم الحالي
     },
     useSupabaseBackend: true,
-    supabaseUrl: 'https://fcdsiwjtrjrbtznnmhmx.supabase.co',
-    supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZjZHNpd2p0cmpyYnR6bm5taG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NzE2MzIsImV4cCI6MjA5MDA0NzYzMn0.LHn09oWlW4JZCvk3yWO3Bd5qfphL6t0KSW8JLBfx0GQ',
+    supabaseUrl: 'https://nrnshxbwikpeboalsoal.supabase.co',
+    supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ybnNoeGJ3aWtwZWJvYWxzb2FsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1NTc3MzEsImV4cCI6MjA5MDEzMzczMX0.ZjMJ89PmU_LBEBjqiQ01H9In-IEeb1SPrQ40kNJv6WA',
+    // اختياري: المفتاح publishable الجديد من Supabase (يُستخدم عند الحاجة)
+    supabasePublishableKey: 'sb_publishable_H4fiPhFuFZwx3C8La0np0Q_1rIEkcW7',
     /** مفتاح سري للـ API: يُملأ من js/config.js (__CONFIG__.HSE_API_SECRET) أو يُعيّن هنا */
     hseApiSecret: (typeof window !== 'undefined' && window.__CONFIG__ && window.__CONFIG__.HSE_API_SECRET) ? String(window.__CONFIG__.HSE_API_SECRET).trim() : '',
     googleConfig: {

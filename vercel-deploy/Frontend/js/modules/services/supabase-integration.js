@@ -7,13 +7,14 @@
     'use strict';
 
     /** يجب أن تطابق app-utils.js (AppState) — تجنب الاتصال بمشروع قديم إذا تأخر تحميل AppState */
-    var DEFAULT_SUPABASE_URL = 'https://fcdsiwjtrjrbtznnmhmx.supabase.co';
-    var DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZjZHNpd2p0cmpyYnR6bm5taG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NzE2MzIsImV4cCI6MjA5MDA0NzYzMn0.LHn09oWlW4JZCvk3yWO3Bd5qfphL6t0KSW8JLBfx0GQ';
+    var DEFAULT_SUPABASE_URL = 'https://nrnshxbwikpeboalsoal.supabase.co';
+    var DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ybnNoeGJ3aWtwZWJvYWxzb2FsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1NTc3MzEsImV4cCI6MjA5MDEzMzczMX0.ZjMJ89PmU_LBEBjqiQ01H9In-IEeb1SPrQ40kNJv6WA';
+    var DEFAULT_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_H4fiPhFuFZwx3C8La0np0Q_1rIEkcW7';
 
     function getConfig() {
         var state = global.AppState || {};
         var url = (state.supabaseUrl || DEFAULT_SUPABASE_URL).trim();
-        var key = (state.supabaseAnonKey || DEFAULT_SUPABASE_ANON_KEY).trim();
+        var key = (state.supabaseAnonKey || state.supabasePublishableKey || DEFAULT_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_PUBLISHABLE_KEY).trim();
         var apiSecret = (state.hseApiSecret || (global.__CONFIG__ && global.__CONFIG__.HSE_API_SECRET) || '').toString().trim();
         var base = url.replace(/\/$/, '');
         var edgeUrl = base ? base + '/functions/v1/hse-api' : '';

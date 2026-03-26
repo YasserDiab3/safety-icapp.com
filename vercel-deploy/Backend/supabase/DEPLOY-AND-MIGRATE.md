@@ -20,7 +20,7 @@ cd d:\App\v.2-ok run\SupabaseApp\Backend
 
 | الخطوة | الأمر | الشرح |
 |--------|--------|--------|
-| 1 | `supabase link` | يربط مجلد المشروع بالمشروع السحابي (معرف `rtxleteymcqmtzrozckh`) حتى تعمل الأوامر التالية على المشروع الصحيح. يُنفَّذ مرة واحدة أو عند تغيير المشروع. |
+| 1 | `supabase link` | يربط مجلد المشروع بالمشروع السحابي (معرف `nrnshxbwikpeboalsoal`) حتى تعمل الأوامر التالية على المشروع الصحيح. يُنفَّذ مرة واحدة أو عند تغيير المشروع. |
 | 2 | `supabase db push` | يطبّق ملفات الـ migrations (من `supabase/migrations/`) على قاعدة البيانات السحابية: إنشاء/تعديل الجداول، الفهارس، وسياسات RLS. |
 | 3 | `supabase functions deploy hse-api` | يرفع دالة **hse-api** (Edge Function) إلى السحابة لتصبح واجهة API التي يتصل بها الواجهة الأمامية. |
 | 4 (اختياري) | إنشاء bucket | إنشاء حاوية **user-photo** في Storage لصور الملف الشخصي. يحتاج مفتاح Service Role. |
@@ -48,17 +48,17 @@ $env:SUPABASE_SERVICE_ROLE_KEY="<مفتاح service_role من Dashboard → Proj
 
 ```bash
 cd Backend
-supabase link --project-ref rtxleteymcqmtzrozckh
+supabase link --project-ref nrnshxbwikpeboalsoal
 ```
 
 أو من جذر المستودع إذا كان `supabase` تحت مسار المشروع:
 
 ```bash
 cd d:\App\v.2-ok run\SupabaseApp\Backend
-supabase link --project-ref rtxleteymcqmtzrozckh
+supabase link --project-ref nrnshxbwikpeboalsoal
 ```
 
-معرف المشروع الحالي: `rtxleteymcqmtzrozckh` (من الرابط `https://rtxleteymcqmtzrozckh.supabase.co`).
+معرف المشروع الحالي: `nrnshxbwikpeboalsoal` (من الرابط `https://nrnshxbwikpeboalsoal.supabase.co`).
 
 ---
 
@@ -117,14 +117,14 @@ node supabase/scripts/create-user-photos-bucket.mjs
 
 - **Windows (PowerShell):**
   ```powershell
-  $env:SUPABASE_URL="https://rtxleteymcqmtzrozckh.supabase.co"
+  $env:SUPABASE_URL="https://nrnshxbwikpeboalsoal.supabase.co"
   $env:SUPABASE_SERVICE_ROLE_KEY="<مفتاح service_role من Dashboard → Project Settings → API>"
   node supabase/scripts/create-user-photos-bucket.mjs
   ```
 
 - **Linux / macOS:**
   ```bash
-  export SUPABASE_URL="https://rtxleteymcqmtzrozckh.supabase.co"
+  export SUPABASE_URL="https://nrnshxbwikpeboalsoal.supabase.co"
   export SUPABASE_SERVICE_ROLE_KEY="<مفتاح service_role من Dashboard → Project Settings → API>"
   node supabase/scripts/create-user-photos-bucket.mjs
   ```
@@ -150,7 +150,7 @@ node supabase/scripts/create-user-photos-bucket.mjs
 cd d:\App\v.2-ok run\SupabaseApp\Backend
 
 # 1) ربط المشروع (مرة واحدة)
-supabase link --project-ref rtxleteymcqmtzrozckh
+supabase link --project-ref nrnshxbwikpeboalsoal
 
 # 2) ترحيل قاعدة البيانات
 supabase db push

@@ -17,7 +17,7 @@
 3. من مجلد المشروع، ربط المشروع إن لم يكن مربوطاً:
    ```bash
    cd "d:\App\v.2-ok run\SupabaseApp\Backend"
-   supabase link --project-ref rtxleteymcqmtzrozckh
+   supabase link --project-ref nrnshxbwikpeboalsoal
    ```
 
 4. نشر الدالة:

@@ -138,10 +138,10 @@ npx supabase login
 ```
 (يفتح المتصفح لربط حساب Supabase؛ بعدها يمكنك النشر.)
 
-ثم اربط المجلد بمشروعك (مرة واحدة، معرف المشروع الحالي: `rtxleteymcqmtzrozckh`):
+ثم اربط المجلد بمشروعك (مرة واحدة، معرف المشروع الحالي: `nrnshxbwikpeboalsoal`):
 
 ```powershell
-npx supabase link --project-ref rtxleteymcqmtzrozckh
+npx supabase link --project-ref nrnshxbwikpeboalsoal
 ```
 
 **النشر:**
