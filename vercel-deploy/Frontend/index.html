@@ -10,6 +10,10 @@
                     if (q.get("debug") === "1" || (typeof localStorage !== "undefined" && localStorage.getItem("HSE_DEBUG_CONSOLE") === "1")) {
                         window.__HSE_DEBUG_CONSOLE = true;
                     }
+                    // تعطيل تحديث favicon الديناميكي الثقيل افتراضياً لتقليل تجميد التحميل
+                    if (q.get("dynamicFavicon") !== "1") {
+                        window.__HSE_DISABLE_DYNAMIC_FAVICON = true;
+                    }
                 } catch (e) {}
             })();
         </script>
@@ -7082,6 +7086,7 @@
         <script>
             // Function to update favicon and PWA icons from company logo
             function updateFaviconFromCompanyLogo(logoUrl) {
+                if (window.__HSE_DISABLE_DYNAMIC_FAVICON) return;
                 if (!logoUrl) return;
 
                 try {
@@ -12477,6 +12482,142 @@
                     });
                 }
             });
+        </script>
+
+        <!-- Emergency UI recovery: restores sidebar/navigation if main UI gets stuck -->
+        <script>
+            (function () {
+                "use strict";
+
+                function clearUiLock() {
+                    try {
+                        document.documentElement.classList.remove("hse-post-login-overlay-active");
+                        document.body.classList.remove("hse-post-login-overlay-active");
+                        var overlay = document.getElementById("hse-post-login-overlay");
+                        if (overlay && overlay.parentNode) overlay.remove();
+                    } catch (e) {}
+                }
+
+                function showMainAppIfHidden() {
+                    try {
+                        var mainApp = document.getElementById("main-app");
+                        if (mainApp && mainApp.style.display === "none") {
+                            mainApp.style.display = "flex";
+                            document.body.classList.add("app-active");
+                        }
+                    } catch (e) {}
+                }
+
+                function bindEmergencyNavigation() {
+                    if (window.__HSE_EMERGENCY_NAV_BOUND) return;
+                    var items = document.querySelectorAll(".nav-item[data-section]");
+                    if (!items || !items.length) return;
+
+                    items.forEach(function (item) {
+                        item.addEventListener(
+                            "click",
+                            function (e) {
+                                try {
+                                    var section = item.getAttribute("data-section");
+                                    if (!section) return;
+
+                                    // Prefer main UI implementation when available
+                                    if (window.UI && typeof window.UI.showSection === "function") {
+                                        return;
+                                    }
+
+                                    e.preventDefault();
+                                    e.stopPropagation();
+
+                                    document.querySelectorAll(".section").forEach(function (s) {
+                                        s.classList.remove("active");
+                                        s.style.display = "none";
+                                    });
+
+                                    document.querySelectorAll(".nav-item").forEach(function (n) {
+                                        n.classList.remove("active");
+                                        n.removeAttribute("aria-current");
+                                    });
+
+                                    var target = document.getElementById(section + "-section");
+                                    if (target) {
+                                        target.classList.add("active");
+                                        target.style.display = "block";
+                                    }
+
+                                    item.classList.add("active");
+                                    item.setAttribute("aria-current", "page");
+
+                                    var sidebar = document.querySelector(".sidebar");
+                                    var overlay = document.getElementById("sidebar-overlay");
+                                    if (sidebar) sidebar.classList.remove("open");
+                                    if (overlay) {
+                                        overlay.classList.remove("visible");
+                                        overlay.setAttribute("aria-hidden", "true");
+                                    }
+                                } catch (err) {}
+                            },
+                            true,
+                        );
+                    });
+
+                    var toggleBtn = document.getElementById("sidebar-toggle");
+                    if (toggleBtn && !toggleBtn.dataset.emergencyBound) {
+                        toggleBtn.dataset.emergencyBound = "1";
+                        toggleBtn.addEventListener("click", function (e) {
+                            try {
+                                if (window.UI && typeof window.UI.toggleSidebar === "function") return;
+                                e.preventDefault();
+                                var sidebar = document.querySelector(".sidebar");
+                                var overlay = document.getElementById("sidebar-overlay");
+                                if (!sidebar) return;
+                                var open = !sidebar.classList.contains("open");
+                                sidebar.classList.toggle("open", open);
+                                if (overlay) {
+                                    overlay.classList.toggle("visible", open);
+                                    overlay.setAttribute("aria-hidden", open ? "false" : "true");
+                                }
+                            } catch (err) {}
+                        });
+                    }
+
+                    var ov = document.getElementById("sidebar-overlay");
+                    if (ov && !ov.dataset.emergencyBound) {
+                        ov.dataset.emergencyBound = "1";
+                        ov.addEventListener("click", function () {
+                            try {
+                                if (window.UI && typeof window.UI.toggleSidebar === "function") return;
+                                var sidebar = document.querySelector(".sidebar");
+                                ov.classList.remove("visible");
+                                ov.setAttribute("aria-hidden", "true");
+                                if (sidebar) sidebar.classList.remove("open");
+                            } catch (err) {}
+                        });
+                    }
+
+                    window.__HSE_EMERGENCY_NAV_BOUND = true;
+                }
+
+                function runRecovery() {
+                    clearUiLock();
+                    showMainAppIfHidden();
+                    bindEmergencyNavigation();
+                }
+
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", runRecovery);
+                } else {
+                    runRecovery();
+                }
+
+                // Retry a few times in case scripts race
+                var retries = 0;
+                var id = setInterval(function () {
+                    runRecovery();
+                    retries += 1;
+                    if (retries >= 8) clearInterval(id);
+                }, 700);
+            })();
         </script>
 
         <!-- Auto-assign ids/names to form fields (fix autofill warnings) -->
