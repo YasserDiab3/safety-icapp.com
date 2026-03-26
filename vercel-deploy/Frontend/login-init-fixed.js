@@ -712,17 +712,32 @@ Yasser.diab@icapp.com.eg`;
     'use strict';
     
     function checkDependencies() {
-        // Notification: يجب أن يكون كائن الإشعارات من app-utils (له .show)، وليس Web Notification API فقط
-        const hasAppNotification =
-            typeof window.Notification !== 'undefined' &&
-            typeof window.Notification.show === 'function';
         return (
             typeof window.Auth !== 'undefined' &&
             typeof window.DataManager !== 'undefined' &&
             typeof window.UI !== 'undefined' &&
-            typeof window.UI.showLoginScreen === 'function' &&
-            hasAppNotification
+            typeof window.UI.showLoginScreen === 'function'
         );
+    }
+
+    function notifyWarning(message) {
+        try {
+            if (window.Notification && typeof window.Notification.warning === 'function') {
+                window.Notification.warning(message);
+                return;
+            }
+        } catch (e) {}
+        alert(message);
+    }
+
+    function notifyError(message) {
+        try {
+            if (window.Notification && typeof window.Notification.error === 'function') {
+                window.Notification.error(message);
+                return;
+            }
+        } catch (e) {}
+        alert(message);
     }
     
     function setupLoginForm() {
@@ -880,11 +895,7 @@ Yasser.diab@icapp.com.eg`;
             if (!usernameInput || !passwordInput) {
                 const errorMsg = 'خطأ في تحميل نموذج تسجيل الدخول';
                 console.error('❌', errorMsg);
-                if (typeof window.Notification !== 'undefined') {
-                    window.Notification.error(errorMsg);
-                } else {
-                    alert(errorMsg);
-                }
+                notifyError(errorMsg);
                 return;
             }
             
@@ -895,11 +906,7 @@ Yasser.diab@icapp.com.eg`;
             if (!email || !password) {
                 const errorMsg = 'يرجى إدخال البريد الإلكتروني وكلمة المرور';
                 console.warn('⚠️', errorMsg);
-                if (typeof window.Notification !== 'undefined') {
-                    window.Notification.warning(errorMsg);
-                } else {
-                    alert(errorMsg);
-                }
+                notifyWarning(errorMsg);
                 return;
             }
             
@@ -1008,7 +1015,7 @@ Yasser.diab@icapp.com.eg`;
                     }
                     
                     if (typeof window.Notification !== 'undefined') {
-                        window.Notification.error(errorMsg);
+                        notifyError(errorMsg);
                     } else {
                         alert(errorMsg);
                     }
@@ -1041,11 +1048,7 @@ Yasser.diab@icapp.com.eg`;
                     errorMsg = 'خدمات الخادم غير متاحة حالياً. يرجى المحاولة لاحقاً أو التحقق من إعدادات الاتصال.';
                 }
                 
-                if (typeof window.Notification !== 'undefined') {
-                    window.Notification.error(errorMsg);
-                } else {
-                    alert(errorMsg);
-                }
+                notifyError(errorMsg);
                 
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = originalBtnText;
