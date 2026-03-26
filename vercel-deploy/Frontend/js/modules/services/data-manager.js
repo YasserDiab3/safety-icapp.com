@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Data Manager Service
  * Handles local data storage, sync queue management, and configuration persistence
  */
@@ -471,46 +471,25 @@ const DataManager = {
 
     async loadCompanySettings(forceReload = false) {
         try {
-            // ✅ إصلاح: التحقق من وجود الشعار في localStorage أولاً (cache)
-            // إذا كان موجوداً ولم نطلب إعادة تحميل قسرية، نستخدم localStorage فقط
-            if (!forceReload) {
-                const cachedLogo = localStorage.getItem('hse_company_logo') || localStorage.getItem('company_logo');
-                const cachedSettings = localStorage.getItem('hse_company_settings');
-                
-                if (cachedLogo && cachedSettings) {
-                    try {
-                        const parsedSettings = JSON.parse(cachedSettings);
-                        if (parsedSettings && parsedSettings.logo) {
-                            // استخدام البيانات المخزنة محلياً
-                            AppState.companyLogo = cachedLogo;
-                            AppState.companySettings = Object.assign({}, AppState.companySettings, parsedSettings || {});
-                            AppState.companySettings.logo = cachedLogo;
-                            
-                            // تحديث الشعار في جميع الأماكن
-                            setTimeout(() => {
-                                if (typeof UI !== 'undefined') {
-                                    if (UI.updateCompanyLogoHeader) UI.updateCompanyLogoHeader();
-                                    if (UI.updateLoginLogo) UI.updateLoginLogo();
-                                    if (UI.updateDashboardLogo) UI.updateDashboardLogo();
-                                    if (UI.updateCompanyBranding) UI.updateCompanyBranding();
-                                }
-                                window.dispatchEvent(new CustomEvent('companyLogoUpdated', { 
-                                    detail: { logoUrl: cachedLogo } 
-                                }));
-                            }, 50);
-                            
-                            Utils.safeLog('✅ تم تحميل الشعار من localStorage (cache) - لا حاجة للتحميل من قاعدة البيانات');
-                            // ✅ إصلاح: إرجاع هنا لتجنب التحميل من قاعدة البيانات في كل مرة
-                            // فقط عند forceReload أو عدم وجود cache نتحميل من قاعدة البيانات
-                            return;
-                        }
-                    } catch (e) {
-                        Utils.safeWarn('⚠️ خطأ في قراءة البيانات المخزنة محلياً:', e);
-                    }
+            // تعبئة سريعة من localStorage (للعرض الفوري) ثم المزامنة مع الخادم دائماً عند التوفر
+            // (إزالة الإرجاع المبكر الذي كان يمنع جلب الاسم/الشعار المحدّث من الخادم)
+            try {
+                const savedSettings = localStorage.getItem('hse_company_settings');
+                if (savedSettings) {
+                    const parsed = JSON.parse(savedSettings);
+                    AppState.companySettings = Object.assign({}, AppState.companySettings, parsed || {});
                 }
+                const cachedLogo = localStorage.getItem('hse_company_logo') || localStorage.getItem('company_logo');
+                if (cachedLogo && cachedLogo.trim()) {
+                    AppState.companyLogo = cachedLogo;
+                    if (!AppState.companySettings) AppState.companySettings = {};
+                    AppState.companySettings.logo = cachedLogo;
+                }
+            } catch (e) {
+                Utils.safeWarn('⚠️ تعبئة إعدادات الشركة من التخزين المحلي:', e);
             }
-            
-            // ✅ تحميل الإعدادات من الخادم عند forceReload أو عدم وجود cache
+
+            // ✅ تحميل الإعدادات من الخادم عند التوفر
             const useSupabase = AppState.useSupabaseBackend === true;
             const hasGoogleScript = AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl;
             const canLoadFromBackend = (useSupabase || hasGoogleScript) && typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.sendToAppsScript === 'function';
@@ -603,30 +582,28 @@ const DataManager = {
                         
                             // ✅ إصلاح: تحديث الشعار في جميع الأماكن المخصصة (حتى لو كان فارغاً)
                         // استخدام setTimeout لضمان تحديث الواجهة بعد تحديث AppState
-                        const shouldUpdateUI = forceReload || !localStorage.getItem('hse_company_logo');
-                        if (shouldUpdateUI) {
-                            setTimeout(() => {
-                                if (typeof UI !== 'undefined') {
-                                    if (UI.updateCompanyLogoHeader) {
-                                        UI.updateCompanyLogoHeader();
-                                    }
-                                    if (UI.updateLoginLogo) {
-                                        UI.updateLoginLogo();
-                                    }
-                                    if (UI.updateDashboardLogo) {
-                                        UI.updateDashboardLogo();
-                                    }
-                                    if (UI.updateCompanyBranding) {
-                                        UI.updateCompanyBranding();
-                                    }
+                        // يجب دائماً تحديث الهيدر بعد دمج الخادم؛ شرط كان يمنع التحديث عند وجود شعار في localStorage
+                        setTimeout(() => {
+                            if (typeof UI !== 'undefined') {
+                                if (UI.updateCompanyLogoHeader) {
+                                    UI.updateCompanyLogoHeader();
                                 }
-                                
-                                // إرسال حدث لتحديث الشعار (حتى لو كان فارغاً لمسحه)
-                                window.dispatchEvent(new CustomEvent('companyLogoUpdated', { 
-                                    detail: { logoUrl: AppState.companyLogo || '' } 
-                                }));
-                            }, 100);
-                        }
+                                if (UI.updateLoginLogo) {
+                                    UI.updateLoginLogo();
+                                }
+                                if (UI.updateDashboardLogo) {
+                                    UI.updateDashboardLogo();
+                                }
+                                if (UI.updateCompanyBranding) {
+                                    UI.updateCompanyBranding();
+                                }
+                            } else if (typeof Utils !== 'undefined' && Utils && typeof Utils.safeWarn === 'function') {
+                                Utils.safeWarn('⚠️ UI غير متاح بعد تحميل إعدادات الشركة');
+                            }
+                            window.dispatchEvent(new CustomEvent('companyLogoUpdated', {
+                                detail: { logoUrl: (AppState && AppState.companyLogo) ? AppState.companyLogo : '' }
+                            }));
+                        }, 100);
                         
                         if (forceReload) {
                             Utils.safeLog('✅ تم تحميل إعدادات الشركة والشعار من الخادم بنجاح (force reload)');

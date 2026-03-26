@@ -213,7 +213,52 @@
 
         showHeaderActions: function () { /* noop */ },
         bindCompanyHeaderClickEvents: function () { /* noop */ },
-        updateCompanyLogoHeader: function () { /* noop في الـ shell */ },
+        updateCompanyLogoHeader: function () {
+            try {
+                var header = document.getElementById('company-logo-header');
+                var logoImg = document.getElementById('header-company-logo');
+                var nameEl = document.getElementById('header-company-name-text');
+                var secEl = document.getElementById('header-company-secondary-text');
+                if (!header) return;
+                var logoUrl = '';
+                if (typeof Utils !== 'undefined' && Utils.getResolvedCompanyLogoUrl) {
+                    logoUrl = Utils.getResolvedCompanyLogoUrl();
+                } else if (typeof AppState !== 'undefined' && AppState) {
+                    logoUrl = (AppState.companyLogo && String(AppState.companyLogo).trim()) ||
+                        (AppState.companySettings && AppState.companySettings.logo && String(AppState.companySettings.logo).trim()) || '';
+                }
+                var rawName = (typeof AppState !== 'undefined' && AppState.companySettings && AppState.companySettings.name)
+                    ? String(AppState.companySettings.name).trim() : '';
+                var sec = (typeof AppState !== 'undefined' && AppState.companySettings && AppState.companySettings.secondaryName)
+                    ? String(AppState.companySettings.secondaryName).trim() : '';
+                var fb = (typeof DEFAULT_COMPANY_NAME !== 'undefined') ? String(DEFAULT_COMPANY_NAME).trim() : '';
+                var showName = rawName || fb;
+                var show = !!(logoUrl || showName);
+                header.style.display = show ? 'flex' : 'none';
+                if (logoImg) {
+                    if (logoUrl) {
+                        logoImg.src = logoUrl;
+                        logoImg.style.display = 'block';
+                    } else {
+                        logoImg.src = '';
+                        logoImg.style.display = 'none';
+                    }
+                }
+                if (nameEl) {
+                    nameEl.textContent = showName || '';
+                    nameEl.style.display = showName ? 'block' : 'none';
+                }
+                if (secEl) {
+                    if (sec) {
+                        secEl.textContent = sec;
+                        secEl.style.display = 'block';
+                    } else {
+                        secEl.textContent = '';
+                        secEl.style.display = 'none';
+                    }
+                }
+            } catch (e) { /* ignore */ }
+        },
         updateDashboardLogo: function () { /* noop */ },
 
         toggleSidebar: toggleSidebar,

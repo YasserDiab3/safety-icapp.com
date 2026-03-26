@@ -10240,7 +10240,6 @@
                             z-index: 40;
                             padding: 10px 20px;
                             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-                            display: flex;
                             align-items: center;
                             justify-content: space-between;
                             transition: background-color 0.3s ease;
@@ -12194,7 +12193,7 @@
 
         <!-- Main App - Refactored Modules -->
         <!-- 1. Utils and Constants (must be loaded first) -->
-        <script src="js/modules/app-utils.js" defer></script>
+        <script src="js/modules/app-utils.js?v=header-branding-1" defer></script>
 
         <!-- 1.1 DOM Safety Utilities (safe DOM access functions) -->
         <script src="js/modules/dom-safety-utils.js" defer></script>
@@ -12208,7 +12207,7 @@
         <!-- 2. Services (Data fetching, Google Integration, etc.) -->
         <!-- CRITICAL: DataManager is defined here and must be loaded before login-init-fixed.js -->
         <!-- Load individual service modules first (they expose themselves to window) -->
-        <script src="js/modules/services/data-manager.js?v=2" defer></script>
+        <script src="js/modules/services/data-manager.js?v=3" defer></script>
         <script
             src="js/modules/services/periodic-inspection-store.js"
             defer
@@ -12233,9 +12232,9 @@
         <script src="js/modules/app-services.js" defer></script>
 
         <!-- 3. UI: طبقة خفيفة ثم الواجهة الكاملة (إذا فشل app-ui لا يبقى انتظار UI لانهائياً) -->
-        <script src="js/modules/ui-shell.js?v=4" defer></script>
+        <script src="js/modules/ui-shell.js?v=5" defer></script>
         <script
-            src="js/modules/app-ui.js?v=3"
+            src="js/modules/app-ui.js?v=4"
             defer
             onerror="console.error('[HSE] فشل تحميل app-ui.js — تحقق من Network أو امسح كاش المتصفح.');"
         ></script>

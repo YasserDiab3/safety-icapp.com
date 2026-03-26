@@ -3148,7 +3148,14 @@ window.UI = {
         const rawName = AppState?.companySettings?.name;
         const hasName = (rawName !== undefined && rawName !== null && String(rawName).trim() !== '') ||
             (fallbackName !== undefined && fallbackName !== null && String(fallbackName).trim() !== '');
-        const hasLogo = !!(AppState && typeof AppState.companyLogo === 'string' && AppState.companyLogo.trim() !== '');
+        const resolvedLogoUrl = (typeof Utils !== 'undefined' && Utils.getResolvedCompanyLogoUrl)
+            ? Utils.getResolvedCompanyLogoUrl()
+            : ((AppState && AppState.companyLogo && String(AppState.companyLogo).trim()) ||
+                (AppState?.companySettings?.logo && String(AppState.companySettings.logo).trim()) || '');
+        const hasLogo = !!resolvedLogoUrl;
+        if (resolvedLogoUrl && AppState && (!AppState.companyLogo || !String(AppState.companyLogo).trim())) {
+            AppState.companyLogo = resolvedLogoUrl;
+        }
         this.updateCompanyBranding();
 
         if (header) {
@@ -3181,7 +3188,7 @@ window.UI = {
                     };
 
                     if (hasLogo) {
-                        logoImg.src = AppState.companyLogo;
+                        logoImg.src = resolvedLogoUrl;
                         logoImg.style.display = 'block';
                     } else {
                         // إذا لا يوجد شعار، نخفي الصورة فقط ونظهر الاسم
@@ -3325,9 +3332,12 @@ window.UI = {
 
         // محاولة الحصول على الشعار من مصادر متعددة
         let logoUrl = null;
+        if (typeof Utils !== 'undefined' && typeof Utils.getResolvedCompanyLogoUrl === 'function') {
+            logoUrl = Utils.getResolvedCompanyLogoUrl() || null;
+        }
 
         // المصدر 1: AppState.companyLogo
-        if (AppState && AppState.companyLogo && AppState.companyLogo.trim() !== '') {
+        if (!logoUrl && AppState && AppState.companyLogo && AppState.companyLogo.trim() !== '') {
             logoUrl = AppState.companyLogo.trim();
         }
 

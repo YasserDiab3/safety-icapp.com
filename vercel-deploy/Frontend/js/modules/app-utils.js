@@ -2806,6 +2806,22 @@ const AppState = {
 // ===== Utility Functions =====
 const Utils = {
     /**
+     * رابط شعار الشركة الموحّد (AppState.companyLogo أو companySettings.logo)
+     */
+    getResolvedCompanyLogoUrl() {
+        try {
+            const st = typeof AppState !== 'undefined' ? AppState : null;
+            if (!st) return '';
+            const a = st.companyLogo && String(st.companyLogo).trim();
+            if (a) return a;
+            const lg = st.companySettings && st.companySettings.logo && String(st.companySettings.logo).trim();
+            return lg || '';
+        } catch (e) {
+            return '';
+        }
+    },
+
+    /**
      * التحقق من بيئة الإنتاج
      */
     isProduction() {
@@ -4955,7 +4971,9 @@ const PDFTemplates = {
         const companyAddress = escape(AppState?.companySettings?.address || '');
         const contactPhone = escape(AppState?.companySettings?.phone || '');
         const contactEmail = escape(AppState?.companySettings?.email || '');
-        const logo = AppState?.companyLogo || '';
+        const logo = (typeof Utils !== 'undefined' && Utils.getResolvedCompanyLogoUrl)
+            ? Utils.getResolvedCompanyLogoUrl()
+            : ((AppState?.companyLogo && String(AppState.companyLogo).trim()) || (AppState?.companySettings?.logo && String(AppState.companySettings.logo).trim()) || '');
         const companyInitials = escape(companyNameRaw.trim().slice(0, 2) || 'HS');
 
         // الحصول على إعدادات الخط واللون
