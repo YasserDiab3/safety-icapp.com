@@ -29,12 +29,23 @@ const BackupUI = {
             }
             
             // إظهار قسم النسخ الاحتياطية
-            const backupSection = document.getElementById('backup-management-section');
-            if (backupSection) {
-                backupSection.style.display = 'block';
-            } else {
-                console.warn('⚠️ قسم النسخ الاحتياطية غير موجود في DOM');
+            // الملاحظة: قسم النسخ الاحتياطية داخل إعدادات النظام قد لا يكون جاهزًا لحظة استدعاء init
+            // لذلك ننتظر قصيرة حتى يظهر العنصر بدل إصدار warning مكرر/تكسير واجهة الإعدادات.
+            let backupSection = null;
+            const maxTries = 12;
+            const delayMs = 250;
+            for (let i = 0; i < maxTries; i++) {
+                backupSection = document.getElementById('backup-management-section');
+                if (backupSection) break;
+                await new Promise(resolve => setTimeout(resolve, delayMs));
             }
+
+            if (!backupSection) {
+                console.warn('⚠️ قسم النسخ الاحتياطية غير موجود في DOM حتى بعد الانتظار. سيتم إيقاف init لعدم كسر صفحة الإعدادات.');
+                return;
+            }
+
+            backupSection.style.display = 'block';
             
             // ربط الأحداث (فقط إذا لم يتم ربطها من قبل)
             if (!this.eventsBound) {

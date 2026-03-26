@@ -3074,7 +3074,8 @@ window.UI = {
         const handleHeaderClick = (e) => {
             e.preventDefault();
             e.stopPropagation();
-            this.toggleSidebar();
+            // يجب أن يكون الوصول للقائمة سهل دائمًا: نفتحها (بدون toggle للإغلاق)
+            this.toggleSidebar(true);
         };
 
         // ربط حدث النقر على الشعار
@@ -3143,10 +3144,16 @@ window.UI = {
         const header = document.getElementById('company-logo-header');
         const logoImg = document.getElementById('header-company-logo');
         const logoImgRight = document.getElementById('header-company-logo-right');
+        const fallbackName = (typeof DEFAULT_COMPANY_NAME !== 'undefined') ? DEFAULT_COMPANY_NAME : '';
+        const rawName = AppState?.companySettings?.name;
+        const hasName = (rawName !== undefined && rawName !== null && String(rawName).trim() !== '') ||
+            (fallbackName !== undefined && fallbackName !== null && String(fallbackName).trim() !== '');
+        const hasLogo = !!(AppState && typeof AppState.companyLogo === 'string' && AppState.companyLogo.trim() !== '');
         this.updateCompanyBranding();
 
         if (header) {
-            if (AppState.companyLogo) {
+            const shouldShowHeader = hasLogo || hasName;
+            if (shouldShowHeader) {
                 header.style.display = 'flex';
                 header.style.justifyContent = 'space-between';
                 header.style.alignItems = 'center';
@@ -3172,9 +3179,15 @@ window.UI = {
                         hasError = false;
                         logoImg.style.display = 'block';
                     };
-                    
-                    logoImg.src = AppState.companyLogo;
-                    logoImg.style.display = 'block';
+
+                    if (hasLogo) {
+                        logoImg.src = AppState.companyLogo;
+                        logoImg.style.display = 'block';
+                    } else {
+                        // إذا لا يوجد شعار، نخفي الصورة فقط ونظهر الاسم
+                        logoImg.src = '';
+                        logoImg.style.display = 'none';
+                    }
                     logoImg.style.maxHeight = '50px';
                     logoImg.style.maxWidth = '150px';
                     logoImg.style.objectFit = 'contain';
