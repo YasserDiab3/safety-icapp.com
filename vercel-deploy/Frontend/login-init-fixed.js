@@ -874,6 +874,18 @@ Yasser.diab@icapp.com.eg`;
             }
         })();
         
+        // زر الدخول في HTML معرف كـ type="button"، لذلك نربطه يدوياً لتمرير submit
+        const loginSubmitBtn = newForm.querySelector('#login-submit-btn');
+        if (loginSubmitBtn && loginSubmitBtn.dataset.handlerBound !== 'true') {
+            loginSubmitBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                newForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+            }, true);
+            loginSubmitBtn.dataset.handlerBound = 'true';
+        }
+
         var loginSubmitInProgress = false;
         newForm.addEventListener('submit', async function(e) {
             e.preventDefault();
