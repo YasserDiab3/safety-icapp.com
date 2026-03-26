@@ -712,12 +712,9 @@ Yasser.diab@icapp.com.eg`;
     'use strict';
     
     function checkDependencies() {
-        return (
-            typeof window.Auth !== 'undefined' &&
-            typeof window.DataManager !== 'undefined' &&
-            typeof window.UI !== 'undefined' &&
-            typeof window.UI.showLoginScreen === 'function'
-        );
+        // لا نمنع ربط زر الدخول بسبب تأخر وحدات ثانوية.
+        // يكفي توفر Auth؛ Auth.login سيتعامل داخلياً مع أي نقص في الوحدات الأخرى برسالة واضحة.
+        return typeof window.Auth !== 'undefined' && typeof window.Auth.login === 'function';
     }
 
     function notifyWarning(message) {
@@ -738,6 +735,62 @@ Yasser.diab@icapp.com.eg`;
             }
         } catch (e) {}
         alert(message);
+    }
+
+    async function directLoginFallback(form) {
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const rememberCheckbox = document.getElementById('remember-me');
+        const submitBtn = form ? form.querySelector('#login-submit-btn') : null;
+
+        const email = usernameInput ? String(usernameInput.value || '').trim() : '';
+        const password = passwordInput ? String(passwordInput.value || '') : '';
+        const remember = rememberCheckbox ? !!rememberCheckbox.checked : false;
+
+        if (!email || !password) {
+            notifyWarning('يرجى إدخال البريد الإلكتروني وكلمة المرور');
+            return;
+        }
+        if (!window.Auth || typeof window.Auth.login !== 'function') {
+            notifyError('نظام المصادقة غير جاهز. يرجى تحديث الصفحة.');
+            return;
+        }
+
+        const originalBtnText = submitBtn ? submitBtn.innerHTML : '';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin ml-2"></i> جاري تسجيل الدخول...';
+        }
+
+        try {
+            const result = await window.Auth.login(email, password, remember);
+            const success = (result === true) || (result && result.success === true);
+            if (!success) {
+                const msg = (result && (result.message || result.error)) || 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
+                notifyError(msg);
+                return;
+            }
+
+            if (window.UI && typeof window.UI.showMainApp === 'function') {
+                await window.UI.showMainApp();
+            } else {
+                const loginScreen = document.getElementById('login-screen');
+                if (loginScreen) {
+                    loginScreen.style.display = 'none';
+                    loginScreen.classList.remove('active', 'show');
+                }
+                const mainApp = document.getElementById('main-app');
+                if (mainApp) mainApp.style.display = 'flex';
+                document.body.classList.add('app-active');
+            }
+        } catch (err) {
+            notifyError('حدث خطأ أثناء تسجيل الدخول. يرجى المحاولة مرة أخرى.');
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtnText;
+            }
+        }
     }
     
     function setupLoginForm() {
@@ -891,6 +944,7 @@ Yasser.diab@icapp.com.eg`;
             e.preventDefault();
             e.stopPropagation();
             e.stopImmediatePropagation();
+            window.__HSE_LAST_LOGIN_SUBMIT_HANDLED_AT__ = Date.now();
 
             if (loginSubmitInProgress) {
                 log('⚠️ تم تجاهل ضغطة مكررة على تسجيل الدخول');
@@ -1134,6 +1188,25 @@ Yasser.diab@icapp.com.eg`;
             }
         }, 500);
     });
+
+    // Fallback عام: حتى لو فشل استبدال النموذج لأي سبب، زر الدخول يظل يعمل
+    document.addEventListener('click', function (e) {
+        const btn = e.target && e.target.closest ? e.target.closest('#login-submit-btn') : null;
+        if (!btn) return;
+        const form = document.getElementById('login-form');
+        if (!form) return;
+        // إذا كان setupLoginForm نجح، هذا submit سيلتقطه المعالج الرئيسي.
+        // وإذا لم ينجح، فنبقى على الأقل نحاول نفس المسار.
+        e.preventDefault();
+        const before = (window.__HSE_LAST_LOGIN_SUBMIT_HANDLED_AT__ || 0);
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        setTimeout(function () {
+            const after = (window.__HSE_LAST_LOGIN_SUBMIT_HANDLED_AT__ || 0);
+            if (after === before) {
+                directLoginFallback(form);
+            }
+        }, 25);
+    }, true);
 })();
 
 // تحميل بيانات "تذكرني"
