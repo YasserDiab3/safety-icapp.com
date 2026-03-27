@@ -99,6 +99,8 @@ const Users = {
                 if (contentArea) {
                     contentArea.innerHTML = await this.renderList();
                     await this.loadUsersList();
+                    // إعادة ربط الأحداث بعد رسم الجدول/empty-state
+                    this.setupEventListeners();
                 }
             } catch (error) {
                 Utils.safeWarn('⚠️ خطأ في تحميل قائمة المستخدمين:', error);
@@ -122,7 +124,9 @@ const Users = {
             }
             
             // بدء التحديث التلقائي لحالة الاتصال وآخر تسجيل دخول
-            this.startAutoRefresh();
+            // تعطيل التحديث التلقائي افتراضياً لتجنب ثقل/اهتزاز غير ضروري
+            // يمكن تفعيله لاحقاً عند الحاجة
+            // this.startAutoRefresh();
             
             // الاستماع لتغيير الأقسام لإيقاف التحديث التلقائي عند إغلاق الموديول
             this.setupSectionChangeListener();
@@ -414,47 +418,48 @@ const Users = {
             ]);
         };
 
-        // حاول المزامنة من الخلفية أولاً (Supabase/Google) حتى لا تظهر الصفحة فارغة
         try {
-            if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.syncUsers === 'function') {
-                await withTimeout(GoogleIntegration.syncUsers(true), 12000, 'انتهت مهلة تحميل المستخدمين');
-            }
-        } catch (e) {
-            Utils.safeWarn('⚠️ syncUsers فشل:', e?.message || e);
-        }
-
-        // fallback: قراءة مباشرة (حتى لو syncUsers غير موجود/فشل)
-        try {
-            const current = AppState.appData.users;
-            const hasUsers = Array.isArray(current) && current.length > 0;
-            if (!hasUsers && typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.readFromSheets === 'function') {
-                const list = await withTimeout(GoogleIntegration.readFromSheets('Users'), 12000, 'انتهت مهلة تحميل المستخدمين');
-                if (Array.isArray(list)) {
-                    AppState.appData.users = list;
-                    if (typeof window.DataManager !== 'undefined' && window.DataManager.save) window.DataManager.save();
+            // حاول المزامنة من الخلفية أولاً (Supabase/Google) حتى لا تظهر الصفحة فارغة
+            try {
+                if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.syncUsers === 'function') {
+                    await withTimeout(GoogleIntegration.syncUsers(true), 12000, 'انتهت مهلة تحميل المستخدمين');
                 }
+            } catch (e) {
+                Utils.safeWarn('⚠️ syncUsers فشل:', e?.message || e);
             }
-        } catch (e) {
-            Utils.safeWarn('⚠️ readFromSheets(Users) فشل:', e?.message || e);
-        }
 
-        const users = AppState.appData.users || [];
+            // fallback: قراءة مباشرة (حتى لو syncUsers غير موجود/فشل)
+            try {
+                const current = AppState.appData.users;
+                const hasUsers = Array.isArray(current) && current.length > 0;
+                if (!hasUsers && typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.readFromSheets === 'function') {
+                    const list = await withTimeout(GoogleIntegration.readFromSheets('Users'), 12000, 'انتهت مهلة تحميل المستخدمين');
+                    if (Array.isArray(list)) {
+                        AppState.appData.users = list;
+                        if (typeof window.DataManager !== 'undefined' && window.DataManager.save) window.DataManager.save();
+                    }
+                }
+            } catch (e) {
+                Utils.safeWarn('⚠️ readFromSheets(Users) فشل:', e?.message || e);
+            }
 
-        if (users.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-users text-4xl text-gray-300 mb-4"></i>
-                    <p class="text-gray-500">لا يوجد مستخدمين</p>
-                    <button id="add-user-empty-btn" class="btn-primary mt-4">
-                        <i class="fas fa-plus ml-2"></i>
-                        إضافة مستخدم جديد
-                    </button>
-                </div>
-            `;
-            return;
-        }
+            const users = AppState.appData.users || [];
 
-        const tableHTML = `
+            if (users.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-users text-4xl text-gray-300 mb-4"></i>
+                        <p class="text-gray-500">لا يوجد مستخدمين</p>
+                        <button id="add-user-empty-btn" class="btn-primary mt-4">
+                            <i class="fas fa-plus ml-2"></i>
+                            إضافة مستخدم جديد
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+
+            const tableHTML = `
             <div class="table-wrapper" style="overflow-x: auto;">
                 <table class="data-table">
                     <thead>
@@ -559,7 +564,20 @@ const Users = {
             </div>
         `;
 
-        container.innerHTML = tableHTML;
+            container.innerHTML = tableHTML;
+        } catch (error) {
+            Utils.safeError('❌ خطأ في loadUsersList:', error);
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-exclamation-triangle text-yellow-500 text-4xl mb-4"></i>
+                    <p class="text-gray-500 mb-3">تعذر تحميل المستخدمين</p>
+                    <button class="btn-primary" onclick="Users.load()">
+                        <i class="fas fa-redo ml-2"></i>
+                        إعادة المحاولة
+                    </button>
+                </div>
+            `;
+        }
     },
 
     getRoleName(role) {
