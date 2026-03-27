@@ -53,6 +53,23 @@ FireEquipment = {
     },
 
     /**
+     * هل يمكن الحفظ أو التحميل من خادم بعيد (Google Apps Script أو Supabase عبر hse-api).
+     * يُستخدم لتجنب الاكتفاء بالتخزين المحلي ثم فقدان البيانات بعد إعادة التحميل.
+     */
+    isRemoteBackendAvailable() {
+        if (typeof GoogleIntegration === 'undefined' || !GoogleIntegration) return false;
+        try {
+            const supabaseOk = typeof AppState !== 'undefined' && AppState && AppState.useSupabaseBackend === true &&
+                AppState.supabaseUrl && !!(AppState.supabaseAnonKey || AppState.supabasePublishableKey);
+            const googleOk = !!(AppState.googleConfig && AppState.googleConfig.appsScript &&
+                AppState.googleConfig.appsScript.enabled && AppState.googleConfig.appsScript.scriptUrl);
+            return !!(supabaseOk || googleOk);
+        } catch (e) {
+            return false;
+        }
+    },
+
+    /**
      * توليد DeviceID بتنسيق EFA-0000 (3 حروف - 4 أرقام)
      * @returns {string} DeviceID بالتنسيق الجديد
      */
@@ -1538,7 +1555,7 @@ FireEquipment = {
      */
     async loadAssetsFromBackend() {
         try {
-            if (!GoogleIntegration || !AppState.googleConfig?.appsScript?.enabled) {
+            if (!this.isRemoteBackendAvailable()) {
                 Utils.safeWarn('⚠️ Backend غير متاح - استخدام البيانات المحلية');
                 return;
             }
@@ -2509,7 +2526,7 @@ FireEquipment = {
                 
                 let backendResult;
 
-                if (GoogleIntegration && AppState.googleConfig?.appsScript?.enabled) {
+                if (this.isRemoteBackendAvailable()) {
                     // استخدام saveOrUpdateFireEquipmentAsset للحفظ المباشر
                     backendResult = await GoogleIntegration.sendRequest({
                         action: 'saveOrUpdateFireEquipmentAsset',
@@ -3139,7 +3156,7 @@ FireEquipment = {
         // حفظ في Backend (في الخلفية)
         (async () => {
             try {
-                if (GoogleIntegration && AppState.googleConfig?.appsScript?.enabled) {
+                if (this.isRemoteBackendAvailable()) {
                     const result = await GoogleIntegration.sendRequest({
                         action: 'addFireEquipmentApprovalRequest',
                         data: approvalRequest
@@ -3189,7 +3206,7 @@ FireEquipment = {
             // إذا لم يتم العثور على مديرين في البيانات المحلية، إرسال إشعار عام
             if (admins.length === 0) {
                 // إرسال إشعار عام للمديرين
-                if (GoogleIntegration && AppState.googleConfig?.appsScript?.enabled) {
+                if (this.isRemoteBackendAvailable()) {
                     await GoogleIntegration.sendRequest({
                         action: 'addNotification',
                         data: {
@@ -3214,7 +3231,7 @@ FireEquipment = {
                 for (const admin of admins) {
                     if (admin.id || admin.email) {
                         try {
-                            if (GoogleIntegration && AppState.googleConfig?.appsScript?.enabled) {
+                            if (this.isRemoteBackendAvailable()) {
                                 await GoogleIntegration.sendRequest({
                                     action: 'addNotification',
                                     data: {
@@ -3481,7 +3498,7 @@ FireEquipment = {
                 // ✅ المزامنة في الخلفية (بدون انتظار)
                 (async () => {
             try {
-                if (GoogleIntegration && AppState.googleConfig?.appsScript?.enabled) {
+                if (this.isRemoteBackendAvailable()) {
                             // حفظ الفحص في Backend
                     const inspectionResult = await GoogleIntegration.sendRequest({
                         action: isEdit ? 'updateFireEquipmentInspection' : 'addFireEquipmentInspection',
@@ -3956,7 +3973,7 @@ FireEquipment = {
                 // ✅ المزامنة في الخلفية (بدون انتظار)
                 (async () => {
                     try {
-                        if (GoogleIntegration && AppState.googleConfig?.appsScript?.enabled) {
+                        if (this.isRemoteBackendAvailable()) {
                             // حفظ الفحص في Backend
                             const inspectionResult = await GoogleIntegration.sendRequest({
                                 action: isEdit ? 'updateFireEquipmentInspection' : 'addFireEquipmentInspection',
@@ -4190,8 +4207,8 @@ FireEquipment = {
             Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
         }
 
-        // حفظ في Google Sheets - استخدام الطريقة الآمنة
-        if (AppState.googleConfig?.appsScript?.enabled) {
+        // حفظ في الخادم (Google Sheets أو Supabase) - استخدام الطريقة الآمنة
+        if (this.isRemoteBackendAvailable()) {
             try {
                 Utils.safeLog('🔄 بدء حفظ بيانات معدات الحريق...');
 
@@ -4618,8 +4635,8 @@ FireEquipment = {
             let failCount = 0;
             const total = importedData.length;
 
-            // استخدام Backend للحفظ المباشر
-            if (GoogleIntegration && AppState.googleConfig?.appsScript?.enabled) {
+            // استخدام Backend للحفظ المباشر (Google Apps Script أو Supabase عبر hse-api)
+            if (this.isRemoteBackendAvailable()) {
                 // تقسيم البيانات إلى دفعات صغيرة لتجنب مشاكل الشبكة
                 const BATCH_SIZE = 5;
 
@@ -5938,7 +5955,7 @@ FireEquipment = {
      */
     async loadApprovalRequestsFromBackend() {
         try {
-            if (GoogleIntegration && AppState.googleConfig?.appsScript?.enabled) {
+            if (this.isRemoteBackendAvailable()) {
                 const result = await GoogleIntegration.sendRequest({
                     action: 'getFireEquipmentApprovalRequests',
                     data: {}
@@ -6318,7 +6335,7 @@ FireEquipment = {
                 return; // حالة غير معروفة
             }
 
-            if (GoogleIntegration && AppState.googleConfig?.appsScript?.enabled) {
+            if (this.isRemoteBackendAvailable()) {
                 await GoogleIntegration.sendRequest({
                     action: 'addNotification',
                     data: {

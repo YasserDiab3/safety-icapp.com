@@ -78,6 +78,13 @@ const ACTION_SHEET_MAP: Record<string, string> = {
   getAllFireEquipmentAssets: "FireEquipmentAssets",
   getAllFireEquipmentInspections: "FireEquipmentInspections",
   getFireEquipmentApprovalRequests: "FireEquipmentApprovalRequests",
+  saveOrUpdateFireEquipmentAsset: "FireEquipmentAssets",
+  addFireEquipmentInspection: "FireEquipmentInspections",
+  updateFireEquipmentInspection: "FireEquipmentInspections",
+  addFireEquipmentApprovalRequest: "FireEquipmentApprovalRequests",
+  updateFireEquipmentApprovalRequest: "FireEquipmentApprovalRequests",
+  deleteFireEquipmentApprovalRequest: "FireEquipmentApprovalRequests",
+  deleteFireEquipment: "FireEquipmentAssets",
   getAllApprovedContractors: "ApprovedContractors", addApprovedContractor: "ApprovedContractors", updateApprovedContractor: "ApprovedContractors", deleteApprovedContractor: "ApprovedContractors",
   getAllContractorEvaluations: "ContractorEvaluations", addContractorEvaluation: "ContractorEvaluations", updateContractorEvaluation: "ContractorEvaluations",
   getAllContractorApprovalRequests: "ContractorApprovalRequests", addContractorApprovalRequest: "ContractorApprovalRequests", updateContractorApprovalRequest: "ContractorApprovalRequests",
@@ -811,6 +818,8 @@ Deno.serve(async (req) => {
       }
       if (op === "delete") {
         const id = (payload as { id?: string }).id
+          ?? (payload as { requestId?: string }).requestId
+          ?? (payload as { assetId?: string }).assetId
           ?? (payload as { observationId?: string }).observationId
           ?? (payload as { contractorId?: string }).contractorId
           ?? (payload as { approvedContractorId?: string }).approvedContractorId
