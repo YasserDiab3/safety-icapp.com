@@ -959,17 +959,20 @@ const Contractors = {
     },
 
     normalizeApprovedStatus(value) {
-        const normalized = (value || '').toString().trim().toLowerCase();
-        if (!normalized) return 'under_review';
+        const raw = (value || '').toString().trim();
+        const normalized = raw.toLowerCase();
+        if (!raw) return 'under_review';
         if (['approved', 'معتمد', 'accept', 'accepted', 'active', 'valid', 'pass'].includes(normalized)) {
             return 'approved';
         }
-        // Explicitly handle empty string if it should not default to 'under_review' but be an error or specific state
-        if (normalized === '') {
-            return 'under_review'; // Or a specific 'unknown' status
-        }
         if (['rejected', 'مرفوض', 'رفض', 'cancelled', 'canceled', 'denied', 'invalid', 'expired'].includes(normalized)) {
             return 'rejected';
+        }
+        if (['pending', 'تم الإرسال', 'submitted'].includes(normalized)) {
+            return 'pending';
+        }
+        if (['under_review', 'تحت المراجعة', 'review', 'under review'].includes(normalized)) {
+            return 'under_review';
         }
         return 'under_review';
     },
@@ -992,6 +995,7 @@ const Contractors = {
 
     getApprovedStatusBadgeClass(status) {
         if (status === 'approved') return 'badge-success';
+        if (status === 'pending') return 'badge-info';
         if (status === 'under_review') return 'badge-warning';
         return 'badge-danger';
     },
@@ -1707,6 +1711,10 @@ const Contractors = {
                             قائمة المقاولين والموردين المعتمدين
                         </h2>
                         <div class="flex items-center gap-2 flex-wrap">
+                            <button type="button" id="import-approved-contractors-excel-btn" class="btn-secondary" title="استيراد من ملف Excel بنفس أعمدة التصدير">
+                                <i class="fas fa-file-import ml-2"></i>
+                                استيراد Excel
+                            </button>
                             <button id="export-approved-contractors-pdf-btn" class="btn-secondary">
                                 <i class="fas fa-file-pdf ml-2"></i>
                                 تصدير PDF
@@ -2824,7 +2832,8 @@ const Contractors = {
         });
     },
 
-    persistApprovedEntity(record, existing = null) {
+    persistApprovedEntity(record, existing = null, options = {}) {
+        const skipRefresh = options && options.skipRefresh === true;
         this.ensureApprovedSetup();
 
         // التأكد من قراءة البيانات الكاملة من AppState قبل التعديل
@@ -2939,7 +2948,9 @@ const Contractors = {
             Utils.safeWarn('فشل الحفظ التلقائي لجهات الاعتماد:', error);
         }
 
-        this.refreshApprovedEntitiesList();
+        if (!skipRefresh) {
+            this.refreshApprovedEntitiesList();
+        }
     },
 
     async requestDeleteApprovedEntity(id) {
@@ -3089,6 +3100,219 @@ const Contractors = {
         const fileName = `الجهات_المعتمدة_${new Date().toISOString().slice(0, 10)}.xlsx`;
         XLSX.writeFile(wb, fileName);
         Notification.success('تم تصدير قائمة الجهات المعتمدة بنجاح');
+    },
+
+    /**
+     * استيراد جهات معتمدة من Excel (نفس أعمدة التصدير أو أسماء إنجليزية بديلة)
+     */
+    async importApprovedEntitiesFromExcel() {
+        this.ensureApprovedSetup();
+
+        const loadSheetJS = () => new Promise((resolve, reject) => {
+            if (typeof XLSX !== 'undefined') {
+                resolve();
+                return;
+            }
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+            script.onload = () => resolve();
+            script.onerror = () => {
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error('تعذر تحميل مكتبة Excel'));
+            };
+            document.head.appendChild(script);
+        });
+
+        const findColumn = (row, names) => {
+            if (!row || typeof row !== 'object') return null;
+            const keys = Object.keys(row);
+            for (const name of names) {
+                for (const key of keys) {
+                    const k = String(key).trim();
+                    if (k === name || k.toLowerCase() === String(name).toLowerCase()) {
+                        return row[key];
+                    }
+                }
+            }
+            return null;
+        };
+
+        const parseDateCell = (val) => {
+            if (val == null || val === '') return null;
+            if (val instanceof Date && !isNaN(val.getTime())) return val.toISOString();
+            if (typeof val === 'number' && !isNaN(val)) {
+                const totalDays = Math.floor(val);
+                const timeFraction = val - totalDays;
+                const base = new Date(1899, 11, 30);
+                const d = new Date(base.getTime() + totalDays * 86400000);
+                if (timeFraction > 0) {
+                    const totalSeconds = Math.round(timeFraction * 86400);
+                    d.setHours(0, 0, 0, 0);
+                    d.setSeconds(totalSeconds);
+                }
+                return d.toISOString();
+            }
+            const s = String(val).trim();
+            if (!s || s === '-' || s === '—') return null;
+            const isoTry = new Date(s);
+            if (!isNaN(isoTry.getTime())) return isoTry.toISOString();
+            const m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+            if (m) {
+                const day = parseInt(m[1], 10);
+                const month = parseInt(m[2], 10) - 1;
+                let year = parseInt(m[3], 10);
+                if (year < 100) year += 2000;
+                const d = new Date(year, month, day);
+                if (!isNaN(d.getTime())) return d.toISOString();
+            }
+            return null;
+        };
+
+        const parseStatusLabel = (label) => {
+            const t = String(label || '').trim();
+            if (!t) return 'under_review';
+            if (/معتمد|^approved$/i.test(t)) return 'approved';
+            if (/مرفوض|^rejected$/i.test(t)) return 'rejected';
+            if (/تم الإرسال|^pending$/i.test(t)) return 'pending';
+            if (/تحت المراجعة|^under_review$/i.test(t)) return 'under_review';
+            return this.normalizeApprovedStatus(t);
+        };
+
+        const parseTypeLabel = (label) => {
+            const t = String(label || '').trim();
+            if (!t) return 'contractor';
+            if (/^مورد$|^supplier$/i.test(t)) return 'supplier';
+            if (/^مقاول$|^contractor$/i.test(t)) return 'contractor';
+            return this.normalizeApprovedEntityType(t);
+        };
+
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.xlsx,.xls';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+
+        input.addEventListener('change', async (e) => {
+            const file = e.target.files && e.target.files[0];
+            input.remove();
+            if (!file) return;
+
+            try {
+                await loadSheetJS();
+            } catch (err) {
+                Notification.error(err.message || 'تعذر تحميل مكتبة Excel');
+                return;
+            }
+
+            Loading.show('جاري قراءة الملف...');
+            let imported = 0;
+            let updated = 0;
+            let skipped = 0;
+
+            try {
+                const data = await file.arrayBuffer();
+                const wb = XLSX.read(data, { type: 'array' });
+                const sheetName = wb.SheetNames[0];
+                const sheet = wb.Sheets[sheetName];
+                const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+                if (!rows.length) {
+                    Loading.hide();
+                    Notification.warning('الملف لا يحتوي على صفوف بيانات.');
+                    return;
+                }
+
+                const colNames = {
+                    company: ['اسم الشركة / المقاول', 'Company', 'companyName', 'اسم الشركة'],
+                    entityType: ['نوع الجهة', 'Entity Type', 'entityType', 'النوع'],
+                    service: ['النشاط / نوع الخدمة', 'Service', 'serviceType', 'النشاط'],
+                    license: ['السجل التجاري / الترخيص', 'License', 'licenseNumber', 'الترخيص'],
+                    approvalDate: ['تاريخ الاعتماد', 'Approval Date', 'approvalDate'],
+                    expiryDate: ['تاريخ انتهاء الاعتماد', 'Expiry Date', 'expiryDate', 'تاريخ الانتهاء'],
+                    safety: ['مسؤول السلامة', 'Safety', 'safetyReviewer', 'مسؤول السلامة للمراجعة'],
+                    status: ['الحالة', 'Status', 'status'],
+                    notes: ['ملاحظات', 'Notes', 'notes']
+                };
+
+                for (const row of rows) {
+                    const companyName = String(findColumn(row, colNames.company) || '').trim();
+                    if (!companyName) {
+                        skipped++;
+                        continue;
+                    }
+
+                    const entityType = parseTypeLabel(findColumn(row, colNames.entityType));
+                    const serviceType = String(findColumn(row, colNames.service) || '').trim();
+                    const licenseNumber = String(findColumn(row, colNames.license) || '').trim();
+                    const approvalDate = parseDateCell(findColumn(row, colNames.approvalDate));
+                    const expiryDate = parseDateCell(findColumn(row, colNames.expiryDate));
+                    const safetyReviewer = String(findColumn(row, colNames.safety) || '').trim();
+                    const status = parseStatusLabel(findColumn(row, colNames.status));
+                    const notes = String(findColumn(row, colNames.notes) || '').trim();
+
+                    const collection = AppState.appData.approvedContractors || [];
+                    const duplicateIndex = collection.findIndex((item) => {
+                        if (licenseNumber && item.licenseNumber &&
+                            String(item.licenseNumber).trim() === licenseNumber) return true;
+                        if (item.companyName && companyName &&
+                            item.companyName.trim().toLowerCase() === companyName.toLowerCase() &&
+                            item.entityType === entityType) return true;
+                        return false;
+                    });
+
+                    const now = new Date().toISOString();
+                    if (duplicateIndex !== -1) {
+                        const existing = collection[duplicateIndex];
+                        const record = {
+                            ...existing,
+                            companyName,
+                            entityType,
+                            serviceType: serviceType || existing.serviceType,
+                            licenseNumber: licenseNumber || existing.licenseNumber,
+                            approvalDate: approvalDate || existing.approvalDate,
+                            expiryDate: expiryDate || existing.expiryDate,
+                            safetyReviewer: safetyReviewer || existing.safetyReviewer,
+                            status,
+                            notes: notes || existing.notes,
+                            updatedAt: now
+                        };
+                        this.persistApprovedEntity(record, existing, { skipRefresh: true });
+                        updated++;
+                    } else {
+                        const record = {
+                            id: Utils.generateId('APPCON'),
+                            companyName,
+                            entityType,
+                            serviceType,
+                            licenseNumber,
+                            approvalDate: approvalDate || '',
+                            expiryDate: expiryDate || '',
+                            safetyReviewer,
+                            status,
+                            notes,
+                            createdAt: now,
+                            updatedAt: now
+                        };
+                        this.persistApprovedEntity(record, null, { skipRefresh: true });
+                        imported++;
+                    }
+                }
+
+                this.ensureApprovedSetup();
+                this.refreshApprovedEntitiesList();
+                Loading.hide();
+                Notification.success(
+                    `تم استيراد الجهات المعتمدة: ${imported} جديد، ${updated} محدّث` +
+                    (skipped > 0 ? `، تم تخطي ${skipped} صفاً بدون اسم جهة` : '')
+                );
+            } catch (err) {
+                Loading.hide();
+                Utils.safeError('فشل استيراد Excel للجهات المعتمدة:', err);
+                Notification.error('فشل الاستيراد: ' + (err.message || String(err)));
+            }
+        });
+
+        input.click();
     },
 
     exportApprovedEntitiesPDF(id = null) {
@@ -3689,6 +3913,9 @@ const Contractors = {
             this._abortController = new AbortController();
         }
         const activeSignal = this._abortController?.signal;
+
+        const importApprovedExcelBtn = document.getElementById('import-approved-contractors-excel-btn');
+        if (importApprovedExcelBtn) importApprovedExcelBtn.addEventListener('click', () => this.importApprovedEntitiesFromExcel(), { signal: activeSignal });
 
         const exportApprovedExcelBtn = document.getElementById('export-approved-contractors-excel-btn');
         if (exportApprovedExcelBtn) exportApprovedExcelBtn.addEventListener('click', () => this.exportApprovedEntitiesExcel(), { signal: activeSignal });
