@@ -14,6 +14,19 @@ const Users = {
     refreshInterval: 5000, // تحديث كل 5 ثوان
     sectionChangeHandler: null, // لتخزين معالج حدث تغيير القسم
 
+    isAdminUser() {
+        try {
+            if (typeof Permissions !== 'undefined' && typeof Permissions.isCurrentUserAdmin === 'function') {
+                return Permissions.isCurrentUserAdmin() === true;
+            }
+        } catch (e) {}
+        const u = AppState.currentUser || {};
+        const role = (u.role || '').toString().toLowerCase();
+        if (role === 'admin') return true;
+        const perms = u.permissions || {};
+        return perms.isAdmin === true || perms.admin === true;
+    },
+
     async load() {
         // Add language change listener
         if (!this._languageChangeListenerAdded) {
@@ -28,9 +41,7 @@ const Users = {
         // التحقق من الصلاحيات - فقط المدير يمكنه الوصول
         // Rely primarily on a server-side validated permission check.
         // Client-side checks should only be for UI presentation, not for actual authorization.
-        const isAdmin = (typeof Permissions !== 'undefined' && typeof Permissions.isCurrentUserAdmin === 'function')
-            ? Permissions.isCurrentUserAdmin()
-            : false; // Default to false if Permissions service is unavailable or not fully initialized
+        const isAdmin = this.isAdminUser();
 
         if (!isAdmin) {
             section.innerHTML = `
@@ -392,6 +403,19 @@ const Users = {
     async loadUsersList() {
         const container = document.getElementById('users-table-container');
         if (!container) return;
+
+        // حاول المزامنة من الخلفية أولاً (Supabase/Google) حتى لا تظهر الصفحة فارغة
+        try {
+            if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.syncUsers === 'function') {
+                await GoogleIntegration.syncUsers(true);
+            } else if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.readFromSheets === 'function') {
+                const list = await GoogleIntegration.readFromSheets('Users');
+                if (Array.isArray(list)) AppState.appData.users = list;
+                if (typeof window.DataManager !== 'undefined' && window.DataManager.save) window.DataManager.save();
+            }
+        } catch (e) {
+            Utils.safeWarn('⚠️ تعذر مزامنة المستخدمين من الخلفية:', e?.message || e);
+        }
 
         const users = AppState.appData.users || [];
 
@@ -911,9 +935,7 @@ const Users = {
         Loading.show();
 
         // التحقق من الصلاحيات
-        const isAdmin = (typeof Permissions !== 'undefined' && typeof Permissions.isCurrentUserAdmin === 'function')
-            ? Permissions.isCurrentUserAdmin()
-            : (AppState.currentUser?.role || '').toLowerCase() === 'admin';
+        const isAdmin = this.isAdminUser();
 
         if (!isAdmin) {
             Loading.hide();
@@ -1127,30 +1149,29 @@ const Users = {
                 // إخفاء مؤشر التحميل بعد الحفظ المحلي
                 Loading.hide();
                 
-                // المزامنة مع Google Sheets في الخلفية (غير متزامنة)
-                if (AppState.googleConfig.appsScript.enabled) {
-                    // تشغيل المزامنة في الخلفية بدون انتظار
+                // المزامنة مع الخلفية في الخلفية (Supabase/Google) بدون انتظار
+                if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.immediateSyncWithRetry === 'function') {
                     GoogleIntegration.immediateSyncWithRetry('addUser', formData, 3)
                         .then(addUserResult => {
                             if (addUserResult && addUserResult.success) {
-                                Utils.safeLog('✅ تم إضافة المستخدم الجديد إلى Google Sheets بنجاح');
-                                Notification.success('تم المزامنة مع Google Sheets بنجاح');
+                                Utils.safeLog('✅ تمت مزامنة المستخدم الجديد بنجاح');
+                                Notification.success('تمت المزامنة بنجاح');
                             } else if (addUserResult && addUserResult.shouldDefer) {
                                 // فشلت جميع المحاولات - أضف إلى قائمة الانتظار
                                 Utils.safeWarn('⚠️ فشلت المزامنة بعد 3 محاولات:', addUserResult?.message);
                                 if (typeof DataManager !== 'undefined' && DataManager.addToPendingSync) {
                                     DataManager.addToPendingSync('Users', AppState.appData.users);
                                 }
-                                Notification.warning('سيتم المزامنة مع Google Sheets تلقائياً لاحقاً.');
+                                Notification.warning('سيتم المزامنة تلقائياً لاحقاً.');
                             } else {
                                 // خطأ في البيانات أو مشكلة أخرى
                                 Utils.safeWarn('⚠️ فشل إضافة المستخدم:', addUserResult?.message);
-                                Notification.warning('فشلت المزامنة مع Google Sheets. سيتم المحاولة لاحقاً.');
+                                Notification.warning('فشلت المزامنة. سيتم المحاولة لاحقاً.');
                             }
                         })
                         .catch(addUserError => {
                             Utils.safeError('❌ خطأ غير متوقع في إضافة المستخدم:', addUserError);
-                            Notification.warning('حدث خطأ في المزامنة مع Google Sheets. سيتم المحاولة لاحقاً.');
+                            Notification.warning('حدث خطأ في المزامنة. سيتم المحاولة لاحقاً.');
                         });
                 }
             } else {
@@ -1184,34 +1205,33 @@ const Users = {
                 // إخفاء مؤشر التحميل بعد الحفظ المحلي
                 Loading.hide();
                 
-                // المزامنة مع Google Sheets في الخلفية (غير متزامنة)
-                if (AppState.googleConfig.appsScript.enabled) {
-                    // تشغيل المزامنة في الخلفية بدون انتظار
+                // المزامنة مع الخلفية في الخلفية (Supabase/Google) بدون انتظار
+                if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.immediateSyncWithRetry === 'function') {
                     GoogleIntegration.immediateSyncWithRetry('updateUser', {
                         userId: formData.id,
                         updateData: formData
                     }, 3)
                         .then(updateResult => {
                             if (updateResult && updateResult.success) {
-                                Utils.safeLog('✅ تم تحديث المستخدم في Google Sheets بنجاح');
-                                Notification.success('تم المزامنة مع Google Sheets بنجاح');
+                                Utils.safeLog('✅ تمت مزامنة تحديث المستخدم بنجاح');
+                                Notification.success('تمت المزامنة بنجاح');
                             } else if (updateResult && updateResult.shouldDefer) {
                                 // فشلت جميع المحاولات - أضف إلى قائمة الانتظار
                                 Utils.safeWarn('⚠️ فشلت المزامنة بعد 3 محاولات:', updateResult?.message);
                                 GoogleIntegration.autoSave('Users', AppState.appData.users)
                                     .catch(err => Utils.safeWarn('⚠️ خطأ في autoSave:', err));
-                                Notification.warning('سيتم المزامنة مع Google Sheets تلقائياً لاحقاً.');
+                                Notification.warning('سيتم المزامنة تلقائياً لاحقاً.');
                             } else {
                                 // خطأ في البيانات
                                 Utils.safeWarn('⚠️ فشل تحديث المستخدم:', updateResult?.message);
-                                Notification.warning('فشلت المزامنة مع Google Sheets. سيتم المحاولة لاحقاً.');
+                                Notification.warning('فشلت المزامنة. سيتم المحاولة لاحقاً.');
                             }
                         })
                         .catch(updateError => {
                             Utils.safeError('❌ خطأ غير متوقع في تحديث المستخدم:', updateError);
                             GoogleIntegration.autoSave('Users', AppState.appData.users)
                                 .catch(err => Utils.safeWarn('⚠️ خطأ في autoSave:', err));
-                            Notification.warning('حدث خطأ في المزامنة مع Google Sheets. سيتم المحاولة لاحقاً.');
+                            Notification.warning('حدث خطأ في المزامنة. سيتم المحاولة لاحقاً.');
                         });
                 }
             }
@@ -1452,31 +1472,32 @@ const Users = {
         try {
             let deleteSuccess = false;
 
-            // 1) حذف من قاعدة البيانات (Google Sheets) أولاً ثم تحديث الواجهة
-            if (AppState.googleConfig.appsScript.enabled) {
-                try {
+            // 1) حذف من الخلفية (Supabase/Google) ثم تحديث الواجهة
+            try {
+                if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.sendToAppsScript === 'function') {
                     const result = await GoogleIntegration.sendToAppsScript('deleteUser', { userId });
                     deleteSuccess = result && result.success === true;
-                    if (!deleteSuccess && result && result.message) {
-                        throw new Error(result.message);
-                    }
-                } catch (error) {
-                    // محاولة بديلة: حفظ قائمة المستخدمين بعد إزالة المستخدم
-                    const filteredUsers = AppState.appData.users.filter(u => u.id !== userId);
-                    try {
+                    if (!deleteSuccess && result && result.message) throw new Error(result.message);
+                } else {
+                    throw new Error('GoogleIntegration غير متاح');
+                }
+            } catch (error) {
+                // محاولة بديلة: حفظ قائمة المستخدمين بعد إزالة المستخدم
+                const filteredUsers = AppState.appData.users.filter(u => u.id !== userId);
+                try {
+                    if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.autoSave === 'function') {
                         await GoogleIntegration.autoSave('Users', filteredUsers);
                         deleteSuccess = true;
-                    } catch (autoSaveErr) {
-                        Utils.safeWarn('⚠️ فشل الحذف من Google Sheets وبديل autoSave:', autoSaveErr);
-                        Loading.hide();
-                        Notification.error('فشل حذف المستخدم من قاعدة البيانات: ' + (error.message || error));
-                        Utils.safeError('خطأ في حذف المستخدم:', error);
-                        return;
+                    } else {
+                        throw new Error('autoSave غير متاح');
                     }
+                } catch (autoSaveErr) {
+                    Utils.safeWarn('⚠️ فشل الحذف وبديل autoSave:', autoSaveErr);
+                    Loading.hide();
+                    Notification.error('فشل حذف المستخدم من قاعدة البيانات: ' + ((error && error.message) ? error.message : String(error)));
+                    Utils.safeError('خطأ في حذف المستخدم:', error);
+                    return;
                 }
-            } else {
-                await GoogleIntegration.autoSave('Users', AppState.appData.users.filter(u => u.id !== userId));
-                deleteSuccess = true;
             }
 
             if (!deleteSuccess) {
