@@ -319,6 +319,57 @@ const Contractors = {
         endDate: ''
     },
 
+    async syncFromBackend() {
+        try {
+            const gi = (typeof GoogleIntegration !== 'undefined') ? GoogleIntegration : null;
+            if (!gi || typeof gi.sendRequest !== 'function') return false;
+
+            const withTimeout = async (promise, ms, label) => {
+                try {
+                    if (typeof Utils !== 'undefined' && Utils.promiseWithTimeout) {
+                        return await Utils.promiseWithTimeout(promise, ms, label || 'انتهت مهلة الاتصال');
+                    }
+                } catch (e) {}
+                return await Promise.race([
+                    promise,
+                    new Promise((_, reject) => setTimeout(() => reject(new Error(label || 'انتهت مهلة الاتصال')), ms))
+                ]);
+            };
+
+            const sheets = [
+                { sheetName: 'ApprovedContractors', key: 'approvedContractors' },
+                { sheetName: 'Contractors', key: 'contractors' },
+                { sheetName: 'ContractorApprovalRequests', key: 'contractorApprovalRequests' },
+                { sheetName: 'ContractorDeletionRequests', key: 'contractorDeletionRequests' },
+                { sheetName: 'ContractorEvaluations', key: 'contractorEvaluations' }
+            ];
+
+            for (const s of sheets) {
+                try {
+                    const res = await withTimeout(
+                        gi.sendRequest({ action: 'readFromSheet', data: { sheetName: s.sheetName } }),
+                        15000,
+                        `انتهت مهلة تحميل ${s.sheetName}`
+                    );
+                    if (res && res.success && Array.isArray(res.data)) {
+                        AppState.appData[s.key] = res.data;
+                    }
+                } catch (e) {
+                    // لا نوقف تحميل الموديول بالكامل عند فشل جدول واحد
+                    Utils.safeWarn(`⚠️ تعذر تحميل ${s.sheetName}:`, e?.message || e);
+                }
+            }
+
+            if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
+                window.DataManager.save();
+            }
+            return true;
+        } catch (e) {
+            Utils.safeWarn('⚠️ syncFromBackend فشل:', e?.message || e);
+            return false;
+        }
+    },
+
     async load(preserveCurrentTab = false) {
         // ✅ CRITICAL: منع استدعاء load() أكثر من مرة في نفس الوقت
         if (this._isLoading) {
@@ -394,8 +445,14 @@ const Contractors = {
                 }
             }
 
+            // ✅ تحميل بيانات المقاولين من Backend (Supabase/Google) قبل الرسم لتجنب واجهة فارغة
+            await this.syncFromBackend();
+
             // تحميل المحتوى بشكل متوازي لتحسين الأداء
-            const isAdmin = Permissions.isAdmin();
+            const isAdmin = (typeof Permissions !== 'undefined' && typeof Permissions.isAdmin === 'function')
+                ? Permissions.isAdmin()
+                : ((AppState.currentUser?.role || '').toString().toLowerCase() === 'admin' ||
+                    (AppState.currentUser?.permissions && String(AppState.currentUser.permissions.role || '').toLowerCase() === 'admin'));
 
             // دالة مساعدة لمعالجة الأخطاء
             const handleError = (sectionName, error) => {
@@ -7055,32 +7112,6 @@ const Contractors = {
             if (categoryA !== categoryB) return categoryA - categoryB;
             return a.order - b.order;
         });
-            const reqId = item.getAttribute('data-requirement-id');
-            const labelInput = item.querySelector('[data-field="label"]');
-            const typeSelect = item.querySelector('[data-field="type"]');
-            const requiredCheckbox = item.querySelector('[data-field="required"]');
-            const categorySelect = item.querySelector('[data-field="category"]');
-            const prioritySelect = item.querySelector('[data-field="priority"]');
-            const hasExpiryCheckbox = item.querySelector('[data-field="hasExpiry"]');
-            const expiryMonthsInput = item.querySelector('[data-field="expiryMonths"]');
-            const descriptionTextarea = item.querySelector('[data-field="description"]');
-
-            const requirement = {
-                id: reqId,
-                label: labelInput?.value.trim() || '',
-                type: typeSelect?.value || 'document',
-                required: requiredCheckbox?.checked || false,
-                order: index + 1,
-                category: categorySelect?.value || 'other',
-                priority: prioritySelect?.value || 'medium',
-                hasExpiry: hasExpiryCheckbox?.checked || false,
-                expiryMonths: hasExpiryCheckbox?.checked ? parseInt(expiryMonthsInput?.value || 12) : null,
-                description: descriptionTextarea?.value.trim() || '',
-                applicableTypes: ['contractor', 'supplier'] // افتراضي لجميع الأنواع
-            };
-
-            return requirement;
-        }).filter(req => req.label.length > 0);
 
         if (requirements.length === 0) {
             Notification.warning('يجب إضافة اشتراط واحد على الأقل');
