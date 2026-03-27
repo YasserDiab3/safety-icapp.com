@@ -1031,10 +1031,14 @@ const Employees = {
         this.cache.isUpdating = true;
 
         try {
-            // التحقق من تفعيل Google Integration
-            if (!AppState.googleConfig?.appsScript?.enabled || !AppState.googleConfig?.appsScript?.scriptUrl) {
+            // ✅ دعم Supabase/Google: لا تربط التحميل بشرط Google Apps Script فقط
+            const supabaseOk = AppState.useSupabaseBackend === true && AppState.supabaseUrl &&
+                !!(AppState.supabaseAnonKey || AppState.supabasePublishableKey);
+            const googleOk = !!(AppState.googleConfig?.appsScript?.enabled && AppState.googleConfig?.appsScript?.scriptUrl);
+
+            if (!supabaseOk && !googleOk) {
                 if (AppState.debugMode) {
-                    Utils.safeLog('⚠️ Google Apps Script غير مفعّل - استخدام البيانات المحلية فقط');
+                    Utils.safeLog('⚠️ لا يوجد اتصال بخلفية (Supabase/Google) - استخدام البيانات المحلية فقط');
                 }
                 // استخدام البيانات المحلية إذا كانت موجودة
                 if (AppState.appData.employees && Array.isArray(AppState.appData.employees)) {
@@ -1096,10 +1100,7 @@ const Employees = {
                     
                     const sheetResult = await GoogleIntegration.sendRequest({
                         action: 'readFromSheet',
-                        data: { 
-                            sheetName: 'Employees',
-                            spreadsheetId: AppState.googleConfig.sheets.spreadsheetId
-                        }
+                        data: { sheetName: 'Employees' }
                     });
 
                     if (sheetResult && sheetResult.success && Array.isArray(sheetResult.data)) {
