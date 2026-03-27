@@ -74,6 +74,10 @@ const ACTION_SHEET_MAP: Record<string, string> = {
   getAllInjuries: "Injuries", addInjury: "Injuries", updateInjury: "Injuries",
   getAllClinicInventory: "ClinicInventory", addClinicInventory: "ClinicInventory", updateClinicInventory: "ClinicInventory",
   getEmployee: "Employees", getAllEmployees: "Employees", addEmployee: "Employees", updateEmployee: "Employees", deleteEmployee: "Employees", deactivateEmployee: "Employees",
+  // Fire Equipment v2
+  getAllFireEquipmentAssets: "FireEquipmentAssets",
+  getAllFireEquipmentInspections: "FireEquipmentInspections",
+  getFireEquipmentApprovalRequests: "FireEquipmentApprovalRequests",
   getAllApprovedContractors: "ApprovedContractors", addApprovedContractor: "ApprovedContractors", updateApprovedContractor: "ApprovedContractors", deleteApprovedContractor: "ApprovedContractors",
   getAllContractorEvaluations: "ContractorEvaluations", addContractorEvaluation: "ContractorEvaluations", updateContractorEvaluation: "ContractorEvaluations",
   getAllContractorApprovalRequests: "ContractorApprovalRequests", addContractorApprovalRequest: "ContractorApprovalRequests", updateContractorApprovalRequest: "ContractorApprovalRequests",
