@@ -732,7 +732,11 @@ FireEquipment = {
                 // دمج البيانات: البيانات من Backend لها الأولوية، لكن نحتفظ بالبيانات المحلية الجديدة
                 backendAssets.forEach(backendAsset => {
                     if (backendAsset.id) {
-                        existingMap.set(backendAsset.id, backendAsset);
+                        const prev = existingMap.get(backendAsset.id);
+                        existingMap.set(
+                            backendAsset.id,
+                            prev ? { ...prev, ...backendAsset } : { ...backendAsset }
+                        );
                     }
                 });
                 
@@ -1587,7 +1591,11 @@ FireEquipment = {
                 // دمج البيانات: البيانات من Backend لها الأولوية، لكن نحتفظ بالبيانات المحلية الجديدة
                 backendAssets.forEach(backendAsset => {
                     if (backendAsset.id) {
-                        existingMap.set(backendAsset.id, backendAsset);
+                        const prev = existingMap.get(backendAsset.id);
+                        existingMap.set(
+                            backendAsset.id,
+                            prev ? { ...prev, ...backendAsset } : { ...backendAsset }
+                        );
                     }
                 });
                 
@@ -1814,6 +1822,40 @@ FireEquipment = {
         return Array.isArray(AppState.appData.fireEquipmentAssets)
             ? AppState.appData.fireEquipmentAssets
             : [];
+    },
+
+    /**
+     * دمج صفوف مستوردة في AppState قبل/بعد التحميل من الخادم حتى تبقى مرئية حتى لو تعذّر الجلب أو تأخر.
+     */
+    mergeImportedFireAssetsIntoState(importedRows) {
+        if (!importedRows || !importedRows.length) return;
+        this.ensureData();
+        const byId = new Map();
+        (AppState.appData.fireEquipmentAssets || []).forEach(a => {
+            if (a && a.id) byId.set(a.id, { ...a });
+        });
+        importedRows.forEach(row => {
+            if (!row || !row.id) return;
+            const prev = byId.get(row.id) || {};
+            byId.set(row.id, { ...prev, ...row });
+        });
+        AppState.appData.fireEquipmentAssets = Array.from(byId.values());
+        if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
+            window.DataManager.save();
+        }
+    },
+
+    /** إعادة فلاتر تبويب قاعدة البيانات (بحث/نوع/حالة/موقع) حتى لا يُخفى الجدول بعد الاستيراد */
+    resetDatabaseFiltersAfterImport() {
+        this.state.filters = { search: '', type: 'all', status: 'all', location: 'all' };
+        const si = document.getElementById('fire-assets-search');
+        if (si) si.value = '';
+        const ts = document.getElementById('fire-assets-type');
+        if (ts) ts.value = 'all';
+        const ss = document.getElementById('fire-assets-status');
+        if (ss) ss.value = 'all';
+        const ls = document.getElementById('fire-assets-location');
+        if (ls) ls.value = 'all';
     },
 
     /**
@@ -4586,7 +4628,7 @@ FireEquipment = {
                     manufacturingYear: row['سنة الصنع'] ? parseInt(row['سنة الصنع']) : null,
                     productionDate: row['تاريخ الانتاج'] ? this.parseDate(row['تاريخ الانتاج']) : '',
                     serialNumber: row['رقم مسلسل الجهاز'] || row['الرقم المسلسل'] || '',
-                    status: row['حالة الجهاز'] || 'صالح',
+                    status: String(row['حالة الجهاز'] || 'صالح').trim() || 'صالح',
                     installationMethod: row['طريقة تثبيت'] || '',
                     notes: row['ملاحظات'] || '',
                     qrCodeData: this.generateQrData(assetId),
@@ -4665,7 +4707,10 @@ FireEquipment = {
                     Loading.show(`جاري استيراد البيانات... ${progress}% (${successCount} ناجح)`);
                 }
 
-                // إعادة تحميل البيانات بالكامل من Backend لضمان التطابق
+                // دمج الصفوف المستوردة محلياً أولاً — إذا رجع الجلب فارغاً أو متأخراً تبقى البيانات ظاهرة
+                this.mergeImportedFireAssetsIntoState(importedData);
+
+                // إعادة تحميل البيانات من Backend ودمجها مع المحلي
                 await this.loadAssetsFromBackend();
 
             } else {
@@ -4702,6 +4747,8 @@ FireEquipment = {
             }
 
             if (modal) modal.remove();
+
+            this.resetDatabaseFiltersAfterImport();
 
             // تحديث الواجهة والإحصائيات (كان يُستدعى renderStats غير موجود فتُرمى استثناء بعد رسالة النجاح)
             try {
