@@ -772,7 +772,13 @@ Deno.serve(async (req) => {
     }
 
     // —— عمليات أخرى: ربط بـ readFromSheet حسب خريطة الـ action ——
-    const sheet = ACTION_SHEET_MAP[action];
+    // ✅ استثناء إجراءات المستخدمين: لها منطق خاص (password_hash/permissions) أسفل الملف
+    const isUsersSpecialAction =
+      action === "addUser" ||
+      action === "updateUser" ||
+      action === "deleteUser" ||
+      action === "resetUserPassword";
+    const sheet = isUsersSpecialAction ? undefined : ACTION_SHEET_MAP[action];
     if (sheet) {
       const table = sheetNameToTable(sheet);
       const op = action.startsWith("getAll") || (action.startsWith("get") && !action.includes("User")) ? "read" : action.startsWith("add") || action.startsWith("approve") || action.startsWith("reject") || action.startsWith("create") ? "append" : action.startsWith("delete") ? "delete" : "save";

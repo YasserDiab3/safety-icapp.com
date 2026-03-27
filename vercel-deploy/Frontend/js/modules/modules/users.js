@@ -24,7 +24,8 @@ const Users = {
         const role = (u.role || '').toString().toLowerCase();
         if (role === 'admin') return true;
         const perms = u.permissions || {};
-        return perms.isAdmin === true || perms.admin === true;
+        const permsRole = (perms.role || perms.Role || '').toString().toLowerCase();
+        return perms.isAdmin === true || perms.admin === true || permsRole === 'admin';
     },
 
     async load() {
