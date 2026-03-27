@@ -3008,13 +3008,16 @@ const Contractors = {
 
     persistApprovedEntity(record, existing = null, options = {}) {
         const skipRefresh = options && options.skipRefresh === true;
+        /** استيراد Excel دفعة واحدة: لا تُطلق مزامنة عند الفراغ (تستبدل AppState وتلغي الاستيراد) ولا autoSave لكل صف */
+        const batchImport = options && options.batchImport === true;
         this.ensureApprovedSetup();
 
         // التأكد من قراءة البيانات الكاملة من AppState قبل التعديل
         let collection = AppState.appData.approvedContractors || [];
 
         // إذا كانت البيانات غير موجودة أو غير صحيحة، نحاول قراءتها من Google Sheets
-        if (!Array.isArray(collection) || collection.length === 0) {
+        // ⚠️ لا تُفعَّل أثناء batchImport — سباق يمسح السجلات المضافة محلياً عند اكتمال syncData
+        if (!batchImport && (!Array.isArray(collection) || collection.length === 0)) {
             // محاولة قراءة البيانات من Google Sheets إذا كانت متاحة
             try {
                 if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.syncData) {
@@ -3106,20 +3109,24 @@ const Contractors = {
         // حفظ البيانات المحدثة
         AppState.appData.approvedContractors = collection;
 
-        // حفظ البيانات باستخدام window.DataManager
-        if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
-            window.DataManager.save();
-        } else {
-            Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
+        // حفظ البيانات باستخدام window.DataManager (تخطّي أثناء الاستيراد الدفعي — حفظ مرة واحدة في نهاية الاستيراد)
+        if (!batchImport) {
+            if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
+                window.DataManager.save();
+            } else {
+                Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات');
+            }
         }
 
-        try {
-            // التأكد من إرسال البيانات الكاملة وليس فقط السجل الجديد
-            GoogleIntegration.autoSave?.('ApprovedContractors', AppState.appData.approvedContractors).catch(error => {
+        if (!batchImport) {
+            try {
+                // التأكد من إرسال البيانات الكاملة وليس فقط السجل الجديد
+                GoogleIntegration.autoSave?.('ApprovedContractors', AppState.appData.approvedContractors).catch(error => {
+                    Utils.safeWarn('فشل الحفظ التلقائي لجهات الاعتماد:', error);
+                });
+            } catch (error) {
                 Utils.safeWarn('فشل الحفظ التلقائي لجهات الاعتماد:', error);
-            });
-        } catch (error) {
-            Utils.safeWarn('فشل الحفظ التلقائي لجهات الاعتماد:', error);
+            }
         }
 
         if (!skipRefresh) {
@@ -3450,7 +3457,7 @@ const Contractors = {
                             notes: notes || existing.notes,
                             updatedAt: now
                         };
-                        this.persistApprovedEntity(record, existing, { skipRefresh: true });
+                        this.persistApprovedEntity(record, existing, { skipRefresh: true, batchImport: true });
                         updated++;
                     } else {
                         const record = {
@@ -3467,12 +3474,25 @@ const Contractors = {
                             createdAt: now,
                             updatedAt: now
                         };
-                        this.persistApprovedEntity(record, null, { skipRefresh: true });
+                        this.persistApprovedEntity(record, null, { skipRefresh: true, batchImport: true });
                         imported++;
                     }
                 }
 
                 this.ensureApprovedSetup();
+
+                if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
+                    window.DataManager.save();
+                }
+                try {
+                    const gi = typeof GoogleIntegration !== 'undefined' ? GoogleIntegration : null;
+                    if (gi && typeof gi.autoSave === 'function') {
+                        await gi.autoSave('ApprovedContractors', AppState.appData.approvedContractors || []);
+                    }
+                } catch (syncErr) {
+                    Utils.safeWarn('فشل رفع قائمة المعتمدين إلى الخادم بعد الاستيراد:', syncErr);
+                }
+
                 this.refreshApprovedEntitiesList();
                 Loading.hide();
                 Notification.success(
