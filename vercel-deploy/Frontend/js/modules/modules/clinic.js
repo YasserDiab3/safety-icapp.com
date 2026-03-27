@@ -5449,67 +5449,15 @@ const Clinic = {
                         }
                     }
                     
-                    // ✅ تطبيع createdBy و updatedBy للتعامل مع string و object
-                    // عند التحميل من Backend، createdBy يأتي كـ string (اسم المستخدم)
-                    // نحتاج للاحتفاظ به كـ string للعرض بشكل صحيح
-                    if (visit.createdBy) {
-                        // إذا كان string، نتركه كما هو (سيتم عرضه مباشرة)
-                        if (typeof visit.createdBy === 'string') {
-                            const trimmed = visit.createdBy.trim();
-                            // ✅ إصلاح جذري: إذا كان "النظام"، نحاول استخدام email من visit
-                            if (trimmed && trimmed !== '' && trimmed !== 'النظام') {
-                                visit.createdBy = trimmed;
-                            } else if (trimmed === 'النظام') {
-                                // محاولة استخدام email كبديل
-                                // ✅ البحث عن الاسم من قاعدة البيانات بدلاً من استخدام email
-                                const emailFromVisit = (visit.email || '').toString().trim();
-                                const userIdFromVisit = (visit.userId || '').toString().trim();
-                                
-                                if (emailFromVisit || userIdFromVisit) {
-                                    const users = AppState.appData.users || [];
-                                    const dbUser = users.find(u => {
-                                        const userEmail = (u.email || '').toString().toLowerCase().trim();
-                                        const userId = (u.id || '').toString().trim();
-                                        return (emailFromVisit && userEmail === emailFromVisit.toLowerCase().trim()) || 
-                                               (userIdFromVisit && userId === userIdFromVisit);
-                                    });
-                                    
-                                    if (dbUser) {
-                                        const dbUserName = (dbUser.name || dbUser.displayName || '').toString().trim();
-                                        if (dbUserName && dbUserName !== 'النظام' && dbUserName !== '') {
-                                            visit.createdBy = dbUserName;
-                                            if (AppState.debugMode) {
-                                                Utils.safeLog(`✅ تم استبدال "النظام" بـ اسم المستخدم لزيارة ${visit.id || 'غير محدد'}: ${dbUserName}`);
-                                            }
-                                        } else {
-                                            visit.createdBy = 'مستخدم';
-                                        }
-                                    } else {
-                                        visit.createdBy = 'مستخدم';
-                                    }
-                                } else {
-                                    visit.createdBy = 'مستخدم';
-                                }
-                            } else {
-                                visit.createdBy = null;
-                            }
-                        } else if (typeof visit.createdBy === 'object') {
-                            // إذا كان object، نحوله إلى string للتوافق مع Backend (استخدام الاسم فقط)
-                            const name = visit.createdBy.name || '';
-                            const result = (name || 'مستخدم').trim();
-                            visit.createdBy = result;
-                        }
-                    } else {
-                        visit.createdBy = 'مستخدم';
-                    }
-                    
+                    // ✅ createdBy ككائن { id, email, name } مرتبط بحساب المستخدم (مع دعم السجلات القديمة كنص)
+                    visit.createdBy = this.normalizeVisitCreatedByField(visit.createdBy, visit);
+
                     if (visit.updatedBy) {
                         if (typeof visit.updatedBy === 'string') {
                             visit.updatedBy = visit.updatedBy.trim() || null;
                         } else if (typeof visit.updatedBy === 'object') {
-                            // ✅ استخدام الاسم فقط (وليس email أو id)
                             const name = visit.updatedBy.name || '';
-                            visit.updatedBy = (name || 'مستخدم').trim();
+                            visit.updatedBy = (name || visit.updatedBy.email || visit.updatedBy.id || 'مستخدم').toString().trim();
                         }
                     } else {
                         visit.updatedBy = 'مستخدم';
@@ -5774,13 +5722,13 @@ const Clinic = {
                         }).filter(Boolean).join(' ')
                         : '';
                     
-                    // ✅ إضافة createdBy في البحث
+                    // ✅ إضافة createdBy في البحث (اسم + بريد الحساب)
                     let createdBySearch = '';
                     try {
                         if (visit.createdBy) {
                             if (typeof visit.createdBy === 'object') {
-                                // ✅ استخدام الاسم فقط (وليس email أو id)
-                                createdBySearch = String(visit.createdBy.name || 'مستخدم');
+                                createdBySearch = [visit.createdBy.name, visit.createdBy.email, visit.createdBy.id]
+                                    .filter(Boolean).join(' ');
                             } else {
                                 createdBySearch = String(visit.createdBy || '');
                             }
@@ -5788,10 +5736,11 @@ const Clinic = {
                     } catch (error) {
                         createdBySearch = '';
                     }
+                    const visitTypeSearch = String(visit.visitType || visit.visitRegistrationTab || '');
                     
                     const searchText = [
                         primaryValue, displayName, position, factoryDisplay, workplace,
-                        entryTime, exitTime, reason, diagnosis, medications, createdBySearch
+                        entryTime, exitTime, visitTypeSearch, reason, diagnosis, medications, createdBySearch
                     ].join(' ').toLowerCase();
                     
                     if (!searchText.includes(searchTerm)) {
@@ -5872,6 +5821,8 @@ const Clinic = {
                 } catch (error) {
                     totalTime = '-';
                 }
+
+                const visitTypeCell = (visit.visitType && String(visit.visitType).trim()) ? String(visit.visitType).trim() : '—';
                 
                 const reason = visit.reason || '';
                 const diagnosis = visit.diagnosis || '';
@@ -5967,21 +5918,18 @@ const Clinic = {
                     }, 0)
                     : 0;
 
-                // ✅ عرض createdBy (تم التسجيل بواسطة) - منطق مبسط
+                // ✅ عرض createdBy — مرتبط بالحساب (اسم + تلميح بالبريد عند توفره)
                 let createdByDisplay = 'غير محدد';
                 try {
-                    // أولاً: إذا كان createdBy موجود ومليء
-                    if (visit.createdBy) {
-                        const createdByValue = typeof visit.createdBy === 'object' 
-                            ? (visit.createdBy.name || '') 
-                            : String(visit.createdBy).trim();
-                        
-                        if (createdByValue && createdByValue !== 'مستخدم' && createdByValue !== 'النظام') {
-                            createdByDisplay = Utils.escapeHTML(createdByValue);
-                        }
+                    const nameDisp = this.getVisitCreatedByDisplayName(visit);
+                    const accEmail = (typeof visit.createdBy === 'object' && visit.createdBy)
+                        ? String(visit.createdBy.email || visit.createdBy.id || '').trim()
+                        : '';
+                    if (nameDisp && nameDisp !== 'غير محدد' && nameDisp !== 'مستخدم' && nameDisp !== 'النظام') {
+                        createdByDisplay = accEmail
+                            ? `<span title="${Utils.escapeHTML(accEmail)}">${Utils.escapeHTML(nameDisp)}</span>`
+                            : Utils.escapeHTML(nameDisp);
                     }
-                    
-                    // ثانياً: إذا لم نجد اسم صحيح، نبحث في قاعدة البيانات
                     if (createdByDisplay === 'غير محدد' && visit.email) {
                         const users = AppState.appData.users || [];
                         const visitEmail = (visit.email || '').toString().toLowerCase().trim();
@@ -6009,6 +5957,7 @@ const Clinic = {
                     <td style="word-wrap: break-word; white-space: normal; text-align: ${textAlign};">${Utils.escapeHTML(entryTime)}</td>
                     <td style="word-wrap: break-word; white-space: normal; text-align: ${textAlign};">${exitTime}</td>
                     <td style="word-wrap: break-word; white-space: normal; text-align: ${textAlign};">${totalTime}</td>
+                    <td style="word-wrap: break-word; white-space: normal; max-width: 130px; text-align: ${textAlign};">${Utils.escapeHTML(visitTypeCell)}</td>
                     <td style="word-wrap: break-word; white-space: normal; max-width: 200px; text-align: ${textAlign};">${Utils.escapeHTML(reason)}</td>
                     <td style="word-wrap: break-word; white-space: normal; max-width: 200px; text-align: ${textAlign};">${Utils.escapeHTML(diagnosis)}</td>
                     <td style="word-wrap: break-word; white-space: normal; max-width: 250px; text-align: ${textAlign};"><div style="overflow-wrap: break-word;">${medications}</div></td>
@@ -6042,6 +5991,7 @@ const Clinic = {
                                 <th style="min-width: 150px; text-align: ${isRTL ? 'right' : 'left'};">${t('table.entryTime')}</th>
                                 <th style="min-width: 150px; text-align: ${isRTL ? 'right' : 'left'};">${t('table.exitTime')}</th>
                                 <th style="min-width: 100px; text-align: ${isRTL ? 'right' : 'left'};">${t('table.totalTime')}</th>
+                                <th style="min-width: 120px; word-wrap: break-word; text-align: ${isRTL ? 'right' : 'left'};">نوع الزيارة</th>
                                 <th style="min-width: 150px; word-wrap: break-word; text-align: ${isRTL ? 'right' : 'left'};">${t('table.reason')}</th>
                                 <th style="min-width: 150px; word-wrap: break-word; text-align: ${isRTL ? 'right' : 'left'};">${t('table.diagnosis')}</th>
                                 <th style="min-width: 200px; word-wrap: break-word; text-align: ${isRTL ? 'right' : 'left'};">${t('table.medications')}</th>
@@ -6304,6 +6254,73 @@ const Clinic = {
         // إذا لم تكن هناك كمية مسجلة، نعيد 0
         const qty = (currentQuantity !== null && currentQuantity !== undefined) ? currentQuantity : 0;
         return { name: trimmed, quantity: qty };
+    },
+
+    /**
+     * تطبيع createdBy لربط السجل بحساب المستخدم (بريد/معرّف + اسم عرض).
+     * يدعم السجلات القديمة (نص فقط) والبيانات القادمة من الخادم.
+     * @param {string|object|null|undefined} raw
+     * @param {object} [visit]
+     * @returns {{ id: string, email: string, name: string }}
+     */
+    normalizeVisitCreatedByField(raw, visit = {}) {
+        const visitRef = visit && typeof visit === 'object' ? visit : {};
+        const emailFromVisit = (visitRef.email || visitRef.userId || '').toString().toLowerCase().trim();
+        const users = (typeof AppState !== 'undefined' && AppState.appData && Array.isArray(AppState.appData.users))
+            ? AppState.appData.users
+            : [];
+
+        if (raw && typeof raw === 'object' && (raw.email || raw.id || raw.name)) {
+            const em = (raw.email || raw.id || '').toString().toLowerCase().trim();
+            let name = (raw.name || '').toString().trim();
+            if (!name && em) {
+                const u = users.find((x) => (x.email || '').toString().toLowerCase().trim() === em);
+                name = (u && u.name) ? u.name.trim() : '';
+            }
+            return {
+                id: em || emailFromVisit || '',
+                email: em || emailFromVisit || '',
+                name: name || 'مستخدم',
+            };
+        }
+        if (typeof raw === 'string') {
+            const trimmed = raw.trim();
+            if (!trimmed || trimmed === 'النظام') {
+                if (emailFromVisit) {
+                    const dbUser = users.find((u) => (u.email || '').toString().toLowerCase().trim() === emailFromVisit);
+                    return {
+                        id: emailFromVisit,
+                        email: emailFromVisit,
+                        name: (dbUser && dbUser.name) ? dbUser.name.trim() : 'مستخدم',
+                    };
+                }
+                return { id: '', email: '', name: 'مستخدم' };
+            }
+            const byName = users.find((u) => (u.name || '').trim() === trimmed);
+            const em = (byName && byName.email) ? byName.email.toString().toLowerCase().trim() : emailFromVisit;
+            return { id: em || '', email: em || '', name: trimmed };
+        }
+        if (emailFromVisit) {
+            const dbUser = users.find((u) => (u.email || '').toString().toLowerCase().trim() === emailFromVisit);
+            return {
+                id: emailFromVisit,
+                email: emailFromVisit,
+                name: (dbUser && dbUser.name) ? dbUser.name.trim() : 'مستخدم',
+            };
+        }
+        return { id: '', email: '', name: 'مستخدم' };
+    },
+
+    /**
+     * اسم عرض لمُدخل الزيارة (للجداول والتقارير)
+     */
+    getVisitCreatedByDisplayName(visit) {
+        if (!visit || !visit.createdBy) return 'غير محدد';
+        if (typeof visit.createdBy === 'object') {
+            const n = (visit.createdBy.name || '').toString().trim();
+            return n || (visit.createdBy.email || visit.createdBy.id || '').toString().trim() || 'غير محدد';
+        }
+        return String(visit.createdBy).trim() || 'غير محدد';
     },
 
     /**
@@ -6842,6 +6859,14 @@ const Clinic = {
                                         وقت الخروج
                                     </span>
                                     <p style="color: #1e293b; font-size: 16px; font-weight: 600; margin: 0;">${visit.exitDate ? Utils.formatDateTime(visit.exitDate) : 'لم يتم تسجيله'}</p>
+                                </div>
+                                <div style="background: white; padding: 15px; border-radius: 10px; border: 2px solid #fc6c85;">
+                                    <span style="display: flex; align-items: center; gap: 8px; color: #fc6c85; font-weight: 600; font-size: 13px; margin-bottom: 8px;">
+                                        <i class="fas fa-tag"></i>
+                                        نوع الزيارة
+                                    </span>
+                                    <p style="color: #1e293b; font-size: 16px; font-weight: 600; margin: 0;">${Utils.escapeHTML(visit.visitType || '—')}</p>
+                                    ${visit.visitRegistrationTab ? `<p style="color: #64748b; font-size: 12px; margin: 6px 0 0 0;">${visit.visitRegistrationTab === 'contractors' ? 'سجل من تبويب المقاولين' : visit.visitRegistrationTab === 'employees' ? 'سجل من تبويب الموظفين' : ''}</p>` : ''}
                                 </div>
                                 <div style="background: white; padding: 15px; border-radius: 10px; border: 2px solid #fc6c85;">
                                     <span style="display: flex; align-items: center; gap: 8px; color: #fc6c85; font-weight: 600; font-size: 13px; margin-bottom: 8px;">
@@ -9066,6 +9091,17 @@ const Clinic = {
             
             console.log('✅ [CLINIC-OLD] createdByName:', createdByName);
 
+            const accountEmail = currentEmail
+                || (currentUser?.id && /@/.test(String(currentUser.id)) ? String(currentUser.id).toLowerCase().trim() : '');
+            const createdByAccountRecord = {
+                id: accountEmail,
+                email: accountEmail,
+                name: createdByName,
+            };
+            const createdByForSave = isEdit
+                ? this.normalizeVisitCreatedByField(visitData.createdBy, visitData)
+                : createdByAccountRecord;
+
             const formData = {
                 id: visitData?.id || Utils.generateId('CLINIC_VISIT'),
                 personType: personType,
@@ -9086,17 +9122,17 @@ const Clinic = {
                 visitDate: visitDateISO,
                 exitDate: exitDateISO,
                 visitType: document.getElementById('visit-type')?.value?.trim() || null,
+                visitRegistrationTab: (this.state && this.state.activeVisitType) ? this.state.activeVisitType : 'employees',
                 reason: document.getElementById('visit-reason').value.trim(),
                 diagnosis: document.getElementById('visit-diagnosis').value.trim(),
                 treatment: document.getElementById('visit-treatment').value.trim(),
                 medications: selectedMedicationsData.length > 0 ? selectedMedicationsData : null,
                 createdAt: visitData?.createdAt || new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-                // ✅ إضافة createdBy و updatedBy
-                createdBy: visitData?.createdBy || createdByName,
+                createdBy: createdByForSave,
                 updatedBy: createdByName,
-                email: currentEmail,
-                userId: currentUser?.id || ''
+                email: currentEmail || accountEmail || '',
+                userId: currentUser?.id || accountEmail || ''
             };
 
             Loading.show();
@@ -11378,20 +11414,9 @@ const Clinic = {
                                 }
                             }
                             
-                            // ✅ تطبيع createdBy و updatedBy (تماماً مثل loadVisitsDataFromBackend)
-                            if (visit.createdBy) {
-                                if (typeof visit.createdBy === 'string') {
-                                    const trimmed = visit.createdBy.trim();
-                                    visit.createdBy = trimmed || null;
-                                } else if (typeof visit.createdBy === 'object') {
-                                    // ✅ استخدام الاسم فقط (وليس email أو id)
-                                    const name = visit.createdBy.name || '';
-                                    visit.createdBy = (name || 'مستخدم').trim();
-                                }
-                            } else {
-                                visit.createdBy = null;
-                            }
-                            
+                            // ✅ createdBy ككائن { id, email, name } (مثل loadVisitsDataFromBackend)
+                            visit.createdBy = this.normalizeVisitCreatedByField(visit.createdBy, visit);
+
                             if (visit.updatedBy) {
                                 if (typeof visit.updatedBy === 'string') {
                                     visit.updatedBy = visit.updatedBy.trim() || null;
@@ -13221,6 +13246,17 @@ const Clinic = {
             
             const finalUpdatedBy = finalCreatedBy;
             console.log('✅ [CLINIC] finalCreatedBy النهائي:', finalCreatedBy);
+
+            const accountEmail = currentEmail
+                || (currentUser?.id && /@/.test(String(currentUser.id)) ? String(currentUser.id).toLowerCase().trim() : '');
+            const createdByAccountRecord = {
+                id: accountEmail,
+                email: accountEmail,
+                name: finalCreatedBy,
+            };
+            const createdByForSave = isEdit
+                ? this.normalizeVisitCreatedByField(visitData.createdBy, visitData)
+                : createdByAccountRecord;
             
             const formData = {
                 id: visitData?.id || Utils.generateId('VISIT'),
@@ -13236,17 +13272,17 @@ const Clinic = {
                 visitDate: visitDateISO,
                 exitDate: exitDateISO,
                 visitType,
+                visitRegistrationTab: (this.state && this.state.activeVisitType) ? this.state.activeVisitType : 'employees',
                 reason,
                 diagnosis,
                 treatment,
                 medications: [],
                 createdAt: visitData?.createdAt || new Date().toISOString(),
-                createdBy: finalCreatedBy, // string - يجب أن يكون اسم صحيح وليس "النظام"
+                createdBy: createdByForSave,
                 updatedAt: new Date().toISOString(),
-                updatedBy: finalUpdatedBy, // string - يجب أن يكون اسم صحيح وليس "النظام"
-                // ✅ إضافة email و id للمساعدة في استعادة createdBy في Backend إذا لزم الأمر
-                email: AppState.currentUser?.email || '',
-                userId: AppState.currentUser?.id || ''
+                updatedBy: finalUpdatedBy,
+                email: AppState.currentUser?.email || accountEmail || '',
+                userId: AppState.currentUser?.id || accountEmail || ''
             };
             
             // ✅ Debug: تسجيل formData.createdBy مع التأكد من وجود name (دائم)
@@ -13263,12 +13299,12 @@ const Clinic = {
                     formDataCreatedBy: formData.createdBy,
                     currentUser: currentUser,
                     AppStateCurrentUser: AppState.currentUser,
-                    currentUserName: currentUserName
+                    finalCreatedBy: finalCreatedBy
                 });
             }
             
             if (AppState.debugMode) {
-                Utils.safeLog('🔍 formData.createdBy النهائي قبل الإرسال (يجب أن يكون string):', formData.createdBy);
+                Utils.safeLog('🔍 formData.createdBy النهائي قبل الإرسال (كائن مرتبط بالحساب):', formData.createdBy);
                 Utils.safeLog('🔍 formData.createdBy type:', typeof formData.createdBy);
             }
 

@@ -10094,6 +10094,25 @@ const Training = {
     },
     
     /**
+     * سجلات سجل التدريب للموظفين بعد تطبيق البحث وفلتر المصنع (نفس ما يظهر في الجدول)
+     */
+    getFilteredAttendanceRegistry() {
+        this.ensureData();
+        const registry = AppState.appData.trainingAttendance || [];
+        const searchTerm = (document.getElementById('attendance-registry-search')?.value || '').toLowerCase();
+        const filterFactory = document.getElementById('attendance-registry-filter-factory')?.value || '';
+        return registry.filter((record) => {
+            const matchesSearch = !searchTerm ||
+                (record.employeeName || '').toLowerCase().includes(searchTerm) ||
+                (record.employeeCode || '').toLowerCase().includes(searchTerm) ||
+                (record.topic || '').toLowerCase().includes(searchTerm) ||
+                (record.trainer || '').toLowerCase().includes(searchTerm);
+            const matchesFactory = !filterFactory || record.factory === filterFactory || record.factoryName === filterFactory;
+            return matchesSearch && matchesFactory;
+        });
+    },
+
+    /**
      * تحميل سجل التدريب للموظفين
      */
     loadAttendanceRegistry() {
@@ -10102,32 +10121,29 @@ const Training = {
         if (!container) return;
 
         const registry = AppState.appData.trainingAttendance || [];
-        
+
         if (registry.length === 0) {
             container.innerHTML = `
                 <tr>
                     <td colspan="14" class="text-center text-gray-500 py-6">لا توجد سجلات تدريب حتى الآن</td>
                 </tr>
             `;
+            this.setupAttendanceRegistryListeners();
             return;
         }
-        
-        // تطبيق الفلاتر
-        const searchTerm = (document.getElementById('attendance-registry-search')?.value || '').toLowerCase();
-        const filterFactory = document.getElementById('attendance-registry-filter-factory')?.value || '';
-        
-        const filtered = registry.filter(record => {
-            const matchesSearch = !searchTerm || 
-                (record.employeeName || '').toLowerCase().includes(searchTerm) ||
-                (record.employeeCode || '').toLowerCase().includes(searchTerm) ||
-                (record.topic || '').toLowerCase().includes(searchTerm) ||
-                (record.trainer || '').toLowerCase().includes(searchTerm);
-            
-            const matchesFactory = !filterFactory || record.factory === filterFactory || record.factoryName === filterFactory;
-            
-            return matchesSearch && matchesFactory;
-        });
-        
+
+        const filtered = this.getFilteredAttendanceRegistry();
+
+        if (filtered.length === 0) {
+            container.innerHTML = `
+                <tr>
+                    <td colspan="14" class="text-center text-gray-500 py-6">لا توجد نتائج مطابقة للبحث أو فلتر المصنع</td>
+                </tr>
+            `;
+            this.setupAttendanceRegistryListeners();
+            return;
+        }
+
         container.innerHTML = filtered.map((record, index) => {
             const date = record.date ? Utils.formatDate(record.date) : '-';
             let startTime = this.cleanTime(record.startTime) || '-';
@@ -10392,10 +10408,15 @@ const Training = {
     async exportAttendanceRegistryToExcel() {
         try {
             this.ensureData();
-            const registry = AppState.appData.trainingAttendance || [];
-            
-            if (registry.length === 0) {
+            const allRows = AppState.appData.trainingAttendance || [];
+            const registry = this.getFilteredAttendanceRegistry();
+
+            if (allRows.length === 0) {
                 Notification.warning('لا توجد بيانات للتصدير');
+                return;
+            }
+            if (registry.length === 0) {
+                Notification.warning('لا توجد بيانات مطابقة للبحث أو فلتر المصنع. أزل الفلتر ثم أعد التصدير.');
                 return;
             }
             
@@ -10448,7 +10469,7 @@ const Training = {
             XLSX.writeFile(wb, fileName);
             
             Loading.hide();
-            Notification.success(`تم تصدير ${registry.length} سجل إلى Excel بنجاح`);
+            Notification.success(`تم تصدير ${registry.length} سجل إلى Excel بنجاح${allRows.length !== registry.length ? ' (حسب الفلتر الحالي)' : ''}`);
         } catch (error) {
             Loading.hide();
             Utils.safeError('خطأ في تصدير Excel:', error);
@@ -10462,10 +10483,15 @@ const Training = {
     async exportAttendanceRegistryToPDF() {
         try {
             this.ensureData();
-            const registry = AppState.appData.trainingAttendance || [];
-            
-            if (registry.length === 0) {
+            const allRows = AppState.appData.trainingAttendance || [];
+            const registry = this.getFilteredAttendanceRegistry();
+
+            if (allRows.length === 0) {
                 Notification.warning('لا توجد بيانات للتصدير');
+                return;
+            }
+            if (registry.length === 0) {
+                Notification.warning('لا توجد بيانات مطابقة للبحث أو فلتر المصنع. أزل الفلتر ثم أعد التصدير.');
                 return;
             }
             
@@ -10624,18 +10650,35 @@ const Training = {
             const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const printWindow = window.open(url, '_blank');
-            
+
+            const finalizePdfExport = () => {
+                try {
+                    URL.revokeObjectURL(url);
+                } catch (e) {
+                    /* ignore */
+                }
+                Loading.hide();
+                Notification.success(`تم تجهيز ${registry.length} سجل للطباعة${allRows.length !== registry.length ? ' (حسب الفلتر الحالي)' : ''}`);
+            };
+
             if (printWindow) {
-                printWindow.onload = () => {
-                    setTimeout(() => {
+                let fired = false;
+                const runPrint = () => {
+                    if (fired) return;
+                    fired = true;
+                    try {
+                        printWindow.focus();
                         printWindow.print();
-                        setTimeout(() => {
-                            URL.revokeObjectURL(url);
-                            Loading.hide();
-                            Notification.success(`تم تجهيز ${registry.length} سجل للطباعة`);
-                        }, 1000);
-                    }, 500);
+                    } catch (e) {
+                        Utils.safeError('تعذر فتح الطباعة:', e);
+                    }
+                    setTimeout(finalizePdfExport, 800);
                 };
+                printWindow.addEventListener('load', () => setTimeout(runPrint, 300), { once: true });
+                // بعض المتصفحات لا تطلق load على blob URL بشكل موثوق
+                setTimeout(() => {
+                    if (!fired) runPrint();
+                }, 1500);
             } else {
                 Loading.hide();
                 Notification.error('يرجى السماح للنوافذ المنبثقة لعرض التقرير');
