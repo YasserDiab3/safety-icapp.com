@@ -2279,6 +2279,9 @@ const Clinic = {
                     <button type="button" class="btn-secondary" id="medications-export-pdf-btn">
                         <i class="fas fa-file-pdf ml-2"></i>تصدير PDF
                     </button>
+                    <button type="button" class="btn-secondary" id="medications-import-excel-btn">
+                        <i class="fas fa-file-import ml-2"></i>استيراد Excel
+                    </button>
                     <button type="button" class="btn-success" id="medications-export-excel-btn">
                         <i class="fas fa-file-excel ml-2"></i>تصدير Excel
                     </button>
@@ -2309,6 +2312,7 @@ const Clinic = {
         const addBtn = panel.querySelector('#medications-add-btn');
         const exportPdfBtn = panel.querySelector('#medications-export-pdf-btn');
         const exportExcelBtn = panel.querySelector('#medications-export-excel-btn');
+        const importExcelBtn = panel.querySelector('#medications-import-excel-btn');
 
         if (searchInput) {
             searchInput.addEventListener('input', (event) => {
@@ -2348,6 +2352,9 @@ const Clinic = {
 
         if (exportExcelBtn) {
             exportExcelBtn.addEventListener('click', () => this.exportMedicationsToExcel());
+        }
+        if (importExcelBtn) {
+            importExcelBtn.addEventListener('click', () => this.importMedicationsFromExcel());
         }
 
         panel.querySelectorAll('[data-action="view-medication"]').forEach((btn) => {
@@ -2967,6 +2974,99 @@ const Clinic = {
         XLSX.utils.book_append_sheet(workbook, worksheet, 'Medications');
         const fileName = `Clinic_Medications_${new Date().toISOString().slice(0, 10)}.xlsx`;
         XLSX.writeFile(workbook, fileName);
+    },
+
+    async importMedicationsFromExcel() {
+        try {
+            if (typeof XLSX === 'undefined') {
+                Notification?.error?.('مكتبة Excel غير متوفرة');
+                return;
+            }
+
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.xlsx,.xls';
+            input.style.display = 'none';
+            document.body.appendChild(input);
+
+            input.onchange = async () => {
+                try {
+                    const file = input.files && input.files[0];
+                    if (!file) return;
+
+                    const buf = await file.arrayBuffer();
+                    const wb = XLSX.read(buf, { type: 'array' });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+                    const pick = (r, keys) => {
+                        for (const k of keys) {
+                            if (r[k] !== undefined && r[k] !== null && String(r[k]).trim() !== '') return r[k];
+                        }
+                        return '';
+                    };
+                    const normalizeDate = (v) => {
+                        if (!v) return '';
+                        if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString();
+                        const s = String(v).trim();
+                        const d = new Date(s);
+                        return !isNaN(d.getTime()) ? d.toISOString() : s;
+                    };
+
+                    const imported = rows.map((r, idx) => {
+                        const name = pick(r, ['اسم الدواء', 'الدواء', 'name', 'Name']);
+                        if (!String(name || '').trim()) return null;
+                        const rec = {
+                            id: pick(r, ['id', 'ID']) || `MED-${Date.now()}-${idx}`,
+                            name: String(name).trim(),
+                            type: String(pick(r, ['نوع الدواء', 'type', 'Type']) || '').trim(),
+                            usage: String(pick(r, ['الاستخدام', 'usage', 'Usage']) || '').trim(),
+                            status: String(pick(r, ['الحالة', 'status', 'Status']) || '').trim() || 'ساري',
+                            purchaseDate: normalizeDate(pick(r, ['تاريخ الشراء', 'purchaseDate', 'PurchaseDate'])),
+                            expiryDate: normalizeDate(pick(r, ['تاريخ انتهاء الصلاحية', 'expiryDate', 'ExpiryDate'])),
+                            quantityAdded: Number(pick(r, ['الكمية', 'quantity', 'quantityAdded', 'Quantity']) || 0) || 0,
+                            remainingQuantity: Number(pick(r, ['الرصيد', 'remaining', 'remainingQuantity', 'Remaining']) || 0) || 0,
+                            updatedAt: new Date().toISOString(),
+                            createdAt: new Date().toISOString()
+                        };
+                        return this.normalizeMedicationRecord(rec);
+                    }).filter(Boolean);
+
+                    if (!imported.length) {
+                        Notification?.warning?.('لم يتم العثور على بيانات صالحة للاستيراد');
+                        return;
+                    }
+
+                    this.ensureData();
+                    const existing = Array.isArray(AppState.appData.medications) ? AppState.appData.medications : [];
+                    const map = new Map();
+                    existing.forEach(m => m && m.id && map.set(m.id, m));
+                    imported.forEach(m => m && m.id && map.set(m.id, m));
+                    const merged = Array.from(map.values());
+
+                    AppState.appData.medications = merged;
+                    AppState.appData.clinicMedications = merged;
+                    AppState.appData.clinicInventory = merged;
+
+                    if (typeof window.DataManager !== 'undefined' && window.DataManager.save) window.DataManager.save();
+                    if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
+                        GoogleIntegration.autoSave('Medications', merged).catch(() => {});
+                    }
+
+                    Notification?.success?.(`تم استيراد ${imported.length} دواء بنجاح`);
+                    this.renderMedicationsTab();
+                } catch (e) {
+                    Utils.safeError('importMedicationsFromExcel failed:', e);
+                    Notification?.error?.('فشل استيراد Excel');
+                } finally {
+                    input.remove();
+                }
+            };
+
+            input.click();
+        } catch (e) {
+            Utils.safeError('importMedicationsFromExcel outer failed:', e);
+        }
     },
 
     exportMedicationsToPDF() {
@@ -5960,6 +6060,10 @@ const Clinic = {
                         <i class="fas fa-sync-alt ${iconMarginClass}"></i>
                         ${t('btn.refresh')}
                     </button>
+                    <button type="button" id="visits-import-excel-btn" class="btn-secondary">
+                        <i class="fas fa-file-import ${iconMarginClass}"></i>
+                        استيراد Excel
+                    </button>
                     <button type="button" id="visits-export-excel-btn" class="btn-success">
                         <i class="fas fa-file-excel ${iconMarginClass}"></i>
                         ${t('btn.exportExcel')}
@@ -6500,6 +6604,7 @@ const Clinic = {
         const addBtn = panel.querySelector('#visits-add-btn');
         const addNewBtn = panel.querySelector('#visits-add-new-btn');
         const refreshBtn = panel.querySelector('#visits-refresh-btn');
+        const importExcelBtn = panel.querySelector('#visits-import-excel-btn');
         const exportExcelBtn = panel.querySelector('#visits-export-excel-btn');
         const exportPdfBtn = panel.querySelector('#visits-export-pdf-btn');
         const searchInput = panel.querySelector('#visits-search');
@@ -6511,6 +6616,7 @@ const Clinic = {
             this.renderVisitsTab(true);
             Notification.success('جاري تحديث البيانات...');
         });
+        importExcelBtn?.addEventListener('click', () => this.importVisitsFromExcel());
         exportExcelBtn?.addEventListener('click', () => this.exportVisitsToExcel());
         exportPdfBtn?.addEventListener('click', () => this.exportVisitsToPDF());
 
@@ -9882,6 +9988,116 @@ const Clinic = {
         } catch (error) {
             Utils.safeError('خطأ في تصدير Excel:', error);
             Notification.error('فشل تصدير Excel: ' + error.message);
+        }
+    },
+
+    async importVisitsFromExcel() {
+        try {
+            if (typeof XLSX === 'undefined') {
+                Notification?.error?.('مكتبة Excel غير متوفرة');
+                return;
+            }
+
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.xlsx,.xls';
+            input.style.display = 'none';
+            document.body.appendChild(input);
+
+            input.onchange = async () => {
+                try {
+                    const file = input.files && input.files[0];
+                    if (!file) return;
+
+                    const buf = await file.arrayBuffer();
+                    const wb = XLSX.read(buf, { type: 'array' });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+                    const pick = (r, keys) => {
+                        for (const k of keys) {
+                            if (r[k] !== undefined && r[k] !== null && String(r[k]).trim() !== '') return r[k];
+                        }
+                        return '';
+                    };
+                    const normalizeDate = (v) => {
+                        if (!v) return '';
+                        if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString();
+                        const s = String(v).trim();
+                        const d = new Date(s);
+                        return !isNaN(d.getTime()) ? d.toISOString() : s;
+                    };
+
+                    const imported = rows.map((r, idx) => {
+                        const name = pick(r, ['الاسم', 'اسم', 'name', 'Name']);
+                        if (!String(name || '').trim()) return null;
+
+                        // إذا الملف بصيغة “الموظفين” سيكون فيه كود وظيفي، ولو “المقاولين” سيكون فيه اسم المقاول
+                        const contractorName = pick(r, ['اسم المقاول', 'contractorName', 'ContractorName']);
+                        const employeeCode = pick(r, ['الكود الوظيفي', 'كود الموظف', 'employeeCode', 'EmployeeCode']);
+                        const isContractor = String(contractorName || '').trim() !== '' && String(employeeCode || '').trim() === '';
+
+                        const visit = {
+                            id: pick(r, ['id', 'ID']) || `VIS-${Date.now()}-${idx}`,
+                            personType: isContractor ? 'contractor' : 'employee',
+                            employeeCode: String(employeeCode || '').trim(),
+                            contractorName: String(contractorName || '').trim(),
+                            employeeName: isContractor ? '' : String(name).trim(),
+                            contractorWorkerName: isContractor ? String(name).trim() : '',
+                            employeePosition: String(pick(r, ['الوظيفة', 'jobTitle', 'JobTitle']) || '').trim(),
+                            factory: String(pick(r, ['المصنع', 'factory', 'Factory']) || '').trim(),
+                            employeeLocation: String(pick(r, ['مكان العمل', 'workArea', 'WorkArea']) || '').trim(),
+                            visitDate: normalizeDate(pick(r, ['وقت الدخول', 'visitDate', 'VisitDate', 'EntryTime'])),
+                            exitDate: normalizeDate(pick(r, ['وقت الخروج', 'exitDate', 'ExitDate', 'ExitTime'])),
+                            reason: String(pick(r, ['سبب الزيارة', 'reason', 'Reason']) || '').trim(),
+                            diagnosis: String(pick(r, ['التشخيص', 'diagnosis', 'Diagnosis']) || '').trim(),
+                            medicationsDispensed: String(pick(r, ['الأدوية المنصرفة', 'الأدوية', 'medications', 'Medications']) || '').trim(),
+                            createdBy: AppState.currentUser?.name || AppState.currentUser?.email || null,
+                            createdAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString()
+                        };
+
+                        try {
+                            const meds = this.normalizeVisitMedications(visit.medicationsDispensed);
+                            visit.medications = meds && meds.length ? meds : [];
+                        } catch (e) {
+                            visit.medications = [];
+                        }
+
+                        return visit;
+                    }).filter(Boolean);
+
+                    if (!imported.length) {
+                        Notification?.warning?.('لم يتم العثور على بيانات صالحة للاستيراد');
+                        return;
+                    }
+
+                    this.ensureData();
+                    const existing = Array.isArray(AppState.appData.clinicVisits) ? AppState.appData.clinicVisits : [];
+                    const map = new Map();
+                    existing.forEach(v => v && v.id && map.set(v.id, v));
+                    imported.forEach(v => v && v.id && map.set(v.id, v));
+                    const merged = Array.from(map.values());
+                    AppState.appData.clinicVisits = merged;
+
+                    if (typeof window.DataManager !== 'undefined' && window.DataManager.save) window.DataManager.save();
+                    if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
+                        GoogleIntegration.autoSave('ClinicVisits', merged).catch(() => {});
+                    }
+
+                    Notification?.success?.(`تم استيراد ${imported.length} سجل زيارة بنجاح`);
+                    this.renderVisitsTab(false);
+                } catch (e) {
+                    Utils.safeError('importVisitsFromExcel failed:', e);
+                    Notification?.error?.('فشل استيراد Excel');
+                } finally {
+                    input.remove();
+                }
+            };
+
+            input.click();
+        } catch (e) {
+            Utils.safeError('importVisitsFromExcel outer failed:', e);
         }
     },
 

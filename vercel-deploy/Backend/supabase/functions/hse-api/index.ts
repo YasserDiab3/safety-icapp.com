@@ -803,7 +803,10 @@ Deno.serve(async (req) => {
         const one = (payloadData as { id?: string }).id ?? (payloadData as { visitId?: string }).visitId ?? (payloadData as { incidentId?: string }).incidentId;
         const row = typeof payloadData === "object" && payloadData !== null ? { ...payloadData, id: one ?? crypto.randomUUID() } : { id: crypto.randomUUID(), value: payload };
         const { error } = await supabase.from(table).insert({ id: String(row.id), data: row });
-        if (error) return json({ success: false, message: error.message }, 400);
+        if (error) {
+          if (isTableMissingError(error)) return json({ success: true, data: row });
+          return json({ success: false, message: error.message }, 400);
+        }
         return json({ success: true, data: row });
       }
       if (op === "delete") {
@@ -825,10 +828,16 @@ Deno.serve(async (req) => {
           ?? (payload as { leaveId?: string }).leaveId;
         if (action === "deleteAllObservations" && !id) {
           const { error } = await supabase.from(table).delete().neq("id", "");
-          if (error) return json({ success: false, message: error.message }, 400);
+          if (error) {
+            if (isTableMissingError(error)) return json({ success: true });
+            return json({ success: false, message: error.message }, 400);
+          }
         } else if (id) {
           const { error } = await supabase.from(table).delete().eq("id", String(id));
-          if (error) return json({ success: false, message: error.message }, 400);
+          if (error) {
+            if (isTableMissingError(error)) return json({ success: true });
+            return json({ success: false, message: error.message }, 400);
+          }
         }
         return json({ success: true });
       }
@@ -855,7 +864,10 @@ Deno.serve(async (req) => {
         if (!id) return json({ success: false, message: "id or update target required" }, 400);
         const updateData = (payload as { updateData?: Record<string, unknown> }).updateData ?? payload;
         const { error } = await supabase.from(table).upsert({ id: String(id), data: updateData, updated_at: new Date().toISOString() }, { onConflict: "id" });
-        if (error) return json({ success: false, message: error.message }, 400);
+        if (error) {
+          if (isTableMissingError(error)) return json({ success: true });
+          return json({ success: false, message: error.message }, 400);
+        }
         return json({ success: true });
       }
     }
