@@ -91,6 +91,24 @@ const Users = {
             </div>
         `;
 
+            // Event delegation (robust): ensure buttons always work even after re-render
+            if (!this._delegatedClicksBound) {
+                document.addEventListener('click', (ev) => {
+                    try {
+                        const t = ev.target;
+                        if (!t || !t.closest) return;
+                        const addBtn = t.closest('#add-user-btn');
+                        const addEmptyBtn = t.closest('#add-user-empty-btn');
+                        if (addBtn || addEmptyBtn) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            this.showForm();
+                        }
+                    } catch (e) {}
+                }, true);
+                this._delegatedClicksBound = true;
+            }
+
             this.setupEventListeners();
             
             // ✅ تحميل القائمة فوراً بعد عرض الواجهة (بدون setTimeout لتجنب “تعليق” شاشة التحميل)
@@ -404,7 +422,20 @@ const Users = {
 
     async loadUsersList() {
         const container = document.getElementById('users-table-container');
-        if (!container) return;
+        if (!container) {
+            // في حال لم يُرسم الجدول بعد لسبب ما، أعد رسم القائمة ثم حاول مرة أخرى
+            const contentArea = document.getElementById('users-content');
+            if (contentArea) {
+                contentArea.innerHTML = await this.renderList();
+            }
+        }
+        const safeContainer = document.getElementById('users-table-container');
+        if (!safeContainer) return;
+        safeContainer.innerHTML = `
+            <div class="empty-state">
+                <p class="text-gray-500">جاري تحميل المستخدمين...</p>
+            </div>
+        `;
 
         const withTimeout = async (promise, ms, label) => {
             try {
@@ -446,7 +477,7 @@ const Users = {
             const users = AppState.appData.users || [];
 
             if (users.length === 0) {
-                container.innerHTML = `
+                safeContainer.innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-users text-4xl text-gray-300 mb-4"></i>
                         <p class="text-gray-500">لا يوجد مستخدمين</p>
@@ -564,10 +595,10 @@ const Users = {
             </div>
         `;
 
-            container.innerHTML = tableHTML;
+            safeContainer.innerHTML = tableHTML;
         } catch (error) {
             Utils.safeError('❌ خطأ في loadUsersList:', error);
-            container.innerHTML = `
+            safeContainer.innerHTML = `
                 <div class="empty-state">
                     <i class="fas fa-exclamation-triangle text-yellow-500 text-4xl mb-4"></i>
                     <p class="text-gray-500 mb-3">تعذر تحميل المستخدمين</p>
