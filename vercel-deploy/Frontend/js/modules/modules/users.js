@@ -92,36 +92,33 @@ const Users = {
 
             this.setupEventListeners();
             
-            // ✅ تحميل القائمة فوراً بعد عرض الواجهة
-            setTimeout(async () => {
-                try {
-                    const contentArea = document.getElementById('users-content');
-                    if (!contentArea) return;
-                    
-                    const listContent = await this.renderList().catch(error => {
-                        Utils.safeWarn('⚠️ خطأ في تحميل القائمة:', error);
-                        return `
-                            <div class="content-card">
-                                <div class="card-body">
-                                    <div class="empty-state">
-                                        <i class="fas fa-exclamation-triangle text-yellow-500 text-4xl mb-4"></i>
-                                        <p class="text-gray-500 mb-4">حدث خطأ في تحميل البيانات</p>
-                                        <button onclick="Users.load()" class="btn-primary">
-                                            <i class="fas fa-redo ml-2"></i>
-                                            إعادة المحاولة
-                                        </button>
-                                    </div>
+            // ✅ تحميل القائمة فوراً بعد عرض الواجهة (بدون setTimeout لتجنب “تعليق” شاشة التحميل)
+            try {
+                const contentArea = document.getElementById('users-content');
+                if (contentArea) {
+                    contentArea.innerHTML = await this.renderList();
+                    await this.loadUsersList();
+                }
+            } catch (error) {
+                Utils.safeWarn('⚠️ خطأ في تحميل قائمة المستخدمين:', error);
+                const contentArea = document.getElementById('users-content');
+                if (contentArea) {
+                    contentArea.innerHTML = `
+                        <div class="content-card">
+                            <div class="card-body">
+                                <div class="empty-state">
+                                    <i class="fas fa-exclamation-triangle text-yellow-500 text-4xl mb-4"></i>
+                                    <p class="text-gray-500 mb-4">حدث خطأ في تحميل البيانات</p>
+                                    <button onclick="Users.load()" class="btn-primary">
+                                        <i class="fas fa-redo ml-2"></i>
+                                        إعادة المحاولة
+                                    </button>
                                 </div>
                             </div>
-                        `;
-                    });
-                    
-                    contentArea.innerHTML = listContent;
-                    this.loadUsersList();
-                } catch (error) {
-                    Utils.safeWarn('⚠️ خطأ في تحميل القائمة:', error);
+                        </div>
+                    `;
                 }
-            }, 0);
+            }
             
             // بدء التحديث التلقائي لحالة الاتصال وآخر تسجيل دخول
             this.startAutoRefresh();
