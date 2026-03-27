@@ -5,6 +5,9 @@
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- على Supabase تُثبَّت دوال pgcrypto غالباً في المخطط extensions؛ بدون هذا يفشل digest(unknown, unknown).
+SET search_path TO public, extensions;
+
 -- -----------------------------------------------------------------------------
 -- Core tables required by frontend login/auth flow
 -- -----------------------------------------------------------------------------
@@ -105,7 +108,7 @@ VALUES (
     'passwordChanged', true,
     'forcePasswordChange', false
   ),
-  encode(digest('123@654', 'sha256'), 'hex'),
+  encode(digest('123@654'::text, 'sha256'::text), 'hex'),
   '{}'::jsonb,
   now()
 )
