@@ -402,17 +402,40 @@ const Users = {
         const container = document.getElementById('users-table-container');
         if (!container) return;
 
+        const withTimeout = async (promise, ms, label) => {
+            try {
+                if (typeof Utils !== 'undefined' && Utils.promiseWithTimeout) {
+                    return await Utils.promiseWithTimeout(promise, ms, label || 'انتهت مهلة الاتصال');
+                }
+            } catch (e) {}
+            return await Promise.race([
+                promise,
+                new Promise((_, reject) => setTimeout(() => reject(new Error(label || 'انتهت مهلة الاتصال')), ms))
+            ]);
+        };
+
         // حاول المزامنة من الخلفية أولاً (Supabase/Google) حتى لا تظهر الصفحة فارغة
         try {
             if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.syncUsers === 'function') {
-                await GoogleIntegration.syncUsers(true);
-            } else if (typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.readFromSheets === 'function') {
-                const list = await GoogleIntegration.readFromSheets('Users');
-                if (Array.isArray(list)) AppState.appData.users = list;
-                if (typeof window.DataManager !== 'undefined' && window.DataManager.save) window.DataManager.save();
+                await withTimeout(GoogleIntegration.syncUsers(true), 12000, 'انتهت مهلة تحميل المستخدمين');
             }
         } catch (e) {
-            Utils.safeWarn('⚠️ تعذر مزامنة المستخدمين من الخلفية:', e?.message || e);
+            Utils.safeWarn('⚠️ syncUsers فشل:', e?.message || e);
+        }
+
+        // fallback: قراءة مباشرة (حتى لو syncUsers غير موجود/فشل)
+        try {
+            const current = AppState.appData.users;
+            const hasUsers = Array.isArray(current) && current.length > 0;
+            if (!hasUsers && typeof GoogleIntegration !== 'undefined' && typeof GoogleIntegration.readFromSheets === 'function') {
+                const list = await withTimeout(GoogleIntegration.readFromSheets('Users'), 12000, 'انتهت مهلة تحميل المستخدمين');
+                if (Array.isArray(list)) {
+                    AppState.appData.users = list;
+                    if (typeof window.DataManager !== 'undefined' && window.DataManager.save) window.DataManager.save();
+                }
+            }
+        } catch (e) {
+            Utils.safeWarn('⚠️ readFromSheets(Users) فشل:', e?.message || e);
         }
 
         const users = AppState.appData.users || [];
@@ -558,48 +581,53 @@ const Users = {
     },
 
     setupEventListeners() {
-        // إضافة مستخدم جديد
-        setTimeout(() => {
-            const addBtn = document.getElementById('add-user-btn');
-            const addEmptyBtn = document.getElementById('add-user-empty-btn');
+        // ربط فوري للأحداث لتجنب “زر لا يعمل” بسبب التأخير
+        const addBtn = document.getElementById('add-user-btn');
+        const addEmptyBtn = document.getElementById('add-user-empty-btn');
 
-            if (addBtn) {
-                addBtn.addEventListener('click', () => this.showForm());
-            }
-            if (addEmptyBtn) {
-                addEmptyBtn.addEventListener('click', () => this.showForm());
-            }
+        if (addBtn && addBtn.dataset.bound !== 'true') {
+            addBtn.onclick = () => this.showForm();
+            addBtn.dataset.bound = 'true';
+        }
+        if (addEmptyBtn && addEmptyBtn.dataset.bound !== 'true') {
+            addEmptyBtn.onclick = () => this.showForm();
+            addEmptyBtn.dataset.bound = 'true';
+        }
 
-            // استيراد Excel
-            const importExcelBtn = document.getElementById('import-excel-btn');
-            if (importExcelBtn) {
-                importExcelBtn.addEventListener('click', () => this.showImportExcel());
-            }
+        // استيراد Excel
+        const importExcelBtn = document.getElementById('import-excel-btn');
+        if (importExcelBtn && importExcelBtn.dataset.bound !== 'true') {
+            importExcelBtn.onclick = () => this.showImportExcel();
+            importExcelBtn.dataset.bound = 'true';
+        }
 
-            // البحث والتصفية
-            const searchInput = document.getElementById('users-search');
-            const filterRole = document.getElementById('users-filter-role');
+        // البحث والتصفية
+        const searchInput = document.getElementById('users-search');
+        const filterRole = document.getElementById('users-filter-role');
 
-            if (searchInput) {
-                searchInput.addEventListener('input', (e) => this.filterUsers(e.target.value, filterRole?.value));
-            }
-            if (filterRole) {
-                filterRole.addEventListener('change', (e) => this.filterUsers(searchInput?.value, e.target.value));
-            }
+        if (searchInput && searchInput.dataset.bound !== 'true') {
+            searchInput.addEventListener('input', (e) => this.filterUsers(e.target.value, filterRole?.value));
+            searchInput.dataset.bound = 'true';
+        }
+        if (filterRole && filterRole.dataset.bound !== 'true') {
+            filterRole.addEventListener('change', (e) => this.filterUsers(searchInput?.value, e.target.value));
+            filterRole.dataset.bound = 'true';
+        }
 
-            // نموذج المستخدم
-            const userForm = document.getElementById('user-form');
-            if (userForm) {
-                userForm.addEventListener('submit', (e) => this.handleSubmit(e));
-            }
+        // نموذج المستخدم
+        const userForm = document.getElementById('user-form');
+        if (userForm && userForm.dataset.bound !== 'true') {
+            userForm.addEventListener('submit', (e) => this.handleSubmit(e));
+            userForm.dataset.bound = 'true';
+        }
 
-            const cancelBtn = document.getElementById('cancel-user-btn');
-            if (cancelBtn) {
-                cancelBtn.addEventListener('click', () => this.showList());
-            }
+        const cancelBtn = document.getElementById('cancel-user-btn');
+        if (cancelBtn && cancelBtn.dataset.bound !== 'true') {
+            cancelBtn.onclick = () => this.showList();
+            cancelBtn.dataset.bound = 'true';
+        }
 
-            this.setupPhotoPreview();
-        }, 100);
+        this.setupPhotoPreview();
     },
 
     async showForm(userData = null) {
