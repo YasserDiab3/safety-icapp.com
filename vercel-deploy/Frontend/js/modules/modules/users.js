@@ -11,7 +11,7 @@ const Users = {
     currentView: 'list', // list, form, edit
     currentEditId: null,
     autoRefreshInterval: null, // لتخزين معرف التحديث التلقائي
-    refreshInterval: 5000, // تحديث كل 5 ثوان
+    refreshInterval: 30000, // تحديث كل 30 ثانية لتجنب اهتزاز/إعادة تدفق layout
     sectionChangeHandler: null, // لتخزين معالج حدث تغيير القسم
 
     isAdminUser() {
@@ -1912,12 +1912,14 @@ const Users = {
         // إيقاف التحديث السابق إن وجد
         this.stopAutoRefresh();
 
-        // بدء التحديث التلقائي كل 5 ثوان
+        // بدء التحديث التلقائي (مخفف) لتحديث حالة الاتصال وآخر تسجيل دخول فقط
         this.autoRefreshInterval = setInterval(() => {
             // التحقق من أن الموديول مفتوح حالياً
             const section = document.getElementById('users-section');
             if (section && section.style.display !== 'none' && !section.hidden) {
                 // تحديث الجدول فقط (بدون إعادة تحميل كامل)
+                // إذا كان المستخدم داخل نموذج إضافة/تعديل، لا نلمس DOM لتجنب فقد التركيز/اهتزاز
+                if (this.currentView !== 'list') return;
                 this.refreshUsersTable();
             }
         }, this.refreshInterval);

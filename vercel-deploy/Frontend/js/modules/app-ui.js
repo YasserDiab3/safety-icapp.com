@@ -6030,23 +6030,23 @@ window.UI = {
 
                 // إضافة الأيقونات بعد استبدال innerHTML مباشرة
                 if (sectionName !== 'dashboard') {
-                    // محاولات متعددة مع زيادة الفترات لضمان إعادة الإضافة
-                    const retries = [0, 50, 150, 300, 600, 1000];
-                    retries.forEach((delay, index) => {
-                        setTimeout(() => {
+                    // تقليل الاهتزاز: جدولة واحدة مع إلغاء السابق (بدلاً من 6 timeouts)
+                    try {
+                        if (this._navIconsTimer) clearTimeout(this._navIconsTimer);
+                        this._navIconsTimer = setTimeout(() => {
                             try {
-                                // التحقق من أن القسم لا يزال موجوداً في DOM
                                 if (this.isConnected && this.parentNode) {
                                     self.addNavigationIcons(this, sectionName);
                                 }
                             } catch (error) {
-                                // تجاهل الأخطاء في المحاولات المتأخرة
-                                if (index < 3 && AppState.debugMode) {
+                                if (AppState.debugMode) {
                                     Utils.safeWarn('⚠️ خطأ في إضافة الأيقونات بعد innerHTML:', error);
                                 }
                             }
-                        }, delay);
-                    });
+                        }, 120);
+                    } catch (e) {
+                        // no-op
+                    }
                 }
             },
             get: function () {
