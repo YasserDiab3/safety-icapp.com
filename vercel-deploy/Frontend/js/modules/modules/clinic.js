@@ -10032,12 +10032,6 @@ const Clinic = {
                     const buf = await file.arrayBuffer();
                     const wb = XLSX.read(buf, { type: 'array' });
                     const rows = [];
-                    wb.SheetNames.forEach((sn) => {
-                        const ws = wb.Sheets[sn];
-                        const rr = XLSX.utils.sheet_to_json(ws, { defval: '' });
-                        if (Array.isArray(rr) && rr.length) rows.push(...rr);
-                    });
-
                     const normalizeKey = (k) => String(k || '')
                         .trim()
                         .toLowerCase()
@@ -10046,6 +10040,58 @@ const Clinic = {
                         .replace(/[()\-_:]/g, '')
                         .replace(/أ|إ|آ/g, 'ا')
                         .replace(/ة/g, 'ه');
+                    const keywordSet = new Set([
+                        normalizeKey('الاسم'),
+                        normalizeKey('اسم'),
+                        normalizeKey('اسم العامل'),
+                        normalizeKey('الكود الوظيفي'),
+                        normalizeKey('سبب الزيارة'),
+                        normalizeKey('التشخيص'),
+                        normalizeKey('وقت الدخول')
+                    ]);
+
+                    const convertSheetByDetectedHeader = (ws) => {
+                        const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+                        if (!Array.isArray(aoa) || !aoa.length) return [];
+
+                        let headerIdx = -1;
+                        let header = [];
+                        for (let i = 0; i < Math.min(20, aoa.length); i++) {
+                            const row = Array.isArray(aoa[i]) ? aoa[i] : [];
+                            const normalized = row.map(c => normalizeKey(c));
+                            const score = normalized.filter(v => keywordSet.has(v)).length;
+                            if (score >= 2) {
+                                headerIdx = i;
+                                header = row;
+                                break;
+                            }
+                        }
+                        if (headerIdx === -1) return [];
+
+                        const objects = [];
+                        for (let i = headerIdx + 1; i < aoa.length; i++) {
+                            const row = Array.isArray(aoa[i]) ? aoa[i] : [];
+                            if (!row.some(c => String(c || '').trim() !== '')) continue;
+                            const obj = {};
+                            for (let c = 0; c < header.length; c++) {
+                                const key = String(header[c] || '').trim();
+                                if (!key) continue;
+                                obj[key] = row[c] ?? '';
+                            }
+                            objects.push(obj);
+                        }
+                        return objects;
+                    };
+
+                    wb.SheetNames.forEach((sn) => {
+                        const ws = wb.Sheets[sn];
+                        let rr = XLSX.utils.sheet_to_json(ws, { defval: '' });
+                        if (!Array.isArray(rr) || rr.length === 0) {
+                            rr = convertSheetByDetectedHeader(ws);
+                        }
+                        if (Array.isArray(rr) && rr.length) rows.push(...rr);
+                    });
+
                     const pick = (r, keys) => {
                         if (!r || typeof r !== 'object') return '';
                         const normalizedRow = {};
