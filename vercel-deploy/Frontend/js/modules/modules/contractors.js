@@ -575,6 +575,8 @@ const Contractors = {
                 sendBtn.addEventListener('click', () => this.showApprovalRequestForm());
             }
 
+            this.bindApprovedEntitiesToolbarButtons();
+
             // ✅ التحميل اكتمل بنجاح
             this._isLoading = false;
 
@@ -998,6 +1000,25 @@ const Contractors = {
         if (status === 'pending') return 'badge-info';
         if (status === 'under_review') return 'badge-warning';
         return 'badge-danger';
+    },
+
+    /**
+     * ربط أزرار قائمة المعتمدين بعد كل إعادة تحميل (DOM جديدة بينما setupEventListeners مرة واحدة)
+     */
+    bindApprovedEntitiesToolbarButtons() {
+        const bind = (id, fn) => {
+            const el = document.getElementById(id);
+            if (el && !el.hasAttribute('data-listener-attached')) {
+                el.setAttribute('data-listener-attached', 'true');
+                el.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    fn.call(this);
+                });
+            }
+        };
+        bind('import-approved-contractors-excel-btn', this.importApprovedEntitiesFromExcel);
+        bind('export-approved-contractors-excel-btn', this.exportApprovedEntitiesExcel);
+        bind('export-approved-contractors-pdf-btn', () => this.exportApprovedEntitiesPDF());
     },
 
     isApprovalExpired(record) {
@@ -3914,14 +3935,7 @@ const Contractors = {
         }
         const activeSignal = this._abortController?.signal;
 
-        const importApprovedExcelBtn = document.getElementById('import-approved-contractors-excel-btn');
-        if (importApprovedExcelBtn) importApprovedExcelBtn.addEventListener('click', () => this.importApprovedEntitiesFromExcel(), { signal: activeSignal });
-
-        const exportApprovedExcelBtn = document.getElementById('export-approved-contractors-excel-btn');
-        if (exportApprovedExcelBtn) exportApprovedExcelBtn.addEventListener('click', () => this.exportApprovedEntitiesExcel(), { signal: activeSignal });
-
-        const exportApprovedPdfBtn = document.getElementById('export-approved-contractors-pdf-btn');
-        if (exportApprovedPdfBtn) exportApprovedPdfBtn.addEventListener('click', () => this.exportApprovedEntitiesPDF(), { signal: activeSignal });
+        /* أزرار استيراد/تصدير قائمة المعتمدين تُربط عبر bindApprovedEntitiesToolbarButtons() بعد كل load() */
 
         const approvedSearchInput = document.getElementById('approved-contractors-search');
         if (approvedSearchInput) {

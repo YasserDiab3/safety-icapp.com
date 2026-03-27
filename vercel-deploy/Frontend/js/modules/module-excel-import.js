@@ -108,6 +108,15 @@
                     notify('استيراد Excel متاح في تبويب «سجل حصر التصاريح» فقط.', 'warning');
                     return;
                 }
+                case 'contractors': {
+                    var ctab = global.Contractors && global.Contractors.currentTab;
+                    if (ctab === 'approved' && typeof global.Contractors !== 'undefined' && typeof global.Contractors.importApprovedEntitiesFromExcel === 'function') {
+                        global.Contractors.importApprovedEntitiesFromExcel();
+                        return;
+                    }
+                    notify('استيراد Excel للمقاولين المعتمدين: افتح تبويب «قائمة المقاولين والموردين المعتمدين» ثم اضغط «استيراد Excel» بجانب التصدير.', 'warning');
+                    return;
+                }
                 case 'fire-equipment':
                     if (typeof global.FireEquipment !== 'undefined' && typeof global.FireEquipment.showImportExcelModal === 'function') {
                         global.FireEquipment.showImportExcelModal();
