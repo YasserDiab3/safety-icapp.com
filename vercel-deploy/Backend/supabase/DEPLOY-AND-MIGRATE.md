@@ -82,6 +82,16 @@ supabase migration up
 supabase db push
 ```
 
+### ترحيل معرفات معدات الحريق إلى FEA-001
+
+يُضاف تلقائياً مع `supabase db push` الملف `20260327200000_fire_equipment_assets_fea_id_migration.sql`
+
+- يُحوّل معرفات الأجهزة **غير** المطابقة لـ `FEA-001` (مثل `EFA-…` العشوائي) إلى **`FEA-001`، `FEA-002`، …** بعد أكبر رقم `FEA`/`EFA` رقمي موجود.
+- يحدّث `fire_equipment_inspections.data.assetId` ليطابق المعرف الجديد.
+- يُنصح بمراجعة البيانات في بيئة تجريبية أو أخذ نسخة احتياطية قبل الإنتاج.
+
+إن وُجد جدول `fire_equipment_approval_requests` ويحتوي `data.assetId` قديماً، حدّثه يدوياً أو باستعلام مشابه بعد الترحيل.
+
 ---
 
 ## 3. نشر Edge Function (دالة hse-api)
