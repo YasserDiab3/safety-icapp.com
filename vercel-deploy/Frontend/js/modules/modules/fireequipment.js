@@ -4703,19 +4703,12 @@ FireEquipment = {
 
             if (modal) modal.remove();
 
-            // تحديث الواجهة
-            if (this.state.currentTab === 'register') {
-                const tableContainer = document.getElementById('fire-register-table');
-                if (tableContainer) {
-                    tableContainer.innerHTML = this.renderRegisterTable();
-                    this.bindRegisterTableEvents(tableContainer);
-                }
-            } else {
-                this.renderAssets();
+            // تحديث الواجهة والإحصائيات (كان يُستدعى renderStats غير موجود فتُرمى استثناء بعد رسالة النجاح)
+            try {
+                await this.refreshCurrentTab(true);
+            } catch (refreshErr) {
+                Utils.safeWarn('تعذر تحديث الواجهة بعد الاستيراد:', refreshErr);
             }
-
-            // تحديث الإحصائيات إذا لزم الأمر
-            this.renderStats();
 
         } catch (error) {
             Loading.hide();
