@@ -41,6 +41,9 @@
     const SupabaseIntegration = {
         _syncInProgress: { users: false, global: false, lastSyncStart: null, lastSyncEnd: null },
         _cache: { data: new Map(), timestamps: new Map(), defaultTTL: 5 * 60 * 1000, maxSize: 100 },
+        _inflightRequests: new Map(),
+        _lastUsersReadAt: 0,
+        _lastSyncEventAt: 0,
 
         isSyncing(sheetName) {
             const key = (sheetName || 'users').toLowerCase();
@@ -86,6 +89,14 @@
                     this._cache.data.delete(k);
                     this._cache.timestamps.delete(k);
                 }
+            }
+        },
+
+        _requestKey(action, data) {
+            try {
+                return action + "::" + JSON.stringify(data || {});
+            } catch (e) {
+                return action + "::fallback";
             }
         },
 
@@ -135,52 +146,79 @@
             if (!config.useSupabase || !config.edgeUrl || !config.anonKey) {
                 return Promise.reject(new Error('Supabase غير مفعّل. يرجى تعيين supabaseUrl و supabaseAnonKey في الإعدادات.'));
             }
+            var requestKey = this._requestKey(action, data);
+            var isUsersRead = action === 'readFromSheet' && data && data.sheetName === 'Users';
+
+            // منع تكرار نفس الطلبات المتزامنة (خصوصاً Users)
+            if (this._inflightRequests.has(requestKey)) {
+                return this._inflightRequests.get(requestKey);
+            }
+            if (isUsersRead) {
+                var cachedUsers = this._getCachedData('sheet:Users');
+                // تبريد بسيط: إذا قرأنا Users قبل ثانيتين نستخدم الكاش لتجنب عاصفة POST
+                if (cachedUsers && (Date.now() - this._lastUsersReadAt) < 2000) {
+                    return Promise.resolve({ success: true, data: cachedUsers });
+                }
+            }
+
             var payload = {
                 action: action,
                 data: data || {},
                 csrfToken: this.getOrCreateCSRFToken(),
                 timestamp: new Date().toISOString()
             };
-            var controller = new AbortController();
-            var timeoutId = setTimeout(function () { controller.abort(); }, 120000);
-            var headers = {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + config.anonKey
-            };
-            if (config.apiSecret) {
-                headers['X-API-Key'] = config.apiSecret;
-            }
-            try {
-                var res = await fetch(config.edgeUrl, {
-                    method: 'POST',
-                    mode: 'cors',
-                    credentials: 'omit',
-                    headers: headers,
-                    body: JSON.stringify(payload),
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId);
-                var text = await res.text();
-                var out = null;
+            var self = this;
+            var fetchPromise = (async function () {
+                var controller = new AbortController();
+                var timeoutId = setTimeout(function () { controller.abort(); }, 120000);
+                var headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + config.anonKey
+                };
+                if (config.apiSecret) {
+                    headers['X-API-Key'] = config.apiSecret;
+                }
                 try {
-                    out = JSON.parse(text);
-                } catch (e) {
-                    return { success: false, message: text || res.statusText };
-                }
-                if (!res.ok) {
-                    var msg = out.message || out.error || res.statusText || String(res.status);
-                    safeError('[hse-api] ' + res.status + ' — action: ' + action + ' — ' + msg);
-                    if (res.status === 401 && !config.apiSecret) {
-                        safeWarn('[hse-api] تلميح 401: أضف في Supabase (Edge Functions → Secrets) السر HSE_ANON_KEY وقيمته = المفتاح العام (anon) من Project Settings → API، أو عيّن HSE_API_SECRET في js/config.js.');
+                    var res = await fetch(config.edgeUrl, {
+                        method: 'POST',
+                        mode: 'cors',
+                        credentials: 'omit',
+                        headers: headers,
+                        body: JSON.stringify(payload),
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+                    var text = await res.text();
+                    var out = null;
+                    try {
+                        out = JSON.parse(text);
+                    } catch (e) {
+                        return { success: false, message: text || res.statusText };
                     }
-                    return { success: false, message: msg };
+                    if (!res.ok) {
+                        var msg = out.message || out.error || res.statusText || String(res.status);
+                        safeError('[hse-api] ' + res.status + ' — action: ' + action + ' — ' + msg);
+                        if (res.status === 401 && !config.apiSecret) {
+                            safeWarn('[hse-api] تلميح 401: أضف في Supabase (Edge Functions → Secrets) السر HSE_ANON_KEY وقيمته = المفتاح العام (anon) من Project Settings → API، أو عيّن HSE_API_SECRET في js/config.js.');
+                        }
+                        return { success: false, message: msg };
+                    }
+                    if (isUsersRead && out && out.success && Array.isArray(out.data)) {
+                        self._setCachedData('sheet:Users', out.data);
+                        self._lastUsersReadAt = Date.now();
+                    }
+                    return out;
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    safeError('Supabase request failed:', err);
+                    throw new Error(err.message || 'فشل الاتصال بـ Supabase');
+                } finally {
+                    self._inflightRequests.delete(requestKey);
                 }
-                return out;
-            } catch (err) {
-                clearTimeout(timeoutId);
-                safeError('Supabase request failed:', err);
-                throw new Error(err.message || 'فشل الاتصال بـ Supabase');
-            }
+            })();
+
+            this._inflightRequests.set(requestKey, fetchPromise);
+            return fetchPromise;
         },
 
         async sendRequest(requestData) {
@@ -275,6 +313,10 @@
         },
 
         async readFromSheets(sheetName) {
+            if (sheetName === 'Users') {
+                var cachedUsers = this._getCachedData('sheet:Users');
+                if (cachedUsers) return cachedUsers;
+            }
             var res = await this.sendRequest({ action: 'readFromSheet', data: { sheetName: sheetName } });
             return (res && res.success && res.data) ? res.data : [];
         },
@@ -285,8 +327,9 @@
                 var users = await this.readFromSheets('Users');
                 if (global.AppState && global.AppState.appData) global.AppState.appData.users = users || [];
                 if (typeof global.DataManager !== 'undefined' && global.DataManager.save) global.DataManager.save();
-                if (typeof window !== 'undefined' && window.dispatchEvent) {
+                if (typeof window !== 'undefined' && window.dispatchEvent && (Date.now() - this._lastSyncEventAt > 3000)) {
                     window.dispatchEvent(new CustomEvent('syncDataCompleted', { detail: { syncedCount: 1, sheets: ['users'], failedSheets: [] } }));
+                    this._lastSyncEventAt = Date.now();
                 }
                 return true;
             } catch (e) {
@@ -298,13 +341,17 @@
         /** مزامنة المستخدمين من Supabase (مطلوب لتسجيل الدخول عند عدم وجود مستخدمين محليين) */
         async syncUsers(force) {
             try {
+                if (this._syncInProgress.users) {
+                    return true;
+                }
                 this._setSyncState('users', true);
                 var users = await this.readFromSheets('Users');
                 if (global.AppState && global.AppState.appData) global.AppState.appData.users = Array.isArray(users) ? users : [];
                 if (typeof global.DataManager !== 'undefined' && global.DataManager.save) global.DataManager.save();
                 this._setSyncState('users', false);
-                if (typeof window !== 'undefined' && window.dispatchEvent) {
+                if (typeof window !== 'undefined' && window.dispatchEvent && (Date.now() - this._lastSyncEventAt > 3000)) {
                     window.dispatchEvent(new CustomEvent('syncDataCompleted', { detail: { syncedCount: 1, sheets: ['users'], failedSheets: [] } }));
+                    this._lastSyncEventAt = Date.now();
                 }
                 return true;
             } catch (e) {
