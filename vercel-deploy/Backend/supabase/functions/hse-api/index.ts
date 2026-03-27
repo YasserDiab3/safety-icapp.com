@@ -78,7 +78,6 @@ const ACTION_SHEET_MAP: Record<string, string> = {
   getAllFireEquipmentAssets: "FireEquipmentAssets",
   getAllFireEquipmentInspections: "FireEquipmentInspections",
   getFireEquipmentApprovalRequests: "FireEquipmentApprovalRequests",
-  saveOrUpdateFireEquipmentAsset: "FireEquipmentAssets",
   addFireEquipmentInspection: "FireEquipmentInspections",
   updateFireEquipmentInspection: "FireEquipmentInspections",
   addFireEquipmentApprovalRequest: "FireEquipmentApprovalRequests",
@@ -780,6 +779,24 @@ Deno.serve(async (req) => {
     // —— سجل نشاط المستخدم (اختياري: لا جدول مخصص بعد، نرجع نجاح لتجنب 400) ——
     if (action === "addUserActivityLog") {
       return json({ success: true, data: [] });
+    }
+
+    // —— معدات الحريق: حفظ أصل الجهاز (يجب استخدام payload.id؛ المعالج العام لـ save يعطي أولوية لـ userId/requestId فيُحفَظ بمعرف خاطئ أو يفشل) ——
+    if (action === "saveOrUpdateFireEquipmentAsset") {
+      const table = sheetNameToTable("FireEquipmentAssets");
+      const p = typeof payload === "object" && payload !== null ? (payload as Record<string, unknown>) : {};
+      const rawId = p.id ?? (p as { ID?: unknown }).ID;
+      const id = rawId != null && String(rawId).trim() !== "" ? String(rawId).trim() : "";
+      if (!id) return json({ success: false, message: "معرف الجهاز (id) مطلوب" }, 400);
+      const { error } = await supabase.from(table).upsert(
+        { id, data: p, updated_at: new Date().toISOString() },
+        { onConflict: "id" },
+      );
+      if (error) {
+        if (isTableMissingError(error)) return json({ success: true, message: "تم الحفظ" });
+        return json({ success: false, message: error.message }, 400);
+      }
+      return json({ success: true, data: { ...p, id } });
     }
 
     // —— عمليات أخرى: ربط بـ readFromSheet حسب خريطة الـ action ——
