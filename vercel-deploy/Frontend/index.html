@@ -8723,7 +8723,7 @@
         <!-- Custom CSS -->
         <link rel="stylesheet" href="styles.css" />
         <!-- Sidebar/Layout specific styles (needed for collapse visuals) -->
-        <link rel="stylesheet" href="css/layout.css?v=sidebar-actions-1" />
+        <link rel="stylesheet" href="css/layout.css?v=header-z-1001" />
         <!-- مكوّنات شاشة السياسة والتحميل بعد الدخول (بدون شاشة بيضاء، هيدر/فوتر منمق) -->
         <link rel="stylesheet" href="css/components.css" />
 
@@ -10240,7 +10240,7 @@
                             height: 70px;
                             background: var(--card-bg);
                             border-bottom: 2px solid var(--border-color);
-                            z-index: 40;
+                            z-index: 1001;
                             padding: 10px 20px;
                             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
                             align-items: center;
@@ -12237,7 +12237,7 @@
         <!-- 3. UI: طبقة خفيفة ثم الواجهة الكاملة (إذا فشل app-ui لا يبقى انتظار UI لانهائياً) -->
         <script src="js/modules/ui-shell.js?v=5" defer></script>
         <script
-            src="js/modules/app-ui.js?v=6"
+            src="js/modules/app-ui.js?v=7"
             defer
             onerror="console.error('[HSE] فشل تحميل app-ui.js — تحقق من Network أو امسح كاش المتصفح.');"
         ></script>

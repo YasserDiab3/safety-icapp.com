@@ -39,3 +39,6 @@ build/
 # سجلات
 *.log
 logs/
+
+# Cursor restored transcripts (not part of deploy)
+restored-chat/

@@ -3062,78 +3062,53 @@ window.UI = {
 
     /**
      * ربط أحداث النقر على شعار الشركة واسم الشركة في الهيدر
+     * تفويض واحد على #company-logo-header لتجنب تبديل مزدوج + z-index أعلى من overlay (999)
      */
     bindCompanyHeaderClickEvents() {
+        const header = document.getElementById('company-logo-header');
+        if (!header) return;
+
+        if (header.dataset.headerNavDelegation === 'true') {
+            return;
+        }
+
+        const self = this;
+        const onHeaderClick = function (e) {
+            try {
+                const t = e.target;
+                if (!t || !t.closest) return;
+                // أزرار الإشعارات والوضع الليلي — لا تغلق/تفتح القائمة من نفس النقرة
+                if (t.closest('.header-actions')) return;
+                if (t.closest('#header-notifications-dropdown') || t.closest('#header-notifications-btn')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (typeof self.toggleSidebar === 'function') {
+                    self.toggleSidebar();
+                }
+            } catch (err) {
+                if (typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('header nav click:', err);
+            }
+        };
+
+        header.style.pointerEvents = 'auto';
+        header.style.cursor = 'pointer';
+        header.style.position = 'fixed';
+        if (!header.style.zIndex || parseInt(header.style.zIndex, 10) < 1001) {
+            header.style.zIndex = '1001';
+        }
+        header.setAttribute('title', 'انقر لفتح أو إغلاق القائمة الجانبية');
+        header.addEventListener('click', onHeaderClick, false);
+        header._hseHeaderNavHandler = onHeaderClick;
+        header.dataset.headerNavDelegation = 'true';
+
         const logoImg = document.getElementById('header-company-logo');
         const companyNameText = document.getElementById('header-company-name-text');
         const companySecondaryText = document.getElementById('header-company-secondary-text');
-        const companyTextGroup = document.getElementById('header-company-text-group');
-        const header = document.getElementById('company-logo-header');
-
-        // معالج النقر الموحد: فتح/إغلاق القائمة الجانبية (toggle)
-        const handleHeaderClick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            this.toggleSidebar();
-        };
-
-        // ربط حدث النقر على الشعار
-        if (logoImg && !logoImg.dataset.clickBound) {
-            logoImg.style.cursor = 'pointer';
-            logoImg.setAttribute('title', 'انقر لفتح أو إغلاق القائمة الجانبية');
-            logoImg.setAttribute('role', 'button');
-            logoImg.setAttribute('aria-label', 'فتح أو إغلاق القائمة الجانبية');
-            logoImg.addEventListener('click', handleHeaderClick);
-            logoImg.dataset.clickBound = 'true';
-        }
-
-        // ربط حدث النقر على اسم الشركة
-        if (companyNameText && !companyNameText.dataset.clickBound) {
-            companyNameText.style.cursor = 'pointer';
-            companyNameText.setAttribute('title', 'انقر لفتح أو إغلاق القائمة الجانبية');
-            companyNameText.setAttribute('role', 'button');
-            companyNameText.setAttribute('aria-label', 'فتح أو إغلاق القائمة الجانبية');
-            companyNameText.addEventListener('click', handleHeaderClick);
-            companyNameText.dataset.clickBound = 'true';
-        }
-
-        // ربط حدث النقر على النص الثانوي
-        if (companySecondaryText && !companySecondaryText.dataset.clickBound) {
-            companySecondaryText.style.cursor = 'pointer';
-            companySecondaryText.setAttribute('title', 'انقر لفتح أو إغلاق القائمة الجانبية');
-            companySecondaryText.setAttribute('role', 'button');
-            companySecondaryText.setAttribute('aria-label', 'فتح أو إغلاق القائمة الجانبية');
-            companySecondaryText.addEventListener('click', handleHeaderClick);
-            companySecondaryText.dataset.clickBound = 'true';
-        }
-
-        // ربط حدث النقر على مجموعة النصوص (لجعل المنطقة بأكملها قابلة للنقر)
-        // Use event delegation on the parent `companyTextGroup` to avoid redundant listeners on children.
-        // If `companyTextGroup` is the primary clickable area, its children don't need separate listeners.
-        if (companyTextGroup && !companyTextGroup.dataset.clickBound) {
-            companyTextGroup.style.cursor = 'pointer';
-            companyTextGroup.addEventListener('click', handleHeaderClick);
-            companyTextGroup.dataset.clickBound = 'true';
-        }
-        // Remove redundant listeners from children if parent handles the click.
-        if (companyNameText && companyNameText.dataset.clickBound) {
-            companyNameText.removeEventListener('click', handleHeaderClick);
-            delete companyNameText.dataset.clickBound;
-        }
-        if (companySecondaryText && companySecondaryText.dataset.clickBound) {
-            companySecondaryText.removeEventListener('click', handleHeaderClick);
-            delete companySecondaryText.dataset.clickBound;
-        }
-
-        // ربط حدث النقر على الهيدر ككل (المنطقة اليسرى فقط)
-        if (header) {
-            const leftSection = header.querySelector('div:first-child');
-            if (leftSection && !leftSection.dataset.clickBound) {
-                leftSection.style.cursor = 'pointer';
-                leftSection.addEventListener('click', handleHeaderClick);
-                leftSection.dataset.clickBound = 'true';
-            }
-        }
+        [logoImg, companyNameText, companySecondaryText].forEach((el) => {
+            if (!el) return;
+            el.style.pointerEvents = 'auto';
+            el.style.cursor = 'pointer';
+        });
     },
 
     /**
@@ -3164,6 +3139,8 @@ window.UI = {
                 header.style.justifyContent = 'space-between';
                 header.style.alignItems = 'center';
                 header.style.padding = '10px 20px';
+                header.style.position = 'fixed';
+                header.style.zIndex = '1001';
 
                 // تحديث موقع الهيدر بناءً على حالة القائمة الجانبية
                 const sidebar = document.querySelector('.sidebar');
@@ -6876,7 +6853,7 @@ window.UI = {
             try {
                 const dropdown = document.getElementById(dropdownId);
                 if (dropdown && typeof this.showNotificationsDropdown === 'function') {
-                    await this.showNotificationsDropdown(dropdownId, listId, emptyId, button).catch(err => {
+                    this.showNotificationsDropdown(dropdownId, listId, emptyId, button).catch(err => {
                         Utils.safeWarn('⚠️ خطأ في عرض الإشعارات (fallback):', err);
                     });
                 }

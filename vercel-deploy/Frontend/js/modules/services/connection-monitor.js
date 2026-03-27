@@ -46,9 +46,13 @@ const ConnectionMonitor = {
             return;
         }
 
-        // التحقق من تفعيل Google Apps Script
-        if (!AppState.googleConfig || !AppState.googleConfig.appsScript || !AppState.googleConfig.appsScript.enabled) {
-            Utils.safeLog('ℹ️ Google Apps Script غير مفعل - تخطي مراقبة الاتصال');
+        const supabaseOk = AppState.useSupabaseBackend === true && AppState.supabaseUrl &&
+            !!(AppState.supabaseAnonKey || AppState.supabasePublishableKey);
+        const googleOk = !!(AppState.googleConfig && AppState.googleConfig.appsScript &&
+            AppState.googleConfig.appsScript.enabled && AppState.googleConfig.appsScript.scriptUrl);
+
+        if (!supabaseOk && !googleOk) {
+            Utils.safeLog('ℹ️ لا يوجد اتصال بخلفية (Supabase/Google) - تخطي مراقبة الاتصال');
             return;
         }
 
@@ -87,17 +91,41 @@ const ConnectionMonitor = {
             return;
         }
 
-        // التحقق من تفعيل Google Apps Script
-        if (!AppState.googleConfig || !AppState.googleConfig.appsScript || !AppState.googleConfig.appsScript.enabled || !AppState.googleConfig.appsScript.scriptUrl) {
+        const supabaseOk = AppState.useSupabaseBackend === true && AppState.supabaseUrl &&
+            !!(AppState.supabaseAnonKey || AppState.supabasePublishableKey);
+        const googleOk = !!(AppState.googleConfig && AppState.googleConfig.appsScript &&
+            AppState.googleConfig.appsScript.enabled && AppState.googleConfig.appsScript.scriptUrl);
+
+        if (!supabaseOk && !googleOk) {
             return;
         }
 
         this.state.lastCheckTime = new Date().toISOString();
 
         try {
-            // محاولة قراءة بيانات بسيطة من Google Sheets
+            if (supabaseOk && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.sendToAppsScript) {
+                const r = await Utils.promiseWithTimeout(
+                    GoogleIntegration.sendToAppsScript('testConnection', {}),
+                    20000,
+                    'انتهت مهلة الاتصال'
+                );
+                if (r && r.success === true) {
+                    this.state.consecutiveFailures = 0;
+                    this.state.lastSuccessTime = new Date().toISOString();
+                    this.state.isConnected = true;
+                    if (this.state.adminNotified && this.state.isConnected) {
+                        this.notifyAdminConnectionRestored();
+                        this.state.adminNotified = false;
+                    }
+                    Utils.safeLog('✅ فحص الاتصال (Supabase): نجح');
+                    return;
+                }
+                throw new Error((r && r.message) || 'فشل testConnection');
+            }
+
+            // محاولة قراءة بيانات بسيطة من Google Sheets (عند تفعيل السكربت فقط)
             // استخدام timeout أطول (60 ثانية) لتجنب أخطاء timeout غير ضرورية
-            if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.readFromSheets) {
+            if (googleOk && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.readFromSheets) {
                 const result = await Utils.promiseWithTimeout(
                     GoogleIntegration.readFromSheets('Users'),
                     60000, // 60 ثانية بدلاً من 15 ثانية
@@ -117,7 +145,7 @@ const ConnectionMonitor = {
 
                 Utils.safeLog('✅ فحص الاتصال: نجح');
             } else {
-                throw new Error('GoogleIntegration غير متاح');
+                throw new Error(supabaseOk ? 'فحص Supabase غير مكتمل' : 'GoogleIntegration غير متاح');
             }
         } catch (error) {
             // فشل الاتصال

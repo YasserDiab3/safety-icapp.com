@@ -1,3 +1,9 @@
+/* ===== Company header (فوق overlay الموبايل z-index:999) ===== */
+#company-logo-header {
+    z-index: 1001 !important;
+    pointer-events: auto !important;
+}
+
 /* ===== Sidebar ===== */
 /* ألوان شعار الشركة: أزرق (#003865), أحمر (#C8102E), ذهبي (#FFC72C) */
 .sidebar {
@@ -126,6 +132,10 @@
 
 .sidebar.collapsed #sync-btn .sync-label-text {
     display: none;
+}
+
+.sidebar-actions-row .sidebar-collapse-toggle {
+    margin: 0;
 }
 
 .sidebar-collapse-toggle {
