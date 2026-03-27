@@ -433,36 +433,38 @@ const PTW = {
      */
     initRegistry(skipBackendLoad = false) {
         try {
-            // تحميل من AppState أولاً (الأحدث)
-            if (AppState.appData && AppState.appData.ptwRegistry && Array.isArray(AppState.appData.ptwRegistry)) {
-                this.registryData = [...AppState.appData.ptwRegistry];
-                Utils.safeLog(`✅ تم تحميل ${this.registryData.length} سجل من AppState`);
-                // لا نقوم بالمزامنة عند التحميل من AppState - ننتظر تحميل Backend
-                return;
+            /** مصفوفة افتراضية في AppState قد تكون [] وتخفي بيانات hse_ptw_registry بعد استيراد Excel دون DataManager.save */
+            let fromState = [];
+            if (AppState.appData && Array.isArray(AppState.appData.ptwRegistry)) {
+                fromState = AppState.appData.ptwRegistry;
             }
-            // تحميل من localStorage كنسخة احتياطية
+            let fromDedicatedKey = [];
             const savedData = localStorage.getItem('hse_ptw_registry');
             if (savedData) {
                 try {
-                    this.registryData = JSON.parse(savedData);
-                    if (!Array.isArray(this.registryData)) {
-                        this.registryData = [];
-                    }
-                    // تحديث AppState بالبيانات المحملة
-                    if (!AppState.appData) AppState.appData = {};
-                    AppState.appData.ptwRegistry = [...this.registryData];
-                    Utils.safeLog(`✅ تم تحميل ${this.registryData.length} سجل من localStorage`);
-                    // لا نقوم بالمزامنة عند التحميل من localStorage - ننتظر تحميل Backend
+                    const parsed = JSON.parse(savedData);
+                    if (Array.isArray(parsed)) fromDedicatedKey = parsed;
                 } catch (parseError) {
                     Utils.safeError('❌ خطأ في تحليل بيانات السجل من localStorage:', parseError);
-                    this.registryData = [];
                 }
-            } else {
-                this.registryData = [];
-                // التأكد من وجود مصفوفة فارغة في AppState
-                if (!AppState.appData) AppState.appData = {};
-                AppState.appData.ptwRegistry = [];
             }
+            if (fromState.length > 0 || fromDedicatedKey.length > 0) {
+                if (fromDedicatedKey.length > fromState.length) {
+                    this.registryData = [...fromDedicatedKey];
+                    if (!AppState.appData) AppState.appData = {};
+                    AppState.appData.ptwRegistry = [...this.registryData];
+                    Utils.safeLog(`✅ تم تحميل ${this.registryData.length} سجل من hse_ptw_registry (أكمل من AppState لتفادي فقدان الاستيراد)`);
+                } else {
+                    this.registryData = [...fromState];
+                    if (!AppState.appData) AppState.appData = {};
+                    AppState.appData.ptwRegistry = [...this.registryData];
+                    Utils.safeLog(`✅ تم تحميل ${this.registryData.length} سجل من AppState`);
+                }
+                return;
+            }
+            this.registryData = [];
+            if (!AppState.appData) AppState.appData = {};
+            AppState.appData.ptwRegistry = [];
         } catch (error) {
             Utils.safeError('❌ خطأ في تحميل بيانات السجل:', error);
             this.registryData = [];
@@ -491,6 +493,9 @@ const PTW = {
             // المزامنة مع Google Sheets (فقط إذا لم يتم تخطي المزامنة)
             if (!skipSync && typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                 await GoogleIntegration.autoSave('PTWRegistry', this.registryData);
+            }
+            if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
+                window.DataManager.save();
             }
             return true;
         } catch (error) {
@@ -882,45 +887,44 @@ const PTW = {
      */
     async loadRegistryFromBackend() {
         try {
-            if (!GoogleIntegration || !AppState.googleConfig?.appsScript?.enabled) {
+            const canUseBackend =
+                typeof GoogleIntegration !== 'undefined' &&
+                GoogleIntegration.sendRequest &&
+                (AppState.useSupabaseBackend === true || AppState.googleConfig?.appsScript?.enabled);
+            if (!canUseBackend) {
                 return false;
             }
 
-            // محاولة تحميل من Backend إذا كان متاحاً
             try {
                 const result = await GoogleIntegration.sendRequest({
                     action: 'readFromSheet',
                     data: {
                         sheetName: 'PTWRegistry',
-                        spreadsheetId: AppState.googleConfig.sheets.spreadsheetId
+                        spreadsheetId: AppState.googleConfig?.sheets?.spreadsheetId
                     }
                 });
 
                 if (result && result.success && Array.isArray(result.data)) {
-                    // إذا كانت البيانات فارغة في Backend، تنظيف البيانات المحلية
                     if (result.data.length === 0) {
-                        this.registryData = [];
-                        if (!AppState.appData) AppState.appData = {};
-                        AppState.appData.ptwRegistry = [];
-                        localStorage.setItem('hse_ptw_registry', Utils.safeStringify([]));
                         if (AppState.debugMode) {
-                            Utils.safeLog('✅ تم تنظيف البيانات المحلية - الجدول فارغ في Backend');
+                            Utils.safeLog('ℹ️ PTWRegistry فارغ في الخادم — الإبقاء على البيانات المحلية/المستوردة');
                         }
-                        return true;
+                        return false;
                     }
-                    
-                    // إذا كانت هناك بيانات في Backend، استخدامها
+
                     this.registryData = result.data;
                     if (!AppState.appData) AppState.appData = {};
                     AppState.appData.ptwRegistry = [...this.registryData];
                     localStorage.setItem('hse_ptw_registry', Utils.safeStringify(this.registryData));
+                    if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
+                        window.DataManager.save();
+                    }
                     if (AppState.debugMode) {
                         Utils.safeLog(`✅ تم تحميل ${this.registryData.length} سجل من Backend`);
                     }
                     return true;
                 }
             } catch (error) {
-                // إذا فشل، نستخدم البيانات المحلية
                 if (AppState.debugMode) {
                     Utils.safeWarn('⚠️ فشل تحميل السجل من Backend، استخدام البيانات المحلية:', error);
                 }
