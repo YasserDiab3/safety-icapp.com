@@ -5661,6 +5661,12 @@ window.UI = {
      * إضافة أيقونات التنقل (القائمة الرئيسية والعودة)
      */
     addNavigationIcons(section, sectionName) {
+        // تجنب الاهتزاز في الصفحات الثقيلة التي تعيد رسم DOM كثيراً
+        const heavySections = { users: true, employees: true };
+        if (sectionName && heavySections[String(sectionName).toLowerCase()] === true) {
+            return;
+        }
+
         if (!section) {
             if (AppState.debugMode) {
                 Utils.safeWarn('⚠️ addNavigationIcons: section غير موجود');
@@ -6007,7 +6013,12 @@ window.UI = {
      * إعداد مراقبة innerHTML لإضافة الأيقونات تلقائياً
      */
     setupInnerHTMLWatcher(section, sectionName) {
+        // تعطيل مراقبة innerHTML للأقسام الثقيلة لتجنب الاهتزاز/Forced Reflow
+        const heavySections = { users: true, employees: true, fireequipment: true };
         if (!section || sectionName === 'dashboard' || section.dataset.innerHTMLWatched) {
+            return;
+        }
+        if (sectionName && heavySections[String(sectionName).toLowerCase()] === true) {
             return;
         }
 
