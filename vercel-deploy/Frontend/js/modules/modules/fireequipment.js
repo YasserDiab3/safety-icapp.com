@@ -70,14 +70,32 @@ FireEquipment = {
     },
 
     /**
-     * توليد DeviceID بتنسيق EFA-0000 (3 حروف - 4 أرقام)
-     * @returns {string} DeviceID بالتنسيق الجديد
+     * أعلى رقم تسلسلي مستخرج من معرفات الأجهزة (FEA-001 أو EFA-0001 القديمة).
+     */
+    _getMaxFireEquipmentSequence() {
+        const ids = (this.getAssets() || []).map(a => (a && a.id ? String(a.id) : '')).filter(Boolean);
+        let max = 0;
+        const patterns = [/^FEA-(\d+)$/i, /^EFA-(\d+)$/i];
+        ids.forEach((id) => {
+            for (let i = 0; i < patterns.length; i++) {
+                const m = id.match(patterns[i]);
+                if (m) {
+                    const n = parseInt(m[1], 10);
+                    if (!isNaN(n) && n > max) max = n;
+                    break;
+                }
+            }
+        });
+        return max;
+    },
+
+    /**
+     * توليد DeviceID بتنسيق FEA-001، FEA-002، … (بادئة FEA ورقم متسلسل بثلاثة أرقام على الأقل)
+     * @returns {string}
      */
     generateFireDeviceID() {
-        // For robust unique IDs, consider a UUID generator (e.g., crypto.randomUUID) or a centralized ID service.
-        // This sequential generation is prone to collisions if items are deleted or generated concurrently.
-        // For now, generating a UUID-like string as a placeholder.
-        return `EFA-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 9)}`.toUpperCase();
+        const next = this._getMaxFireEquipmentSequence() + 1;
+        return `FEA-${String(next).padStart(3, '0')}`;
     },
 
     async load() {
@@ -1705,7 +1723,7 @@ FireEquipment = {
                     // إذا كان لدينا ID قديم، نتجاهله ونطلب توليد جديد
                     // إلا إذا كان مسجلاً بالفعل في النظام بتنسيق جديد
                     const existingWithOldId = existingAssetsMap.get(entryAssetId);
-                    if (existingWithOldId && existingWithOldId.id.match(/^EFA-\d{4}$/)) {
+                    if (existingWithOldId && (/^FEA-\d+$/i.test(existingWithOldId.id) || /^EFA-\d+$/i.test(existingWithOldId.id))) {
                         entryAssetId = existingWithOldId.id; // استخدم الجديد الموجود
                     } else {
                         entryAssetId = null; // سيتم توليد جديد بالأسفل
@@ -1717,8 +1735,8 @@ FireEquipment = {
                 }
 
                 if (!asset) {
-                    // توليد ID جديد بالتنسيق القياسي EFA-XXXX
-                    const assetId = entryAssetId && entryAssetId.match(/^EFA-\d{4}$/)
+                    // توليد ID جديد بالتنسيق القياسي FEA-001 أو الإبقاء على FEA/EFA الرقمي
+                    const assetId = entryAssetId && (/^FEA-\d+$/i.test(entryAssetId) || /^EFA-\d+$/i.test(entryAssetId))
                         ? entryAssetId
                         : this.generateFireDeviceID();
 
@@ -2778,14 +2796,14 @@ FireEquipment = {
                             أو أدخل DeviceID يدوياً:
                         </label>
                         <div class="flex gap-2">
-                            <input type="text" id="manual-device-id" class="form-input flex-1" placeholder="مثال: EFA-0001" style="border: 2px solid #667eea; font-size: 1rem; padding: 12px;">
+                            <input type="text" id="manual-device-id" class="form-input flex-1" placeholder="مثال: FEA-001" style="border: 2px solid #667eea; font-size: 1rem; padding: 12px;">
                             <button type="button" id="manual-submit-btn" class="btn-primary" style="padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); white-space: nowrap;">
                                 <i class="fas fa-check ml-2"></i>تأكيد
                             </button>
                         </div>
                         <p class="text-xs text-gray-500 mt-2">
                             <i class="fas fa-lightbulb ml-1"></i>
-                            التنسيق المتوقع: EFA-0000
+                            التنسيق المتوقع: FEA-001
                         </p>
                     </div>
                 </div>
@@ -4601,18 +4619,11 @@ FireEquipment = {
                 return;
             }
 
-            // حساب آخر رقم مستخدم حالياً لتوليد أرقام متسلسلة صحيحة
-            const assets = this.getAssets();
-            const existingNumbers = assets
-                .map(a => a.id)
-                .filter(id => id && id.match(/^EFA-\d{4}$/))
-                .map(id => parseInt(id.split('-')[1]))
-                .filter(num => !isNaN(num));
-
-            // Rely on a robust ID generation strategy, e.g., UUIDs or backend-generated IDs.
-            // Sequential client-side ID generation is prone to collisions.
+            // تسلسل FEA-001، FEA-002… داخل الملف دون تكرار (يبدأ بعد آخر رقم في النظام)
+            let seq = this._getMaxFireEquipmentSequence();
             const data = jsonData.map(row => {
-                const assetId = this.generateFireDeviceID(); // Use the centralized ID generator
+                seq += 1;
+                const assetId = `FEA-${String(seq).padStart(3, '0')}`;
 
                 return {
                     id: assetId,
