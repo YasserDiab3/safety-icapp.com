@@ -2996,12 +2996,32 @@ const Clinic = {
 
                     const buf = await file.arrayBuffer();
                     const wb = XLSX.read(buf, { type: 'array' });
-                    const ws = wb.Sheets[wb.SheetNames[0]];
-                    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+                    const rows = [];
+                    wb.SheetNames.forEach((sn) => {
+                        const ws = wb.Sheets[sn];
+                        const rr = XLSX.utils.sheet_to_json(ws, { defval: '' });
+                        if (Array.isArray(rr) && rr.length) rows.push(...rr);
+                    });
 
+                    const normalizeKey = (k) => String(k || '')
+                        .trim()
+                        .toLowerCase()
+                        .replace(/\u200f|\u200e/g, '')
+                        .replace(/\s+/g, '')
+                        .replace(/[()\-_:]/g, '')
+                        .replace(/أ|إ|آ/g, 'ا')
+                        .replace(/ة/g, 'ه');
                     const pick = (r, keys) => {
+                        if (!r || typeof r !== 'object') return '';
+                        const normalizedRow = {};
+                        Object.keys(r).forEach((rk) => {
+                            normalizedRow[normalizeKey(rk)] = r[rk];
+                        });
                         for (const k of keys) {
-                            if (r[k] !== undefined && r[k] !== null && String(r[k]).trim() !== '') return r[k];
+                            const direct = r[k];
+                            if (direct !== undefined && direct !== null && String(direct).trim() !== '') return direct;
+                            const nv = normalizedRow[normalizeKey(k)];
+                            if (nv !== undefined && nv !== null && String(nv).trim() !== '') return nv;
                         }
                         return '';
                     };
@@ -3014,7 +3034,7 @@ const Clinic = {
                     };
 
                     const imported = rows.map((r, idx) => {
-                        const name = pick(r, ['اسم الدواء', 'الدواء', 'name', 'Name']);
+                        const name = pick(r, ['اسم الدواء', 'الدواء', 'اسم', 'name', 'Name']);
                         if (!String(name || '').trim()) return null;
                         const rec = {
                             id: pick(r, ['id', 'ID']) || `MED-${Date.now()}-${idx}`,
@@ -3033,7 +3053,7 @@ const Clinic = {
                     }).filter(Boolean);
 
                     if (!imported.length) {
-                        Notification?.warning?.('لم يتم العثور على بيانات صالحة للاستيراد');
+                        Notification?.warning?.('لم يتم العثور على بيانات صالحة للاستيراد. تأكد من وجود عمود "اسم الدواء".');
                         return;
                     }
 
@@ -10011,12 +10031,32 @@ const Clinic = {
 
                     const buf = await file.arrayBuffer();
                     const wb = XLSX.read(buf, { type: 'array' });
-                    const ws = wb.Sheets[wb.SheetNames[0]];
-                    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+                    const rows = [];
+                    wb.SheetNames.forEach((sn) => {
+                        const ws = wb.Sheets[sn];
+                        const rr = XLSX.utils.sheet_to_json(ws, { defval: '' });
+                        if (Array.isArray(rr) && rr.length) rows.push(...rr);
+                    });
 
+                    const normalizeKey = (k) => String(k || '')
+                        .trim()
+                        .toLowerCase()
+                        .replace(/\u200f|\u200e/g, '')
+                        .replace(/\s+/g, '')
+                        .replace(/[()\-_:]/g, '')
+                        .replace(/أ|إ|آ/g, 'ا')
+                        .replace(/ة/g, 'ه');
                     const pick = (r, keys) => {
+                        if (!r || typeof r !== 'object') return '';
+                        const normalizedRow = {};
+                        Object.keys(r).forEach((rk) => {
+                            normalizedRow[normalizeKey(rk)] = r[rk];
+                        });
                         for (const k of keys) {
-                            if (r[k] !== undefined && r[k] !== null && String(r[k]).trim() !== '') return r[k];
+                            const direct = r[k];
+                            if (direct !== undefined && direct !== null && String(direct).trim() !== '') return direct;
+                            const nv = normalizedRow[normalizeKey(k)];
+                            if (nv !== undefined && nv !== null && String(nv).trim() !== '') return nv;
                         }
                         return '';
                     };
@@ -10029,7 +10069,7 @@ const Clinic = {
                     };
 
                     const imported = rows.map((r, idx) => {
-                        const name = pick(r, ['الاسم', 'اسم', 'name', 'Name']);
+                        const name = pick(r, ['الاسم', 'اسم', 'اسم العامل', 'name', 'Name']);
                         if (!String(name || '').trim()) return null;
 
                         // إذا الملف بصيغة “الموظفين” سيكون فيه كود وظيفي، ولو “المقاولين” سيكون فيه اسم المقاول
@@ -10068,7 +10108,7 @@ const Clinic = {
                     }).filter(Boolean);
 
                     if (!imported.length) {
-                        Notification?.warning?.('لم يتم العثور على بيانات صالحة للاستيراد');
+                        Notification?.warning?.('لم يتم العثور على بيانات صالحة للاستيراد. تأكد من وجود عمود "الاسم".');
                         return;
                     }
 
