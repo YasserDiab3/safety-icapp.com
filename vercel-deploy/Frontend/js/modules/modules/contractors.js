@@ -1054,25 +1054,34 @@ const Contractors = {
 
     /**
      * توليد كود تلقائي للمقاول (مثل: CON-001, CON-002)
+     * يجب مسح جميع أماكن وجود CON-xxx: المقاولين العاديين + قائمة المعتمدين (وإلا استيراد Excel يُكرر نفس الكود ويُدمج كل الصفوف كسجل واحد)
      */
     generateContractorCode() {
-        const contractors = AppState.appData.contractors || [];
         let maxNumber = 0;
 
-        // البحث عن أكبر رقم في الأكواد الموجودة
-        contractors.forEach(contractor => {
-            if (contractor.code) {
-                const match = contractor.code.match(/CON-(\d+)/);
-                if (match) {
-                    const num = parseInt(match[1], 10);
-                    if (num > maxNumber) {
-                        maxNumber = num;
-                    }
-                }
+        const bumpFromCode = (code) => {
+            if (!code) return;
+            const s = String(code);
+            let m = s.match(/CON-(\d+)/);
+            if (m) {
+                const num = parseInt(m[1], 10);
+                if (num > maxNumber) maxNumber = num;
             }
+            m = s.match(/APP-(\d+)/);
+            if (m) {
+                const num = parseInt(m[1], 10);
+                if (num > maxNumber) maxNumber = num;
+            }
+        };
+
+        (AppState.appData.contractors || []).forEach((c) => {
+            bumpFromCode(c.code);
         });
 
-        // توليد كود جديد
+        (AppState.appData.approvedContractors || []).forEach((e) => {
+            bumpFromCode(e.isoCode || e.code || e.contractorCode || e['كود المقاول'] || e['كود']);
+        });
+
         const newNumber = maxNumber + 1;
         return `CON-${String(newNumber).padStart(3, '0')}`;
     },
