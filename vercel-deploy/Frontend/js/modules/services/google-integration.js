@@ -2407,10 +2407,15 @@ const GoogleIntegration = {
             incremental = false // ✅ جديد: تحميل تدريجي
         } = options;
 
+        // ✅ عند العمل على Supabase: لا تعرض رسائل Google Sheets
+        if (AppState && AppState.useSupabaseBackend === true) {
+            return false;
+        }
+
         if (!AppState.googleConfig.appsScript.enabled || !AppState.googleConfig.appsScript.scriptUrl) {
             if (!silent) {
                 Utils.safeLog('Google Sheets غير مفعّل - سيتم استخدام البيانات المحلية فقط');
-                Notification.warning('Google Sheets غير مفعّل. سيتم استخدام البيانات المحلية فقط.');
+                // لا نعرض هذا التحذير للمستخدم النهائي
             }
             return false;
         }

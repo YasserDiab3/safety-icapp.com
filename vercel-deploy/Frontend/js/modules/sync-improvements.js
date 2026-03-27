@@ -259,6 +259,16 @@
     document.addEventListener('DOMContentLoaded', function() {
         // استخدام setTimeout للتأكد من تحميل جميع الملفات
         setTimeout(function() {
+            // ✅ إذا كان المشروع يعمل على Supabase فلا نعرض رسائل Google Sheets ولا نُجري patch
+            try {
+                if (typeof AppState !== 'undefined' && AppState && AppState.useSupabaseBackend === true) {
+                    return;
+                }
+                if (typeof window !== 'undefined' && window.SupabaseIntegration && window.GoogleIntegration === window.SupabaseIntegration) {
+                    return;
+                }
+            } catch (e) {}
+
             if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.syncData) {
                 const originalSyncData = GoogleIntegration.syncData;
                 
@@ -276,7 +286,7 @@
                     if (!AppState.googleConfig.appsScript.enabled || !AppState.googleConfig.appsScript.scriptUrl) {
                         if (!silent) {
                             Utils.safeLog('Google Sheets غير مفعل أو لا يوجد رابط سكريبت - سيتم استخدام البيانات المحلية');
-                            Notification.warning('Google Sheets غير مفعل. يتم استخدام البيانات المحلية فقط');
+                            // لا تُظهر تحذير للمستخدم النهائي هنا (خصوصاً عند وجود Backends أخرى)
                         }
                         return false;
                     }
