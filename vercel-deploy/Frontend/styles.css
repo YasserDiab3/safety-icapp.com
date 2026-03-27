@@ -6411,6 +6411,8 @@ body.app-active {
     gap: 0.6rem;
     flex-wrap: wrap;
     line-height: 1.25;
+    position: relative;
+    z-index: 1;
 }
 
 .modal-header.modal-header-centered .modal-title i {
@@ -6422,6 +6424,12 @@ body.app-active {
     inset-inline-end: 1rem;
     top: 50%;
     transform: translateY(-50%);
+    z-index: 2;
+    pointer-events: auto;
+}
+
+.modal-header.modal-header-centered .modal-close i {
+    pointer-events: none;
 }
 
 .form-actions-centered {

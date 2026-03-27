@@ -4028,7 +4028,7 @@ FireEquipment = {
             <div class="modal-content" style="max-width: 820px;">
                 <div class="modal-header modal-header-centered">
                     <h2 class="modal-title">تفاصيل الجهاز ${Utils.escapeHTML(asset.number || '')}</h2>
-                    <button class="modal-close" onclick="FireEquipment.closeModal(this)">
+                    <button type="button" class="modal-close" aria-label="إغلاق" data-fe-asset-details-close>
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
@@ -4111,7 +4111,7 @@ FireEquipment = {
                     </div>
                 </div>
                 <div class="modal-footer flex justify-center gap-2 form-actions-centered">
-                    <button class="btn-secondary" onclick="FireEquipment.closeModal(this)">إغلاق</button>
+                    <button type="button" class="btn-secondary" data-fe-asset-details-close>إغلاق</button>
                     <button class="btn-primary" onclick="FireEquipment.showAssetForm(${assetJson}); this.closest('.modal-overlay').remove();">
                         <i class="fas fa-edit ml-2"></i>تعديل الجهاز
                     </button>
@@ -4120,6 +4120,22 @@ FireEquipment = {
         `;
 
         document.body.appendChild(modal);
+
+        const closeDetailsModal = () => {
+            if (modal.parentNode) {
+                modal.remove();
+            }
+        };
+
+        // إغلاق فوري بنقرة واحدة (أيقونة X أو زر إغلاق) — مستمع التقاط يتفادى تداخل العنوان مع منطقة الزر
+        modal.addEventListener('click', (e) => {
+            const hit = e.target && e.target.closest && e.target.closest('[data-fe-asset-details-close], .modal-close');
+            if (hit) {
+                e.preventDefault();
+                e.stopPropagation();
+                closeDetailsModal();
+            }
+        }, true);
 
         // إضافة معالج لإغلاق النموذج عند النقر على الخلفية
         modal.addEventListener('click', (e) => {
