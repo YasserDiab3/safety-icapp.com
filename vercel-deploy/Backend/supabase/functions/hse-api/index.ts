@@ -3,6 +3,7 @@
 // أمان: عند تعيين HSE_API_SECRET في البيئة يُطلب رأس X-API-Key أو Authorization Bearer مطابق.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { handleBackupAction } from "./backup.ts";
 
 function getCorsHeaders(req: Request): Record<string, string> {
   const allowedOrigin = Deno.env.get("ALLOWED_ORIGIN")?.trim();
@@ -29,6 +30,7 @@ async function sha256Hex(text: string): Promise<string> {
 const SHEET_TO_TABLE_OVERRIDE: Record<string, string> = {
   SafetyTeamKPIs: "safety_team_kpis",
   PTWRegistry: "ptw_registry",
+  TrainingAttendance: "training_attendance",
 };
 
 // تحويل اسم الورقة إلى اسم جدول (snake_case)
@@ -97,7 +99,9 @@ const ACTION_SHEET_MAP: Record<string, string> = {
   getEmployeeTrainingMatrix: "EmployeeTrainingMatrix", addEmployeeTrainingMatrix: "EmployeeTrainingMatrix", updateEmployeeTrainingMatrix: "EmployeeTrainingMatrix",
   addContractorTraining: "ContractorTrainings", getAllContractorTrainings: "ContractorTrainings",
   addAnnualTrainingPlan: "AnnualTrainingPlans",
-  getAllTrainingSessions: "Training", getAllTrainingCertificates: "Training", getAllTrainingAttendance: "Training",
+  getAllTrainingSessions: "Training", getAllTrainingCertificates: "Training",
+  /** سجل حضور/تدريب الموظفين — جدول training_attendance (وليس training) */
+  getAllTrainingAttendance: "TrainingAttendance",
   getAllBehaviors: "BehaviorMonitoring", addBehavior: "BehaviorMonitoring", updateBehavior: "BehaviorMonitoring", getBehavior: "BehaviorMonitoring", deleteBehavior: "BehaviorMonitoring",
   getAllActionTracking: "ActionTrackingRegister", getActionTracking: "ActionTrackingRegister",
   getSafetyTeamMembers: "SafetyTeamMembers", getSafetyHealthManagementSettings: "SafetyHealthManagementSettings", getActionTrackingSettings: "ActionTrackingSettings",
@@ -1265,6 +1269,10 @@ Deno.serve(async (req) => {
     if (action === "getPublicIP") {
       return json({ success: false, message: "getPublicIP not available on Supabase backend" });
     }
+
+    // —— النسخ الاحتياطي الكامل (إنشاء، إعدادات، استعادة، تحميل) ——
+    const backupResponse = await handleBackupAction(action, payload, supabase, json);
+    if (backupResponse) return backupResponse;
 
     // أي إجراء غير معروف: إرجاع 200 مع data فارغ لتجنب سلسلة 400 بعد تسجيل الدخول (المزامنة والوحدات تستدعي إجراءات قد لا تكون منفذة بعد)
     const actionLower = action.toLowerCase();

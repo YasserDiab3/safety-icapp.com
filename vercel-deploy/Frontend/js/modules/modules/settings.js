@@ -631,7 +631,7 @@ const Settings = {
                             إدارة النسخ الاحتياطية
                         </h3>
                         <p class="settings-group-subtitle">
-                            إدارة النسخ الاحتياطية للبيانات وإنشاء نسخ يدوية
+                            نسخ احتياطي كامل لقاعدة البيانات (جميع الجداول)، تصدير واستعادة بصلاحية مدير النظام فقط. النسخ التلقائي يُقيَّم عند زيارة هذه الصفحة أو تحميل التطبيق.
                         </p>
                     </div>
                     <div class="settings-group-content">
@@ -667,10 +667,14 @@ const Settings = {
                                     <p class="text-sm font-bold" id="backup-storage-used">0 Bytes</p>
                                 </div>
                             </div>
-                            <div class="mt-4 flex gap-2">
+                            <div class="mt-4 flex flex-wrap gap-2">
                                 <button id="create-manual-backup-btn" class="btn btn-primary">
                                     <i class="fas fa-database ml-2"></i>
-                                    إنشاء نسخة احتياطية يدوية
+                                    إنشاء نسخة احتياطية يدوية (كامل قاعدة البيانات)
+                                </button>
+                                <button type="button" id="export-local-backup-btn" class="btn btn-secondary" title="نسخة من البيانات المحمّلة في المتصفح فقط">
+                                    <i class="fas fa-file-export ml-2"></i>
+                                    تصدير محلي سريع
                                 </button>
                                 <button id="refresh-backups-btn" class="btn btn-secondary">
                                     <i class="fas fa-sync-alt ml-2"></i>
@@ -690,11 +694,24 @@ const Settings = {
                                     <input type="checkbox" id="auto-backup-enabled" class="form-checkbox">
                                     <label for="auto-backup-enabled" class="mr-2">تفعيل النسخ الاحتياطي التلقائي</label>
                                 </div>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <p class="text-xs text-gray-500 dark:text-gray-400">
+                                    يُنفَّذ النسخ التلقائي عند فتح قسم الإعدادات أو عند تحميل التطبيق إذا حان الموعد (حسب الفترة بالأيام أدناه).
+                                </p>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div>
-                                        <label class="block text-sm font-medium mb-2">الحد الأقصى للنسخ</label>
+                                        <label class="block text-sm font-medium mb-2">تكرار النسخ التلقائي (كلُّ كم يوم)</label>
+                                        <input type="number" id="backup-interval-days" class="form-input" value="1" min="1" max="30" title="1 = يومياً تقريباً عند التحقق">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium mb-2">ساعة مفضّلة (0–23) — مرجعية</label>
+                                        <input type="number" id="backup-schedule-hour" class="form-input" value="2" min="0" max="23" title="للتنظيم؛ التنفيذ يعتمد على زيارة الصفحة">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium mb-2">الحد الأقصى لعدد النسخ المخزّنة</label>
                                         <input type="number" id="max-backup-files" class="form-input" value="30" min="1" max="100">
                                     </div>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label class="block text-sm font-medium mb-2">مدة الاحتفاظ (بالأيام)</label>
                                         <input type="number" id="retention-days" class="form-input" value="30" min="1" max="365">

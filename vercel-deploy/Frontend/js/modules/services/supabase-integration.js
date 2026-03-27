@@ -170,7 +170,11 @@
             var self = this;
             var fetchPromise = (async function () {
                 var controller = new AbortController();
-                var timeoutId = setTimeout(function () { controller.abort(); }, 120000);
+                var timeoutMs = 120000;
+                if (/backup|restore|scheduled|Backup|Restore|createManual|createFull|runScheduled/i.test(action)) {
+                    timeoutMs = 600000;
+                }
+                var timeoutId = setTimeout(function () { controller.abort(); }, timeoutMs);
                 var headers = {
                     'Content-Type': 'application/json',
                     'Authorization': 'Bearer ' + config.anonKey
@@ -277,10 +281,13 @@
             }
             try {
                 var prepared = this.prepareSheetPayload(sheetName, data);
-                await this.sendToAppsScript('saveToSheet', {
+                var saveResult = await this.sendToAppsScript('saveToSheet', {
                     sheetName: sheetName,
                     data: prepared
                 });
+                if (!saveResult || saveResult.success === false) {
+                    throw new Error((saveResult && saveResult.message) || 'فشل الحفظ');
+                }
                 if (typeof global.DataManager !== 'undefined' && global.DataManager.removeFromPendingSync) {
                     global.DataManager.removeFromPendingSync(sheetName);
                 }

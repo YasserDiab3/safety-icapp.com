@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS public.periodic_inspections (id text PRIMARY KEY, dat
 CREATE TABLE IF NOT EXISTS public.backup_log (id text PRIMARY KEY, data jsonb NOT NULL DEFAULT '{}', created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
 CREATE TABLE IF NOT EXISTS public.backup_settings (id text PRIMARY KEY, data jsonb NOT NULL DEFAULT '{}', created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
 CREATE TABLE IF NOT EXISTS public.annual_training_plans (id text PRIMARY KEY, data jsonb NOT NULL DEFAULT '{}', created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.training_attendance (id text PRIMARY KEY, data jsonb NOT NULL DEFAULT '{}', created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
 
 -- فهارس الجداول الأساسية
 CREATE INDEX IF NOT EXISTS idx_users_updated ON public.users(updated_at);
@@ -65,6 +66,7 @@ CREATE INDEX IF NOT EXISTS idx_ptw_updated ON public.ptw(updated_at);
 CREATE INDEX IF NOT EXISTS idx_clinic_visits_updated ON public.clinic_visits(updated_at);
 CREATE INDEX IF NOT EXISTS idx_employees_updated ON public.employees(updated_at);
 CREATE INDEX IF NOT EXISTS idx_approved_contractors_updated ON public.approved_contractors(updated_at);
+CREATE INDEX IF NOT EXISTS idx_training_attendance_updated ON public.training_attendance(updated_at);
 
 -- -----------------------------------------------------------------------------
 -- 2) أعمدة إضافية لجدول users (كلمة مرور + صلاحيات)

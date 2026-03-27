@@ -57,6 +57,7 @@ const BackupUI = {
             await this.loadBackupStatistics();
             await this.loadBackupList();
             await this.loadBackupSettings();
+            await this.runScheduledBackupIfDue();
             
             backupUiLog('✅ تم تهيئة واجهة النسخ الاحتياطية بنجاح');
         } catch (error) {
@@ -110,6 +111,114 @@ const BackupUI = {
         const saveSettingsBtn = document.getElementById('save-backup-settings-btn');
         if (saveSettingsBtn) {
             saveSettingsBtn.addEventListener('click', () => this.saveBackupSettings());
+        }
+
+        const exportLocalBtn = document.getElementById('export-local-backup-btn');
+        if (exportLocalBtn) {
+            exportLocalBtn.addEventListener('click', () => this.exportLocalAppDataBackup());
+        }
+    },
+
+    /**
+     * استعادة من نسخة على الخادم (خطيرة)
+     */
+    async promptRestoreBackup(backupId) {
+        if (!this.isAdmin()) {
+            this.showNotification('يجب أن تكون مديراً', 'error');
+            return;
+        }
+        const ok = window.confirm(
+            'تحذير: استعادة النسخة ستستبدل بيانات التطبيق في قاعدة البيانات بمحتوى هذه النسخة. لا يمكن التراجع تلقائياً. هل تريد المتابعة؟'
+        );
+        if (!ok) return;
+        const phrase = window.prompt('للتأكيد اكتب بالإنجليزية: RESTORE', '');
+        if (phrase !== 'RESTORE') {
+            this.showNotification('تم إلغاء الاستعادة', 'info');
+            return;
+        }
+        try {
+            if (typeof Loading !== 'undefined' && Loading.show) {
+                Loading.show('جاري استعادة البيانات من النسخة الاحتياطية...');
+            }
+            const result = await GoogleIntegration.fetchData('restoreFullBackup', {
+                backupId: backupId,
+                confirmRestore: 'RESTORE'
+            });
+            if (result && result.success) {
+                this.showNotification(result.message || 'تمت الاستعادة بنجاح', 'success');
+                
+                if (typeof window !== 'undefined') {
+                    window.location.reload();
+                }
+            } else {
+                this.showNotification(result?.message || 'فشلت الاستعادة', 'error');
+            }
+        } catch (error) {
+            console.error('restoreFullBackup:', error);
+            this.showNotification('حدث خطأ أثناء الاستعادة: ' + (error?.message || error), 'error');
+        } finally {
+            if (typeof Loading !== 'undefined' && Loading.hide) {
+                Loading.hide();
+            }
+        }
+    },
+
+    /**
+     * نسخ تلقائي عند الحاجة (يُستدعى بعد تحميل الإعدادات)
+     */
+    async runScheduledBackupIfDue() {
+        if (!this.isAdmin()) return;
+        try {
+            const result = await GoogleIntegration.fetchData('runScheduledBackupCheck', {});
+            if (result && result.success && result.data && result.data.ran === true) {
+                const msg = 'تم إنشاء نسخة احتياطية تلقائية بنجاح';
+                try {
+                    const n = document.getElementById('notify-on-backup');
+                    if (n && n.checked) {
+                        this.showNotification(msg, 'success');
+                    }
+                } catch (e) { /* ignore */ }
+                await this.loadBackupStatistics();
+                await this.loadBackupList();
+            }
+        } catch (e) {
+            const errMsg = String(e?.message || '').toLowerCase();
+            if (!errMsg.includes('circuit breaker') && !errMsg.includes('غير مفعل')) {
+                Utils.safeWarn?.('runScheduledBackupIfDue:', e);
+            }
+        }
+    },
+
+    /**
+     * تصدير نسخة من بيانات التطبيق المحلية (بدون خادم) — احتياط عند عدم توفر النسخ الكامل
+     */
+    exportLocalAppDataBackup() {
+        if (!this.isAdmin()) {
+            this.showNotification('هذه العملية للمدير فقط', 'error');
+            return;
+        }
+        try {
+            const appData = (typeof AppState !== 'undefined' && AppState.appData) ? AppState.appData : {};
+            const payload = {
+                formatVersion: 1,
+                exportedAt: new Date().toISOString(),
+                source: 'local-app-state',
+                appData: JSON.parse(JSON.stringify(appData))
+            };
+            const jsonString = JSON.stringify(payload, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `hse-local-backup-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            this.showNotification('تم تصدير نسخة من البيانات المحمّلة محلياً', 'success');
+        } catch (err) {
+            console.error(err);
+            this.showNotification('تعذر تصدير البيانات المحلية', 'error');
         }
     },
 
@@ -285,20 +394,18 @@ const BackupUI = {
                                     <span class="font-semibold mr-2">${backup.duration ? backup.duration + ' ث' : 'N/A'}</span>
                                 </div>
                             </div>
-                            <div class="flex gap-2 mt-3">
-                                ${backup.fileUrl ? `
-                                    <a href="${backup.fileUrl}" target="_blank" class="btn btn-sm btn-primary">
-                                        <i class="fas fa-external-link-alt ml-1"></i>
-                                        فتح في Drive
-                                    </a>
-                                ` : ''}
+                            <div class="flex flex-wrap gap-2 mt-3">
                                 ${backup.status === 'completed' ? `
-                                    <button class="btn btn-sm btn-success" onclick="BackupUI.downloadBackup('${backup.id}')">
+                                    <button type="button" class="btn btn-sm btn-success" onclick="BackupUI.downloadBackup(${JSON.stringify(backup.id)})">
                                         <i class="fas fa-download ml-1"></i>
-                                        تحميل
+                                        تصدير / تحميل
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-warning" onclick="BackupUI.promptRestoreBackup(${JSON.stringify(backup.id)})">
+                                        <i class="fas fa-undo ml-1"></i>
+                                        استعادة
                                     </button>
                                 ` : ''}
-                                <button class="btn btn-sm btn-danger" onclick="BackupUI.deleteBackup('${backup.id}')">
+                                <button type="button" class="btn btn-sm btn-danger" onclick="BackupUI.deleteBackup(${JSON.stringify(backup.id)})">
                                     <i class="fas fa-trash ml-1"></i>
                                     حذف
                                 </button>
@@ -351,6 +458,25 @@ const BackupUI = {
                 if (retentionDays) {
                     retentionDays.value = settings.retentionDays || 30;
                 }
+
+                const intervalDays = document.getElementById('backup-interval-days');
+                if (intervalDays) {
+                    intervalDays.value = settings.backupIntervalDays != null ? settings.backupIntervalDays : 1;
+                }
+
+                const scheduleHour = document.getElementById('backup-schedule-hour');
+                if (scheduleHour) {
+                    scheduleHour.value = settings.backupScheduleHour != null ? settings.backupScheduleHour : 2;
+                }
+
+                const notifyBackup = document.getElementById('notify-on-backup');
+                if (notifyBackup && typeof settings.notifyOnBackup === 'boolean') {
+                    notifyBackup.checked = settings.notifyOnBackup;
+                }
+                const notifyFail = document.getElementById('notify-on-failure');
+                if (notifyFail && typeof settings.notifyOnFailure === 'boolean') {
+                    notifyFail.checked = settings.notifyOnFailure;
+                }
             }
         } catch (error) {
             // تجاهل أخطاء Circuit Breaker و Google Apps Script غير المفعل
@@ -381,10 +507,12 @@ const BackupUI = {
         try {
             const settings = {
                 autoBackupEnabled: document.getElementById('auto-backup-enabled')?.checked || false,
-                maxBackupFiles: parseInt(document.getElementById('max-backup-files')?.value) || 30,
-                retentionDays: parseInt(document.getElementById('retention-days')?.value) || 30,
-                notifyOnBackup: document.getElementById('notify-on-backup')?.checked || true,
-                notifyOnFailure: document.getElementById('notify-on-failure')?.checked || true
+                maxBackupFiles: parseInt(document.getElementById('max-backup-files')?.value, 10) || 30,
+                retentionDays: parseInt(document.getElementById('retention-days')?.value, 10) || 30,
+                backupIntervalDays: parseInt(document.getElementById('backup-interval-days')?.value, 10) || 1,
+                backupScheduleHour: parseInt(document.getElementById('backup-schedule-hour')?.value, 10) || 2,
+                notifyOnBackup: document.getElementById('notify-on-backup')?.checked !== false,
+                notifyOnFailure: document.getElementById('notify-on-failure')?.checked !== false
             };
             
             const userData = AppState.currentUser || {
@@ -401,6 +529,7 @@ const BackupUI = {
             
             if (result && result.success) {
                 this.showNotification('تم حفظ الإعدادات بنجاح', 'success');
+                await this.runScheduledBackupIfDue();
             } else {
                 this.showNotification(
                     result?.message || 'فشل في حفظ الإعدادات',

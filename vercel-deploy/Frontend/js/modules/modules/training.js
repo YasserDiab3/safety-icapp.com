@@ -10974,8 +10974,8 @@ const Training = {
             // حفظ تلقائي في Google Sheets
             if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
                 await GoogleIntegration.autoSave('TrainingAttendance', AppState.appData.trainingAttendance).catch(err => {
-                    Utils.safeWarn('⚠️ فشل حفظ سجل التدريب في Google Sheets:', err);
-                    Notification.error('فشل حفظ سجل التدريب في Google Sheets. سيتم الاحتفاظ بالتغييرات محلياً فقط حتى يتم الحفظ بنجاح.');
+                    Utils.safeWarn('⚠️ فشل مزامنة سجل حضور التدريب مع الخادم:', err);
+                    Notification.error('فشل حفظ سجل حضور التدريب على الخادم. التغييرات محفوظة محلياً فقط حتى تنجح المزامنة.');
                 });
             }
 

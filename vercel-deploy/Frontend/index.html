@@ -12241,6 +12241,7 @@
             defer
             onerror="console.error('[HSE] فشل تحميل app-ui.js — تحقق من Network أو امسح كاش المتصفح.');"
         ></script>
+        <script src="js/modules/module-excel-import.js?v=1" defer></script>
 
         <!-- 4. Modules (Auth, Dashboard, Users, etc.) -->
         <!-- CRITICAL: Auth is defined here and must be loaded before login-init-fixed.js -->
@@ -12577,6 +12578,27 @@
                         }, 500);
                     });
                 }
+                document.addEventListener(
+                    "loginSuccess",
+                    function () {
+                        setTimeout(function () {
+                            try {
+                                if (
+                                    typeof BackupUI !== "undefined" &&
+                                    typeof BackupUI.runScheduledBackupIfDue ===
+                                        "function" &&
+                                    typeof BackupUI.isAdmin === "function" &&
+                                    BackupUI.isAdmin()
+                                ) {
+                                    BackupUI.runScheduledBackupIfDue();
+                                }
+                            } catch (e) {
+                                /* ignore */
+                            }
+                        }, 8000);
+                    },
+                    { once: false },
+                );
             });
         </script>
 
