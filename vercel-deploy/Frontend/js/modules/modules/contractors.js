@@ -415,10 +415,15 @@ const Contractors = {
                 Utils.safeWarn('⚠️ تعبئة تبويبات المقاولين المؤجلة:', e);
             });
         };
-        if (typeof requestIdleCallback === 'function') {
-            requestIdleCallback(run, { timeout: 1200 });
+        // بعد رسم الإطار الحالي مباشرة (بدون انتظار idle حتى 1200ms الذي كان يُبطئ ظهور الهيكل والتبويبات)
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(run);
+            });
+        } else if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(run, { timeout: 64 });
         } else {
-            setTimeout(run, 1);
+            setTimeout(run, 0);
         }
     },
 

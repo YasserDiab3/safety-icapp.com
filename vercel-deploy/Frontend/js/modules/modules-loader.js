@@ -357,8 +357,11 @@ async function loadAllModules() {
         if (contractorsIndex !== -1) {
             log('📦 بدء تحميل موديول المقاولين...');
             await loadModule('contractors');
-            // انتظار أطول للتأكد من تحميله بالكامل وتصديره
-            await new Promise(resolve => setTimeout(resolve, 250));
+            // إطار واحد فقط إن لزم لالتقاط تصدير الموديول على window (بدون تأخير 250ms)
+            await new Promise((resolve) => {
+                if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+                else setTimeout(resolve, 0);
+            });
             
             // التحقق النهائي من تحميل الموديول
             if (typeof window.Contractors !== 'undefined') {
