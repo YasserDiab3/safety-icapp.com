@@ -394,18 +394,22 @@ const DailyObservations = {
                             <p class="section-subtitle">تسجيل الملاحظات اليومية ومتابعة الإجراءات التصحيحية</p>
                         </div>
                         <div class="flex items-center gap-2 flex-wrap">
+                            ${this.isCurrentUserAdmin() ? `
                             <button id="import-observations-excel-btn" class="btn-secondary">
                                 <i class="fas fa-file-import ml-2"></i>
                                 استيراد من Excel
                             </button>
+                            ` : ''}
                             <button id="export-observations-excel-btn" class="btn-success">
                                 <i class="fas fa-file-excel ml-2"></i>
                                 تصدير Excel
                             </button>
+                            ${this.isCurrentUserAdmin() ? `
                             <button id="export-observations-ppt-btn" class="btn-secondary">
                                 <i class="fas fa-file-powerpoint ml-2"></i>
                                 تصدير PPT
                             </button>
+                            ` : ''}
                             <button id="add-observation-btn" class="btn-primary">
                                 <i class="fas fa-plus ml-2"></i>
                                 إضافة ملاحظة جديدة
@@ -480,37 +484,39 @@ const DailyObservations = {
             // استعادة حالة الواجهة بعد إعادة الرسم
             this.restoreUIState();
             
-            // عرض القائمة فوراً بعد عرض الواجهة (حتى لو كانت البيانات فارغة)
-            // هذا يضمن عدم بقاء الواجهة فارغة بعد التحميل
+            // عرض القائمة بعد جاهزية الـ DOM (إطارَي رسم لتفادي استدعاء مزدوج ثقيل داخل setTimeout)
             try {
-                // استخدام setTimeout بسيط لضمان أن DOM جاهز
-                setTimeout(() => {
-                    this.loadObservationsList();
-                }, 0);
+                const runList = () => {
+                    try {
+                        this.loadObservationsList();
+                    } catch (err) {
+                        Utils.safeWarn('⚠️ تعذر تحديث قائمة الملاحظات:', err);
+                    }
+                };
+                if (typeof requestAnimationFrame === 'function') {
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(runList);
+                    });
+                } else {
+                    setTimeout(runList, 0);
+                }
             } catch (error) {
                 Utils.safeWarn('⚠️ خطأ في تحميل قائمة الملاحظات الأولي:', error);
             }
-            
-            // تحميل البيانات بشكل غير متزامن بعد عرض الواجهة (للتحديث)
-            setTimeout(() => {
-                try {
-                    // تحديث القائمة بعد تحميل البيانات (إذا كان هناك تحميل من Backend)
-                    this.loadObservationsList();
-                } catch (error) {
-                    Utils.safeWarn('⚠️ تعذر تحديث قائمة الملاحظات:', error);
-                    // حتى في حالة الخطأ، تأكد من أن الواجهة معروضة
-                    this.loadObservationsList();
-                }
-            }, 100);
 
-            setTimeout(() => {
+            const runDeferredAlerts = () => {
                 try {
                     this.runObservationDueReminders();
                     this.renderObservationsWorkflowAlerts();
                 } catch (e) {
                     Utils.safeWarn('DailyObservations: تذكيرات/إشعارات:', e);
                 }
-            }, 250);
+            };
+            if (typeof requestIdleCallback === 'function') {
+                requestIdleCallback(runDeferredAlerts, { timeout: 2000 });
+            } else {
+                setTimeout(runDeferredAlerts, 300);
+            }
         } catch (error) {
             if (typeof Utils !== 'undefined' && Utils.safeError) {
                 Utils.safeError('خطأ عام في تحميل DailyObservations:', error);
@@ -1542,20 +1548,6 @@ const DailyObservations = {
         return observations.filter((o) => this.canUserViewObservation(o));
     },
 
-    canEditObservationFullForm(obs) {
-        if (!obs) return false;
-        if (this.isCurrentUserAdmin()) return true;
-        const ws = this.normalizeWorkflowStage(obs);
-        if (ws === 'closed') return this.hasFullObservationVisibility();
-        if (this.hasFullObservationVisibility()) return true;
-        const u = this.resolveCurrentUserProfile();
-        if (!u) return false;
-        const email = (u.email || '').toLowerCase().trim();
-        if (ws === 'pending_specialist' && (obs.createdByEmail || '').toLowerCase() === email) return true;
-        if (this.isDepartmentManagerRole()) return false;
-        return false;
-    },
-
     canChangeStatusInViewModal() {
         return this.isCurrentUserAdmin() || this.hasFullObservationVisibility();
     },
@@ -1958,8 +1950,8 @@ const DailyObservations = {
             return;
         }
         const obs = this.normalizeRecord(raw);
-        if (!this.canEditObservationFullForm(obs)) {
-            Notification.warning('تعديل الحقول الكامل غير متاح لدورك. استخدم مسار الاعتماد من نافذة العرض.');
+        if (!this.isCurrentUserAdmin()) {
+            Notification.warning('التعديل الكامل متاح لمدير النظام فقط. استخدم مسار الاعتماد من نافذة العرض.');
             return;
         }
         this.showForm(raw);
@@ -4314,6 +4306,10 @@ const DailyObservations = {
      * - الشريحة الأخيرة: ثابتة
      */
     async showExportPptModal() {
+        if (!this.isCurrentUserAdmin()) {
+            Notification.error('تصدير PPT متاح لمدير النظام فقط');
+            return;
+        }
         const modal = document.createElement('div');
         modal.className = 'modal-overlay';
 
@@ -5737,8 +5733,8 @@ const DailyObservations = {
 
     async showForm(data = null) {
         const normalizedData = data ? this.normalizeRecord(data) : null;
-        if (normalizedData && !this.canEditObservationFullForm(normalizedData)) {
-            Notification.warning('تعديل الحقول الكامل غير متاح لدورك. افتح الملاحظة واستخدم مسار الاعتماد من نافذة العرض.');
+        if (normalizedData && !this.isCurrentUserAdmin()) {
+            Notification.warning('التعديل الكامل متاح لمدير النظام فقط. افتح الملاحظة واستخدم مسار الاعتماد من نافذة العرض.');
             return;
         }
         this.resetFormState();
@@ -6918,7 +6914,7 @@ const DailyObservations = {
                     <button type="button" onclick="DailyObservations.exportPDF('${observation.id}');" class="btn-secondary" style="margin: 0 5px;">
                         <i class="fas fa-file-pdf ml-2"></i>تصدير PDF
                     </button>
-                    ${this.canEditObservationFullForm(observation) ? `
+                    ${this.isCurrentUserAdmin() ? `
                     <button type="button" onclick="DailyObservations.showFormFromId('${observation.id}'); this.closest('.modal-overlay').remove();" class="btn-primary" style="margin: 0 5px;">
                         <i class="fas fa-edit ml-2"></i>تعديل كامل
                     </button>` : ''}
@@ -7753,6 +7749,10 @@ const DailyObservations = {
     },
 
     async showImportExcelModal() {
+        if (!this.isCurrentUserAdmin()) {
+            Notification.error('استيراد Excel متاح لمدير النظام فقط');
+            return;
+        }
         const modal = document.createElement('div');
         modal.className = 'modal-overlay';
         modal.innerHTML = `
