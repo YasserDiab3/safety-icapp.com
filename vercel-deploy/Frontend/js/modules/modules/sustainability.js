@@ -85,6 +85,17 @@ const Sustainability = {
         }
     },
 
+    /** انتظار تهيئة إعدادات النماذج قبل بناء قوائم المصنع/الموقع (نفس نمط PTW والعيادة) */
+    async ensureFormSettingsForSiteDropdowns() {
+        if (typeof Permissions !== 'undefined' && typeof Permissions.ensureFormSettingsState === 'function') {
+            try {
+                await Permissions.ensureFormSettingsState();
+            } catch (e) {
+                if (typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('⚠️ Sustainability: تعذر تحميل إعدادات النماذج:', e);
+            }
+        }
+    },
+
     /**
      * تحميل المديول
      */
@@ -2043,7 +2054,8 @@ const Sustainability = {
     /**
      * عرض نموذج إضافة/تعديل سجل مخلفات عادية
      */
-    showRegularWasteForm(recordId = null) {
+    async showRegularWasteForm(recordId = null) {
+        await this.ensureFormSettingsForSiteDropdowns();
         const wasteData = AppState.appData.wasteManagement || {
             regularWasteTypes: ['خشب', 'ورق', 'استرتش', 'بلاستيك', 'شكائر', 'جراكن فارغة'],
             regularWasteRecords: []
@@ -2514,7 +2526,8 @@ const Sustainability = {
     /**
      * عرض نموذج إضافة/تعديل سجل مخلفات خطرة
      */
-    showHazardousWasteForm(recordId = null) {
+    async showHazardousWasteForm(recordId = null) {
+        await this.ensureFormSettingsForSiteDropdowns();
         const wasteData = AppState.appData.wasteManagement || {
             hazardousWasteRecords: []
         };
@@ -2894,12 +2907,12 @@ const Sustainability = {
         });
     },
 
-    editRegularWasteRecord(recordId) {
+    async editRegularWasteRecord(recordId) {
         if (!this.canEdit()) {
             Notification.error('ليس لديك صلاحية لتعديل السجلات');
             return;
         }
-        this.showRegularWasteForm(recordId);
+        await this.showRegularWasteForm(recordId);
     },
 
     async deleteRegularWasteRecord(recordId) {
@@ -2993,12 +3006,12 @@ const Sustainability = {
         });
     },
 
-    editRegularWasteSale(saleId) {
+    async editRegularWasteSale(saleId) {
         if (!this.canEdit()) {
             Notification.error('ليس لديك صلاحية لتعديل عمليات البيع');
             return;
         }
-        this.showRegularWasteSaleForm(saleId);
+        await this.showRegularWasteSaleForm(saleId);
     },
 
     async deleteRegularWasteSale(saleId) {
@@ -3101,12 +3114,12 @@ const Sustainability = {
         });
     },
 
-    editHazardousWasteRecord(recordId) {
+    async editHazardousWasteRecord(recordId) {
         if (!this.canEdit()) {
             Notification.error('ليس لديك صلاحية لتعديل السجلات');
             return;
         }
-        this.showHazardousWasteForm(recordId);
+        await this.showHazardousWasteForm(recordId);
     },
 
     async deleteHazardousWasteRecord(recordId) {

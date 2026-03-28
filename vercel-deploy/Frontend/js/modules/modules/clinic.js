@@ -1922,9 +1922,121 @@ const Clinic = {
             const opts = (empty) => '<option value="">' + (empty || 'اختر المصنع') + '</option>' + (sites || []).map(s => '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>').join('');
             ['visits-filter-factory', 'visit-factory', 'visit-contractor-factory', 'enhanced-visit-factory'].forEach(id => {
                 const el = document.getElementById(id);
-                if (el && el.tagName === 'SELECT') { const v = el.value; el.innerHTML = opts('اختر المصنع'); if (v) el.value = v; }
+                if (el && el.tagName === 'SELECT') { const v = el.value; el.innerHTML = opts('-- اختر المصنع --'); if (v) el.value = v; }
             });
         } catch (e) { if (typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('⚠️ Clinic.refreshSiteDropdowns:', e); }
+    },
+
+    /** أماكن الموقع الفرعية من إعدادات النماذج (places) لمُعرّف موقع/مصنع */
+    getPlacesForSiteId(siteId) {
+        try {
+            const sid = String(siteId || '').trim();
+            if (!sid) return [];
+            let sites = [];
+            if (typeof Permissions !== 'undefined' && Permissions.formSettingsState && Array.isArray(Permissions.formSettingsState.sites)) {
+                sites = Permissions.formSettingsState.sites;
+            } else if (Array.isArray(AppState.appData?.observationSites)) {
+                sites = AppState.appData.observationSites;
+            }
+            const site = sites.find((s) => String(s.id || s.siteId || '') === sid);
+            if (!site || !Array.isArray(site.places)) return [];
+            return site.places.map((pl, idx) => {
+                if (typeof pl === 'object' && pl !== null) {
+                    return {
+                        id: String(pl.id || pl.placeId || pl.value || `place-${idx}`),
+                        name: (pl.name || pl.placeName || pl.title || pl.label || '').toString().trim()
+                    };
+                }
+                if (typeof pl === 'string') {
+                    return { id: `place-${idx}`, name: pl.trim() };
+                }
+                return { id: `place-${idx}`, name: '' };
+            }).filter((p) => p.name);
+        } catch (e) {
+            if (typeof Utils !== 'undefined' && Utils.safeWarn) Utils.safeWarn('⚠️ Clinic.getPlacesForSiteId:', e);
+            return [];
+        }
+    },
+
+    /**
+     * ربط قوائم الموقع الفرعي (places) بحقول مكان العمل بعد تحميل إعدادات النماذج وفتح النموذج
+     */
+    bindVisitFormSitePlaceHelpers(visitData) {
+        const fillEmployeePlaces = (tryMatchSaved) => {
+            const fs = document.getElementById('visit-factory');
+            const wrap = document.getElementById('visit-employee-preset-place-wrap');
+            const sel = document.getElementById('visit-employee-place-select');
+            const txt = document.getElementById('visit-employee-location');
+            if (!fs || !wrap || !sel) return;
+            const places = this.getPlacesForSiteId(fs.value);
+            const esc = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML : (s) => String(s == null ? '' : s);
+            sel.innerHTML = '<option value="">' + esc('-- اختر المكان الفرعي (اختياري) --') + '</option>' +
+                places.map((p) => '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>').join('');
+            wrap.style.display = places.length ? 'block' : 'none';
+            if (tryMatchSaved && visitData && visitData.employeeLocation) {
+                const m = places.find((p) => p.name === String(visitData.employeeLocation).trim());
+                if (m) sel.value = m.id;
+            }
+            if (txt && !txt.value && sel.value) {
+                const m = places.find((p) => String(p.id) === String(sel.value));
+                if (m) txt.value = m.name;
+            }
+        };
+        const fillContractorPlaces = (tryMatchSaved) => {
+            const fs = document.getElementById('visit-contractor-factory');
+            const wrap = document.getElementById('visit-contractor-preset-place-wrap');
+            const sel = document.getElementById('visit-contractor-place-select');
+            const txt = document.getElementById('visit-work-area');
+            if (!fs || !wrap || !sel) return;
+            const places = this.getPlacesForSiteId(fs.value);
+            const esc = (typeof Utils !== 'undefined' && Utils.escapeHTML) ? Utils.escapeHTML : (s) => String(s == null ? '' : s);
+            sel.innerHTML = '<option value="">' + esc('-- اختر المكان الفرعي (اختياري) --') + '</option>' +
+                places.map((p) => '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>').join('');
+            wrap.style.display = places.length ? 'block' : 'none';
+            if (tryMatchSaved && visitData && visitData.workArea) {
+                const m = places.find((p) => p.name === String(visitData.workArea).trim());
+                if (m) sel.value = m.id;
+            }
+            if (txt && !txt.value && sel.value) {
+                const m = places.find((p) => String(p.id) === String(sel.value));
+                if (m) txt.value = m.name;
+            }
+        };
+        const syncAll = (tryMatch) => {
+            fillEmployeePlaces(tryMatch);
+            fillContractorPlaces(tryMatch);
+        };
+
+        const empFs = document.getElementById('visit-factory');
+        if (empFs) empFs.addEventListener('change', () => syncAll(false));
+        const cfFs = document.getElementById('visit-contractor-factory');
+        if (cfFs) cfFs.addEventListener('change', () => syncAll(false));
+
+        const empPlSel = document.getElementById('visit-employee-place-select');
+        if (empPlSel) {
+            empPlSel.addEventListener('change', () => {
+                const fs = document.getElementById('visit-factory');
+                const places = this.getPlacesForSiteId(fs && fs.value);
+                const p = places.find((x) => String(x.id) === String(empPlSel.value));
+                const txt = document.getElementById('visit-employee-location');
+                if (p && txt) txt.value = p.name;
+            });
+        }
+        const cPlSel = document.getElementById('visit-contractor-place-select');
+        if (cPlSel) {
+            cPlSel.addEventListener('change', () => {
+                const fs = document.getElementById('visit-contractor-factory');
+                const places = this.getPlacesForSiteId(fs && fs.value);
+                const p = places.find((x) => String(x.id) === String(cPlSel.value));
+                const txt = document.getElementById('visit-work-area');
+                if (p && txt) txt.value = p.name;
+            });
+        }
+
+        const pt = document.getElementById('visit-person-type');
+        if (pt) pt.addEventListener('change', () => setTimeout(() => syncAll(false), 0));
+
+        syncAll(true);
     },
 
     getExpiringMedications() {
@@ -8497,7 +8609,7 @@ const Clinic = {
         });
     },
 
-    showVisitForm(visitData = null, registerVisitBtn = null) {
+    async showVisitForm(visitData = null, registerVisitBtn = null) {
         const isEdit = !!visitData;
         const content = document.getElementById('clinic-section');
         if (!content) {
@@ -8512,9 +8624,12 @@ const Clinic = {
             Utils.safeError('خطأ في تحضير نموذج الزيارة:', e);
             return;
         }
-        // تشغيل الصلاحيات في الخلفية دون انتظار لفتح النموذج فوراً
         if (typeof Permissions !== 'undefined' && Permissions.ensureFormSettingsState) {
-            Permissions.ensureFormSettingsState().catch(() => {});
+            try {
+                await Permissions.ensureFormSettingsState();
+            } catch (e) {
+                Utils.safeWarn('⚠️ تعذر تحميل إعدادات النماذج قبل نموذج الزيارة:', e);
+            }
         }
 
         const modal = document.createElement('div');
@@ -8580,7 +8695,13 @@ const Clinic = {
                                 </select>
                             </div>
                             <div id="visit-employee-location-container" style="display: ${visitData?.personType === 'employee' || !visitData ? 'block' : 'none'};">
-                                <label for="visit-employee-location" class="block text-sm font-semibold text-gray-700 mb-2">مكان العمل *<span style="font-size: 11px; color: #666; display: block; margin-top: 2px;">أدخل مكان العمل يدوياً</span></label>
+                                <div id="visit-employee-preset-place-wrap" class="mb-2" style="display: none;">
+                                    <label for="visit-employee-place-select" class="block text-sm font-semibold text-gray-700 mb-1">الموقع الفرعي (من إعدادات الموقع)</label>
+                                    <select id="visit-employee-place-select" class="form-input">
+                                        <option value="">-- اختر المكان الفرعي (اختياري) --</option>
+                                    </select>
+                                </div>
+                                <label for="visit-employee-location" class="block text-sm font-semibold text-gray-700 mb-2">مكان العمل *<span style="font-size: 11px; color: #666; display: block; margin-top: 2px;">من القائمة أعلاه أو إدخال يدوي</span></label>
                                 <input type="text" id="visit-employee-location" class="form-input" 
                                     value="${visitData?.employeeLocation || ''}" 
                                     placeholder="أدخل مكان العمل يدوياً" required>
@@ -8602,7 +8723,13 @@ const Clinic = {
                                 </select>
                             </div>
                             <div id="visit-work-area-container" style="display: ${visitData?.personType === 'contractor' || visitData?.personType === 'external' ? 'block' : 'none'};">
-                                <label for="visit-work-area" class="block text-sm font-semibold text-gray-700 mb-2">مكان العمل *<span style="font-size: 11px; color: #666; display: block; margin-top: 2px;">أدخل مكان العمل يدوياً</span></label>
+                                <div id="visit-contractor-preset-place-wrap" class="mb-2" style="display: none;">
+                                    <label for="visit-contractor-place-select" class="block text-sm font-semibold text-gray-700 mb-1">الموقع الفرعي (من إعدادات الموقع)</label>
+                                    <select id="visit-contractor-place-select" class="form-input">
+                                        <option value="">-- اختر المكان الفرعي (اختياري) --</option>
+                                    </select>
+                                </div>
+                                <label for="visit-work-area" class="block text-sm font-semibold text-gray-700 mb-2">مكان العمل *<span style="font-size: 11px; color: #666; display: block; margin-top: 2px;">من القائمة أعلاه أو إدخال يدوي</span></label>
                                 <input type="text" id="visit-work-area" class="form-input"
                                     value="${visitData?.workArea || ''}" placeholder="أدخل مكان العمل يدوياً"
                                     ${visitData?.personType === 'contractor' || visitData?.personType === 'external' ? 'required' : ''}>
@@ -8729,6 +8856,9 @@ const Clinic = {
             </div>
         `;
         document.body.appendChild(modal);
+
+        try { this.refreshSiteDropdowns(); } catch (e) { Utils.safeWarn('⚠️ Clinic.refreshSiteDropdowns بعد فتح الزيارة:', e); }
+        try { this.bindVisitFormSitePlaceHelpers(visitData); } catch (e) { Utils.safeWarn('⚠️ Clinic.bindVisitFormSitePlaceHelpers:', e); }
 
         if (registerVisitBtn) {
             const observer = new MutationObserver(() => {

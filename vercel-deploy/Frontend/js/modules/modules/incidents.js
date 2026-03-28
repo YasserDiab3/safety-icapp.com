@@ -6285,6 +6285,11 @@ const Incidents = {
 
     // نموذج إخطار عن حادث
     async showNotificationForm() {
+        if (typeof Permissions !== 'undefined' && typeof Permissions.ensureFormSettingsState === 'function') {
+            try {
+                await Permissions.ensureFormSettingsState();
+            } catch (e) { /* ignore */ }
+        }
         const modal = document.createElement('div');
         modal.className = 'modal-overlay';
         const notificationNumber = `NOT-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${String((AppState.appData.incidentNotifications || []).length + 1).padStart(4, '0')}`;
@@ -6571,32 +6576,13 @@ const Incidents = {
             };
 
             if (locationSelect) {
-                // التأكد من تحميل إعدادات النماذج
-                if (typeof Permissions !== 'undefined' && typeof Permissions.ensureFormSettingsState === 'function') {
-                    Permissions.ensureFormSettingsState().then(() => {
-                        // الحصول على المواقع من إعدادات النماذج
-                        const sites = this.getSiteOptions();
-
-                        // إضافة المواقع إلى القائمة المنسدلة
-                        sites.forEach(site => {
-                            const option = document.createElement('option');
-                            option.value = site.id;
-                            option.textContent = site.name;
-                            locationSelect.appendChild(option);
-                        });
-                    });
-                } else {
-                    // الحصول على المواقع من إعدادات النماذج
-                    const sites = this.getSiteOptions();
-
-                    // إضافة المواقع إلى القائمة المنسدلة
-                    sites.forEach(site => {
-                        const option = document.createElement('option');
-                        option.value = site.id;
-                        option.textContent = site.name;
-                        locationSelect.appendChild(option);
-                    });
-                }
+                const sites = this.getSiteOptions();
+                sites.forEach(site => {
+                    const option = document.createElement('option');
+                    option.value = site.id;
+                    option.textContent = site.name;
+                    locationSelect.appendChild(option);
+                });
 
                 // إضافة event listener لتحديث الأماكن الفرعية عند تغيير الموقع
                 locationSelect.addEventListener('change', (e) => {
