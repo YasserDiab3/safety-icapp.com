@@ -14,6 +14,7 @@
     margin-bottom: 1.5rem;
 }
 
+@supports selector(::-webkit-scrollbar-thumb) {
 .contractors-tabs-wrapper::-webkit-scrollbar {
     height: 6px;
 }
@@ -30,6 +31,7 @@
 
 .contractors-tabs-wrapper::-webkit-scrollbar-thumb:hover {
     background: rgba(0, 0, 0, 0.3);
+}
 }
 
 /* Container للتبويبات */
@@ -113,12 +115,14 @@
     scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
+@supports selector(::-webkit-scrollbar-thumb) {
 [data-theme="dark"] .contractors-tabs-wrapper::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.2);
 }
 
 [data-theme="dark"] .contractors-tabs-wrapper::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
+}
 }
 
 [data-theme="dark"] .contractors-tabs-container {

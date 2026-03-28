@@ -99,6 +99,7 @@
     margin-bottom: 1.5rem;
 }
 
+@supports selector(::-webkit-scrollbar-thumb) {
 .module-tabs-wrapper::-webkit-scrollbar,
 .contractors-tabs-wrapper::-webkit-scrollbar {
     height: 6px;
@@ -119,6 +120,7 @@
 .module-tabs-wrapper::-webkit-scrollbar-thumb:hover,
 .contractors-tabs-wrapper::-webkit-scrollbar-thumb:hover {
     background: rgba(0, 0, 0, 0.3);
+}
 }
 
 /* ===== Tab Container Styles ===== */
@@ -186,6 +188,7 @@
     scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
+@supports selector(::-webkit-scrollbar-thumb) {
 [data-theme="dark"] .module-tabs-wrapper::-webkit-scrollbar-thumb,
 [data-theme="dark"] .contractors-tabs-wrapper::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.2);
@@ -194,6 +197,7 @@
 [data-theme="dark"] .module-tabs-wrapper::-webkit-scrollbar-thumb:hover,
 [data-theme="dark"] .contractors-tabs-wrapper::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
+}
 }
 
 /* ===== Responsive Design ===== */
@@ -425,6 +429,7 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
+@supports selector(::-webkit-scrollbar-thumb) {
 .action-tabs-container::-webkit-scrollbar {
     height: 4px;
 }
@@ -440,6 +445,7 @@
 
 .action-tabs-container::-webkit-scrollbar-thumb:hover {
     background: rgba(0, 0, 0, 0.2);
+}
 }
 
 /* ===== Action Tab Button Base Styles ===== */

@@ -12,7 +12,6 @@
     font-weight: 400;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
 }
 
 .form-input[type="password"] {
@@ -1188,6 +1187,7 @@ body.hse-post-login-overlay-active #main-app {
     background: #ffffff;
 }
 
+@supports selector(::-webkit-scrollbar-thumb) {
 .hse-post-login-overlay-body::-webkit-scrollbar {
     width: 8px;
 }
@@ -1204,6 +1204,7 @@ body.hse-post-login-overlay-active #main-app {
 
 .hse-post-login-overlay-body::-webkit-scrollbar-thumb:hover {
     background: rgba(148, 163, 184, 0.6);
+}
 }
 
 .hse-post-login-overlay-body br {

@@ -136,12 +136,6 @@
 
 /* ===== 6. Firefox Specific Fixes ===== */
 @-moz-document url-prefix() {
-    /* تحسين عرض الخطوط في Firefox */
-    * {
-        -moz-font-smoothing: grayscale;
-        -moz-osx-font-smoothing: grayscale;
-    }
-
     /* إصلاح مشكلة overflow في Firefox */
     html,
     body {
@@ -178,35 +172,6 @@
     }
 }
 
-/* ===== 7. Edge Specific Fixes ===== */
-@supports (-ms-ime-align: auto) {
-    /* Edge القديم (EdgeHTML) */
-    html,
-    body {
-        -ms-overflow-style: -ms-autohiding-scrollbar;
-        overflow-x: hidden;
-    }
-
-    .sidebar {
-        -ms-overflow-style: -ms-autohiding-scrollbar;
-    }
-
-    /* إصلاح Grid في Edge القديم */
-    .content-grid,
-    .kpi-grid {
-        display: -ms-grid;
-        display: grid;
-        -ms-grid-columns: inherit;
-    }
-
-    /* إصلاح Flexbox في Edge القديم */
-    .flex,
-    .d-flex {
-        display: -ms-flexbox;
-        display: flex;
-    }
-}
-
 /* Edge الجديد (Chromium-based) */
 @supports (selector(:has(*))) {
     /* Edge Chromium يدعم :has() */
@@ -218,24 +183,12 @@
 /* ===== 8. Chrome/Chromium Specific Fixes ===== */
 /* Chrome يدعم معظم الميزات الحديثة، لكن قد نحتاج بعض التحسينات */
 
-/* إصلاح مشكلة text-size-adjust */
+/* ===== 8b. Mobile / WebView: text-size-adjust (قيم معيارية) ===== */
 @media (max-width: 1024px) {
     html,
     body {
-        -webkit-text-size-adjust: 100%;
-        text-size-adjust: 100%;
-    }
-}
-
-/* ===== 9. Mobile WebView Specific Fixes ===== */
-@media (max-width: 1024px) {
-    /* تحسينات عامة لـ WebView */
-    html,
-    body {
-        -webkit-text-size-adjust: 100%;
-        -moz-text-size-adjust: 100%;
-        -ms-text-size-adjust: 100%;
-        text-size-adjust: 100%;
+        -webkit-text-size-adjust: none;
+        text-size-adjust: none;
     }
 
     /* تحسين Touch Events */
@@ -255,35 +208,7 @@
     }
 }
 
-/* ===== 10. Internet Explorer (Legacy Support) ===== */
-@media screen and (-ms-high-contrast: active), screen and (-ms-high-contrast: none) {
-    /* IE 10+ */
-    html,
-    body {
-        -ms-overflow-style: -ms-autohiding-scrollbar;
-        overflow-x: hidden;
-    }
-
-    .sidebar {
-        -ms-overflow-style: -ms-autohiding-scrollbar;
-    }
-
-    /* Fallback للـ Grid في IE */
-    .content-grid,
-    .kpi-grid {
-        display: -ms-grid;
-        display: grid;
-    }
-
-    /* Fallback للـ Flexbox في IE */
-    .flex,
-    .d-flex {
-        display: -ms-flexbox;
-        display: flex;
-    }
-}
-
-/* ===== 11. RTL Support Enhancements ===== */
+/* ===== 9. RTL Support Enhancements ===== */
 [dir="rtl"] {
     direction: rtl;
     text-align: right;
@@ -345,7 +270,7 @@
 }
 
 /* ===== 13. High Contrast Mode Support ===== */
-@media (prefers-contrast: high) {
+@media (prefers-contrast: more) {
     .btn-primary {
         border: 2px solid currentColor;
     }

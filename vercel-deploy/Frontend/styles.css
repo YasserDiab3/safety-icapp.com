@@ -17,7 +17,6 @@
     text-rendering: auto;
     line-height: 1;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
 }
 
 /* Fallback icons using Unicode symbols if Font Awesome fails */
@@ -126,9 +125,8 @@ i[class*="fa-"] {
 }
 
 html {
-    -webkit-text-size-adjust: 100%;
-    -ms-text-size-adjust: 100%;
-    text-size-adjust: 100%;
+    -webkit-text-size-adjust: none;
+    text-size-adjust: none;
     overflow-x: hidden;
     width: 100%;
     position: relative;
@@ -144,7 +142,6 @@ body {
     color: var(--text-primary);
     transition: background-color 0.3s ease, color 0.3s ease;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     font-weight: 400;
     line-height: 1.6;
@@ -158,10 +155,8 @@ body.app-active {
 @media (max-width: 768px) {
     html {
         overflow-x: hidden;
-        -webkit-text-size-adjust: 100%;
-        -moz-text-size-adjust: 100%;
-        -ms-text-size-adjust: 100%;
-        text-size-adjust: 100%;
+        -webkit-text-size-adjust: none;
+        text-size-adjust: none;
     }
 
     body {
@@ -174,10 +169,8 @@ body.app-active {
 
     /* Prevent text size adjustment on iOS */
     * {
-        -webkit-text-size-adjust: 100%;
-        -moz-text-size-adjust: 100%;
-        -ms-text-size-adjust: 100%;
-        text-size-adjust: 100%;
+        -webkit-text-size-adjust: none;
+        text-size-adjust: none;
     }
 }
 
@@ -451,7 +444,6 @@ body.app-active {
     font-weight: 400;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
 }
 
 .form-input[type="password"] {
@@ -2578,7 +2570,6 @@ body.app-active {
     /* Removed will-change: transform, box-shadow to reduce memory consumption - apply dynamically during hover/animations */
     backface-visibility: hidden;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
 }
 
 /* Animations للكروت المحسّنة */
@@ -4994,14 +4985,8 @@ body.app-active {
     }
 }
 
-/* Fix for Edge/IE */
-@media screen and (-ms-high-contrast: active), screen and (-ms-high-contrast: none) {
-    .sidebar {
-        -ms-overflow-style: -ms-autohiding-scrollbar;
-    }
-}
-
-/* ===== Scrollbar Styles ===== */
+/* ===== Scrollbar Styles (WebKit/Blink only — wrapped for Firefox) ===== */
+@supports selector(::-webkit-scrollbar-thumb) {
 ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -5019,9 +5004,11 @@ body.app-active {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-tertiary);
 }
+}
 
 /* Mobile scrollbar - thinner and more subtle */
 @media (max-width: 768px) {
+@supports selector(::-webkit-scrollbar-thumb) {
     ::-webkit-scrollbar {
         width: 4px;
         height: 4px;
@@ -5049,6 +5036,7 @@ body.app-active {
     .sidebar::-webkit-scrollbar-thumb:hover {
         background: rgba(255, 255, 255, 0.5);
     }
+}
 
     /* تحسين التمرير على الموبايل */
     .main-content {
@@ -8510,7 +8498,6 @@ textarea.form-input {
     .kpi-icon,
     .user-avatar {
         -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
     }
 }
 
@@ -8540,7 +8527,7 @@ textarea.form-input {
 }
 
 /* High contrast mode support */
-@media (prefers-contrast: high) {
+@media (prefers-contrast: more) {
 
     .btn-primary,
     .btn-secondary {
@@ -9355,14 +9342,12 @@ label {
 @supports (-webkit-appearance: none) {
     * {
         -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
     }
 }
 
 /* Firefox */
 @-moz-document url-prefix() {
     * {
-        -moz-font-smoothing: grayscale;
     }
 }
 
@@ -9376,10 +9361,8 @@ label {
 /* منع مشاكل التكبير في Mobile */
 @media (max-width: 1024px) {
     * {
-        -webkit-text-size-adjust: 100%;
-        -moz-text-size-adjust: 100%;
-        -ms-text-size-adjust: 100%;
-        text-size-adjust: 100%;
+        -webkit-text-size-adjust: none;
+        text-size-adjust: none;
     }
 
     /* منع التكبير التلقائي في حقول الإدخال على iOS */
@@ -9466,8 +9449,6 @@ label {
 
     /* تحسين عرض الخطوط */
     * {
-        -moz-font-smoothing: grayscale;
-        -moz-osx-font-smoothing: grayscale;
     }
 
     /* إصلاح مشكلة overflow في Firefox */
@@ -9517,28 +9498,6 @@ label {
     *:focus {
         outline: 2px solid var(--primary-color);
         outline-offset: 2px;
-    }
-}
-
-/* ===== Edge Specific Fixes ===== */
-@supports (-ms-ime-align: auto) {
-
-    /* Edge القديم (EdgeHTML) */
-    html,
-    body {
-        -ms-overflow-style: -ms-autohiding-scrollbar;
-        overflow-x: hidden;
-    }
-
-    .sidebar {
-        -ms-overflow-style: -ms-autohiding-scrollbar;
-    }
-
-    /* إصلاح Grid في Edge القديم */
-    .content-grid,
-    .kpi-grid {
-        display: -ms-grid;
-        -ms-grid-columns: inherit;
     }
 }
 
@@ -9597,7 +9556,6 @@ label {
     /* تحسين الخطوط في Safari */
     * {
         -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
     }
 
     /* إصلاح مشكلة RTL في Safari */
@@ -9638,10 +9596,8 @@ label {
     /* تحسينات عامة لـ WebView */
     html,
     body {
-        -webkit-text-size-adjust: 100%;
-        -moz-text-size-adjust: 100%;
-        -ms-text-size-adjust: 100%;
-        text-size-adjust: 100%;
+        -webkit-text-size-adjust: none;
+        text-size-adjust: none;
     }
 
     /* تحسين Touch Events */
@@ -9690,7 +9646,7 @@ label {
 
     /* تحسينات خاصة لـ Samsung Internet */
     * {
-        -webkit-text-size-adjust: 100%;
+        -webkit-text-size-adjust: none;
     }
 }
 
@@ -9702,36 +9658,7 @@ label {
 
     /* UC Browser قد يحتاج تحسينات خاصة */
     * {
-        -webkit-text-size-adjust: 100%;
-    }
-}
-
-/* ===== Internet Explorer (Legacy Support) ===== */
-@media screen and (-ms-high-contrast: active), screen and (-ms-high-contrast: none) {
-
-    /* IE 10+ */
-    html,
-    body {
-        -ms-overflow-style: -ms-autohiding-scrollbar;
-        overflow-x: hidden;
-    }
-
-    .sidebar {
-        -ms-overflow-style: -ms-autohiding-scrollbar;
-    }
-
-    /* Fallback للـ Grid في IE */
-    .content-grid,
-    .kpi-grid {
-        display: -ms-grid;
-        display: grid;
-    }
-
-    /* Fallback للـ Flexbox في IE */
-    .flex,
-    .d-flex {
-        display: -ms-flexbox;
-        display: flex;
+        -webkit-text-size-adjust: none;
     }
 }
 
@@ -9825,7 +9752,6 @@ body {
 /* تحسين الأداء */
 * {
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
 }
 
@@ -9888,11 +9814,9 @@ body {
     border: 1px solid var(--card-border);
     border-radius: 20px;
     -webkit-border-radius: 20px;
-    -moz-border-radius: 20px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
     box-shadow: var(--card-shadow);
     -webkit-box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
-    -moz-box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     transition: var(--card-transition);
     -webkit-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -9903,13 +9827,11 @@ body {
     /* backdrop-filter مع fallback */
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    -moz-backdrop-filter: blur(10px);
     /* Removed will-change: transform, box-shadow to reduce memory consumption */
     -webkit-transform: translateZ(0);
     transform: translateZ(0);
     /* تحسينات للأداء */
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
 }
 
 .content-card::before {
@@ -9933,7 +9855,6 @@ body {
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
     box-shadow: var(--card-shadow-hover);
     -webkit-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
-    -moz-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
     border-color: rgba(59, 130, 246, 0.3);
 }
 
@@ -9943,46 +9864,15 @@ body {
 
 /* ===== تحسينات Grid للكروت ===== */
 .kpi-grid {
-    /* Fallback للمتصفحات القديمة */
-    display: -webkit-box;
-    display: -webkit-flex;
-    display: -moz-box;
-    display: -ms-flexbox;
-    display: flex;
-    -webkit-flex-wrap: wrap;
-    -moz-flex-wrap: wrap;
-    -ms-flex-wrap: wrap;
-    flex-wrap: wrap;
-    margin-bottom: 2rem;
-    padding: 0;
-    /* Grid الحديث */
-    display: -ms-grid;
     display: grid;
-    -ms-grid-columns: repeat(auto-fit, minmax(280px, 1fr));
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 1.75rem;
-    -webkit-column-gap: 1.75rem;
-    -moz-column-gap: 1.75rem;
-    column-gap: 1.75rem;
-    row-gap: 1.75rem;
+    margin-bottom: 2rem;
+    padding: 0;
 }
 
-/* Fallback للمتصفحات القديمة */
-.kpi-grid>* {
-    -webkit-box-flex: 1;
-    -webkit-flex: 1 1 280px;
-    -moz-box-flex: 1;
-    -ms-flex: 1 1 280px;
-    flex: 1 1 280px;
-    min-width: 280px;
-    max-width: 100%;
-    margin: 0.875rem;
-}
-
-@supports (display: grid) {
-    .kpi-grid>* {
-        margin: 0;
-    }
+.kpi-grid > * {
+    min-width: 0;
 }
 
 /* ===== تحسينات KPI Cards ===== */
@@ -9994,36 +9884,21 @@ body {
     border: 1px solid var(--card-border);
     border-radius: 20px;
     -webkit-border-radius: 20px;
-    -moz-border-radius: 20px;
     padding: 2rem 1.75rem;
-    display: -webkit-box;
-    display: -webkit-flex;
-    display: -moz-box;
-    display: -ms-flexbox;
     display: flex;
-    -webkit-box-align: center;
-    -webkit-align-items: center;
-    -moz-box-align: center;
-    -ms-flex-align: center;
     align-items: center;
     gap: 1.5rem;
-    -webkit-column-gap: 1.5rem;
-    -moz-column-gap: 1.5rem;
-    column-gap: 1.5rem;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
     box-shadow: var(--card-shadow);
     -webkit-box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
-    -moz-box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     transition: var(--card-transition);
     -webkit-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    -moz-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     -o-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     overflow: hidden;
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    -moz-backdrop-filter: blur(10px);
     /* Removed will-change: transform, box-shadow to reduce memory consumption */
     -webkit-transform: translateZ(0);
     transform: translateZ(0);
@@ -10078,7 +9953,6 @@ body {
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
     box-shadow: var(--card-shadow-hover);
     -webkit-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
-    -moz-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
     border-color: rgba(59, 130, 246, 0.4);
 }
 
@@ -10099,7 +9973,6 @@ body {
     min-height: 72px;
     border-radius: 18px;
     -webkit-border-radius: 18px;
-    -moz-border-radius: 18px;
     display: -webkit-box;
     display: -webkit-flex;
     display: -moz-box;
@@ -10128,7 +10001,6 @@ body {
     -o-transition: -o-transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     -webkit-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    -moz-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     -webkit-flex-shrink: 0;
     -ms-flex-negative: 0;
     flex-shrink: 0;
@@ -10144,7 +10016,6 @@ body {
     transform: scale(1.1) rotate(5deg);
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
     -webkit-box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
-    -moz-box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
 }
 
 /* ألوان الأيقونات حسب النوع */
@@ -10866,56 +10737,11 @@ body {
     }
 }
 
-/* ===== تحسينات خاصة لـ Edge (Legacy) ===== */
-@supports (-ms-ime-align: auto) {
-    .kpi-grid {
-        display: -ms-grid;
-        -ms-grid-columns: 1fr 1fr 1fr;
-        -ms-grid-rows: auto;
-    }
-
-    .kpi-card {
-        -ms-grid-column: auto;
-        grid-column: auto;
-        -ms-grid-row: auto;
-        grid-row: auto;
-    }
-}
-
-/* ===== تحسينات للمتصفحات القديمة (IE11) ===== */
-@media screen and (-ms-high-contrast: active), screen and (-ms-high-contrast: none) {
-    .kpi-grid {
-        display: -ms-flexbox;
-        display: flex;
-        -ms-flex-wrap: wrap;
-        flex-wrap: wrap;
-    }
-
-    .kpi-card {
-        -ms-flex: 1 1 280px;
-        flex: 1 1 280px;
-        margin: 0.875rem;
-    }
-
-    .content-card,
-    .kpi-card {
-        background: #ffffff;
-    }
-
-    [data-theme="dark"] .content-card,
-    [data-theme="dark"] .kpi-card {
-        background: #1f2937;
-    }
-}
-
 /* ===== تحسينات للشاشات الصغيرة جداً (أقل من 320px) ===== */
 @media (max-width: 320px) {
     .kpi-grid {
         grid-template-columns: 1fr;
-        -ms-grid-columns: 1fr;
         gap: 0.75rem;
-        -webkit-column-gap: 0.75rem;
-        -moz-column-gap: 0.75rem;
         column-gap: 0.75rem;
         row-gap: 0.75rem;
     }
@@ -10923,8 +10749,6 @@ body {
     .kpi-card {
         padding: 1rem 0.875rem;
         gap: 0.75rem;
-        -webkit-column-gap: 0.75rem;
-        -moz-column-gap: 0.75rem;
         column-gap: 0.75rem;
         min-height: 100px;
     }
@@ -10937,7 +10761,6 @@ body {
         font-size: 1.125rem;
         border-radius: 12px;
         -webkit-border-radius: 12px;
-        -moz-border-radius: 12px;
     }
 
     .kpi-value {
@@ -10963,8 +10786,6 @@ body {
         grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
         -ms-grid-columns: repeat(auto-fit, minmax(320px, 1fr));
         gap: 2rem;
-        -webkit-column-gap: 2rem;
-        -moz-column-gap: 2rem;
         column-gap: 2rem;
         row-gap: 2rem;
     }
@@ -10993,8 +10814,6 @@ body {
         grid-template-columns: repeat(3, minmax(0, 1fr));
         -ms-grid-columns: repeat(3, minmax(0, 1fr));
         gap: 1rem;
-        -webkit-column-gap: 1rem;
-        -moz-column-gap: 1rem;
         column-gap: 1rem;
         row-gap: 1rem;
     }
@@ -11003,8 +10822,6 @@ body {
         padding: 1rem;
         min-height: 100px;
         gap: 0.875rem;
-        -webkit-column-gap: 0.875rem;
-        -moz-column-gap: 0.875rem;
         column-gap: 0.875rem;
     }
 
@@ -11047,7 +10864,6 @@ body {
         transform: translateY(-2px) scale(1.01);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         -webkit-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        -moz-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
 
     /* زيادة حجم الـ touch targets */
@@ -11076,7 +10892,6 @@ body {
     .kpi-icon {
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
         -webkit-box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-        -moz-box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
     }
 }
 
@@ -11118,7 +10933,7 @@ body {
 }
 
 /* ===== تحسينات للوضع عالي التباين ===== */
-@media (prefers-contrast: high) {
+@media (prefers-contrast: more) {
 
     .content-card,
     .kpi-card {
@@ -11188,7 +11003,6 @@ body {
     transform: scale(1.05);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
     -webkit-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-    -moz-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
 /* تحسينات للوضع الليلي - خلفيات ملونة */
@@ -11375,7 +11189,6 @@ body {
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
     box-shadow: var(--card-shadow-hover);
     -webkit-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
-    -moz-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 
 /* تحسينات للنصوص داخل الكروت */
@@ -12666,6 +12479,7 @@ body {
     scrollbar-color: rgba(0, 56, 101, 0.3) transparent;
 }
 
+@supports selector(::-webkit-scrollbar-thumb) {
 .fire-assets-table-wrapper::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -12685,6 +12499,7 @@ body {
 .fire-assets-table-wrapper::-webkit-scrollbar-thumb:hover {
     background: rgba(0, 56, 101, 0.6);
 }
+}
 
 /* مسطرة جانبية لجدول سجل معدات الإطفاء */
 .fire-register-table-wrapper {
@@ -12697,6 +12512,7 @@ body {
     scrollbar-color: rgba(0, 56, 101, 0.3) transparent;
 }
 
+@supports selector(::-webkit-scrollbar-thumb) {
 .fire-register-table-wrapper::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -12716,6 +12532,7 @@ body {
 .fire-register-table-wrapper::-webkit-scrollbar-thumb:hover {
     background: rgba(0, 56, 101, 0.6);
 }
+}
 
 /* مسطرة جانبية لجدول طلبات الموافقة */
 .approval-requests-table-wrapper {
@@ -12728,6 +12545,7 @@ body {
     scrollbar-color: rgba(0, 56, 101, 0.3) transparent;
 }
 
+@supports selector(::-webkit-scrollbar-thumb) {
 .approval-requests-table-wrapper::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -12746,6 +12564,7 @@ body {
 
 .approval-requests-table-wrapper::-webkit-scrollbar-thumb:hover {
     background: rgba(0, 56, 101, 0.6);
+}
 }
 
 /* تحسين عرض رأس الجدول في طلبات الموافقة */
@@ -12766,11 +12585,13 @@ body {
         scrollbar-width: thin;
     }
 
+    @supports selector(::-webkit-scrollbar-thumb) {
     .fire-assets-table-wrapper::-webkit-scrollbar,
     .fire-register-table-wrapper::-webkit-scrollbar,
     .approval-requests-table-wrapper::-webkit-scrollbar {
         width: 6px;
         height: 6px;
+    }
     }
 }
 
@@ -13394,7 +13215,6 @@ body {
     /* تحسين Rendering */
     * {
         -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
     }
 
     /* تحسين Animations */
@@ -13474,7 +13294,6 @@ body {
     /* تحسين الخطوط للشاشات Retina */
     body {
         -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
     }
 
     /* تحسين Borders */
@@ -13537,7 +13356,7 @@ body {
 @media (max-width: 768px) {
     /* Samsung Internet يستخدم Chromium لكن قد يحتاج تحسينات */
     * {
-        -webkit-text-size-adjust: 100%;
+        -webkit-text-size-adjust: none;
     }
 }
 
@@ -13708,7 +13527,6 @@ body {
     /* تحسين Rendering */
     * {
         -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
         text-rendering: optimizeLegibility;
     }
 
@@ -13756,10 +13574,8 @@ body {
 @media (max-width: 768px) {
     /* UC Browser قد يحتاج تحسينات خاصة */
     * {
-        -webkit-text-size-adjust: 100%;
-        -moz-text-size-adjust: 100%;
-        -ms-text-size-adjust: 100%;
-        text-size-adjust: 100%;
+        -webkit-text-size-adjust: none;
+        text-size-adjust: none;
     }
 }
 
