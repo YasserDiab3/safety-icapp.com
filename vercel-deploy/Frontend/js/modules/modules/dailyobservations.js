@@ -502,6 +502,15 @@ const DailyObservations = {
                     this.loadObservationsList();
                 }
             }, 100);
+
+            setTimeout(() => {
+                try {
+                    this.runObservationDueReminders();
+                    this.renderObservationsWorkflowAlerts();
+                } catch (e) {
+                    Utils.safeWarn('DailyObservations: تذكيرات/إشعارات:', e);
+                }
+            }, 250);
         } catch (error) {
             if (typeof Utils !== 'undefined' && Utils.safeError) {
                 Utils.safeError('خطأ عام في تحميل DailyObservations:', error);
@@ -563,6 +572,8 @@ const DailyObservations = {
             <div id="observations-stats-cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <!-- سيتم ملؤها ديناميكياً -->
             </div>
+
+            <div id="observations-workflow-alerts" aria-live="polite"></div>
 
             <!-- جدول الملاحظات -->
             <div class="content-card">
@@ -709,7 +720,9 @@ const DailyObservations = {
             const observationsRaw = Array.isArray(AppState.appData.dailyObservations)
                 ? AppState.appData.dailyObservations
                 : [];
-            observations = observationsRaw.map(item => this.normalizeRecord(item));
+            observations = this.filterObservationsForCurrentUser(
+                observationsRaw.map((item) => this.normalizeRecord(item))
+            );
         }
 
         const total = observations.length;
@@ -1447,6 +1460,509 @@ const DailyObservations = {
         }
         const userRole = (AppState.currentUser?.role || '').toLowerCase();
         return userRole === 'admin' || userRole === 'مدير النظام';
+    },
+
+    OBS_NOTIFICATIONS_KEY: 'hse_daily_obs_inapp_v1',
+
+    resolveCurrentUserProfile() {
+        const u = AppState.currentUser;
+        if (!u) return null;
+        let role = (u.role || '').toString().trim().toLowerCase();
+        let department = (u.department || '').toString().trim();
+        const email = (u.email || '').toString().toLowerCase().trim();
+        if (AppState.appData?.users && Array.isArray(AppState.appData.users)) {
+            const dbUser = AppState.appData.users.find((x) => (x.email || '').toString().toLowerCase().trim() === email);
+            if (dbUser) {
+                if (dbUser.role) role = String(dbUser.role).trim().toLowerCase();
+                if (dbUser.department) department = String(dbUser.department).trim();
+            }
+        }
+        return { ...u, role, department, email: u.email };
+    },
+
+    normalizeDepartmentKey(value) {
+        return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    },
+
+    departmentsMatch(deptA, deptB) {
+        return this.normalizeDepartmentKey(deptA) === this.normalizeDepartmentKey(deptB) && this.normalizeDepartmentKey(deptA) !== '';
+    },
+
+    normalizeWorkflowStage(record) {
+        const raw = record && record.workflowStage;
+        const allowed = new Set(['pending_specialist', 'pending_manager', 'pending_department', 'in_progress', 'closed']);
+        if (raw && allowed.has(String(raw))) return String(raw);
+        const st = this.normalizeStatus(record && record.status);
+        if (st === 'مغلق') return 'closed';
+        return 'pending_specialist';
+    },
+
+    getWorkflowStageLabel(stage) {
+        const map = {
+            pending_specialist: 'بانتظار أخصائي السلامة',
+            pending_manager: 'بانتظار مدير السلامة',
+            pending_department: 'بانتظار إدارة التنفيذ',
+            in_progress: 'جاري التنفيذ (الإدارة)',
+            closed: 'مغلقة'
+        };
+        return map[stage] || stage;
+    },
+
+    hasFullObservationVisibility() {
+        if (this.isCurrentUserAdmin()) return true;
+        const r = this.resolveCurrentUserProfile()?.role || '';
+        return ['safety_officer', 'safety_specialist', 'safety_manager'].includes(r);
+    },
+
+    isDepartmentManagerRole() {
+        return (this.resolveCurrentUserProfile()?.role || '') === 'department_manager';
+    },
+
+    canUserViewObservation(obs) {
+        if (!obs) return false;
+        if (this.isCurrentUserAdmin()) return true;
+        if (this.hasFullObservationVisibility()) return true;
+        const u = this.resolveCurrentUserProfile();
+        if (!u) return false;
+        const ws = this.normalizeWorkflowStage(obs);
+        if (this.isDepartmentManagerRole()) {
+            return this.departmentsMatch(obs.responsibleDepartment, u.department)
+                && ['pending_department', 'in_progress', 'closed'].includes(ws);
+        }
+        const email = (u.email || '').toLowerCase().trim();
+        const name = (u.name || '').trim().toLowerCase();
+        const byEmail = (obs.createdByEmail || '').toLowerCase() === email && email !== '';
+        const byName = (obs.observerName || '').trim().toLowerCase() === name && name !== '';
+        return byEmail || byName;
+    },
+
+    filterObservationsForCurrentUser(observations) {
+        if (!Array.isArray(observations)) return [];
+        if (this.hasFullObservationVisibility() || this.isCurrentUserAdmin()) return observations;
+        return observations.filter((o) => this.canUserViewObservation(o));
+    },
+
+    canEditObservationFullForm(obs) {
+        if (!obs) return false;
+        if (this.isCurrentUserAdmin()) return true;
+        const ws = this.normalizeWorkflowStage(obs);
+        if (ws === 'closed') return this.hasFullObservationVisibility();
+        if (this.hasFullObservationVisibility()) return true;
+        const u = this.resolveCurrentUserProfile();
+        if (!u) return false;
+        const email = (u.email || '').toLowerCase().trim();
+        if (ws === 'pending_specialist' && (obs.createdByEmail || '').toLowerCase() === email) return true;
+        if (this.isDepartmentManagerRole()) return false;
+        return false;
+    },
+
+    canChangeStatusInViewModal() {
+        return this.isCurrentUserAdmin() || this.hasFullObservationVisibility();
+    },
+
+    canDoSpecialistAction(obs) {
+        const ws = this.normalizeWorkflowStage(obs);
+        if (ws !== 'pending_specialist') return false;
+        if (this.isCurrentUserAdmin()) return true;
+        const r = this.resolveCurrentUserProfile()?.role || '';
+        return r === 'safety_officer' || r === 'safety_specialist';
+    },
+
+    canDoManagerAction(obs) {
+        const ws = this.normalizeWorkflowStage(obs);
+        if (ws !== 'pending_manager') return false;
+        if (this.isCurrentUserAdmin()) return true;
+        const r = this.resolveCurrentUserProfile()?.role || '';
+        return r === 'safety_officer' || r === 'safety_manager';
+    },
+
+    canDoDepartmentAction(obs) {
+        const ws = this.normalizeWorkflowStage(obs);
+        if (!['pending_department', 'in_progress'].includes(ws)) return false;
+        if (this.isCurrentUserAdmin()) return true;
+        const u = this.resolveCurrentUserProfile();
+        if (!u) return false;
+        return this.isDepartmentManagerRole() && this.departmentsMatch(obs.responsibleDepartment, u.department);
+    },
+
+    canReopenObservation(obs) {
+        if (!obs) return false;
+        const ws = this.normalizeWorkflowStage(obs);
+        if (ws !== 'closed') return false;
+        if (this.isCurrentUserAdmin()) return true;
+        const r = this.resolveCurrentUserProfile()?.role || '';
+        return r === 'safety_officer' || r === 'safety_manager';
+    },
+
+    parseTimeLog(entry) {
+        let timeLog = [];
+        try {
+            if (entry.timeLog) {
+                timeLog = typeof entry.timeLog === 'string' ? JSON.parse(entry.timeLog) : Array.isArray(entry.timeLog) ? entry.timeLog : [];
+            }
+        } catch (e) {
+            timeLog = [];
+        }
+        return Array.isArray(timeLog) ? timeLog : [];
+    },
+
+    appendTimeLog(existingRecord, note, action = 'workflow') {
+        const timeLog = this.parseTimeLog(existingRecord);
+        timeLog.unshift({
+            user: AppState.currentUser?.name || AppState.currentUser?.email || '',
+            timestamp: new Date().toISOString(),
+            note,
+            action
+        });
+        return timeLog;
+    },
+
+    getWorkflowNotifyEmailsForRoles(roleList) {
+        const users = AppState.appData?.users || [];
+        const set = new Set();
+        users.forEach((u) => {
+            if (u.active === false) return;
+            const r = (u.role || '').toString().trim().toLowerCase();
+            if (roleList.includes(r) && u.email) set.add(u.email.toString().trim().toLowerCase());
+        });
+        return Array.from(set);
+    },
+
+    pushInAppWorkflowNotification(emails, title, body, observationId) {
+        const key = this.OBS_NOTIFICATIONS_KEY;
+        let all = {};
+        try {
+            all = JSON.parse(localStorage.getItem(key) || '{}');
+        } catch (e) {
+            all = {};
+        }
+        const stamp = new Date().toISOString();
+        (emails || []).forEach((emRaw) => {
+            const em = String(emRaw || '').toLowerCase().trim();
+            if (!em) return;
+            if (!all[em]) all[em] = [];
+            all[em].unshift({
+                id: (typeof Utils !== 'undefined' && Utils.generateId) ? Utils.generateId('N') : String(Date.now()),
+                observationId,
+                title,
+                body,
+                at: stamp,
+                read: false
+            });
+            all[em] = all[em].slice(0, 80);
+        });
+        try {
+            localStorage.setItem(key, JSON.stringify(all));
+        } catch (e) {
+            /* ignore quota */
+        }
+    },
+
+    notifyWorkflowStage(observation, stage) {
+        const id = observation.id;
+        const iso = observation.isoCode || id;
+        if (stage === 'pending_manager') {
+            const emails = this.getWorkflowNotifyEmailsForRoles(['safety_manager', 'safety_officer', 'admin']);
+            this.pushInAppWorkflowNotification(
+                emails,
+                'ملاحظة بانتظار مدير السلامة',
+                `الملاحظة ${iso} — راجعها واعتمِدها لإرسالها للإدارة المعنية.`,
+                id
+            );
+        } else if (stage === 'pending_department') {
+            const users = AppState.appData?.users || [];
+            const dept = observation.responsibleDepartment;
+            const emails = users
+                .filter((u) => u.active !== false && (u.role || '').toString().trim().toLowerCase() === 'department_manager')
+                .filter((u) => this.departmentsMatch(u.department, dept))
+                .map((u) => (u.email || '').toLowerCase().trim())
+                .filter(Boolean);
+            this.pushInAppWorkflowNotification(
+                emails,
+                'ملاحظة تتطلب إجراءً من إدارتك',
+                `الملاحظة ${iso} — يرجى إدخال الإجراء التصحيحي وتاريخ الإغلاق المتوقع.`,
+                id
+            );
+            const safetyEmails = this.getWorkflowNotifyEmailsForRoles(['safety_officer', 'safety_manager', 'safety_specialist', 'admin']);
+            this.pushInAppWorkflowNotification(
+                safetyEmails,
+                'تم اعتماد ملاحظة وإرسالها للإدارة',
+                `الملاحظة ${iso} أُرسلت لإدارة: ${dept}`,
+                id
+            );
+        }
+    },
+
+    async persistObservationRecord(record) {
+        const idx = AppState.appData.dailyObservations.findIndex((o) => o.id === record.id);
+        if (idx === -1) return;
+        AppState.appData.dailyObservations[idx] = this.normalizeRecord(record);
+        this.ensureDataManagerAndSave();
+        try {
+            if (typeof GoogleIntegration !== 'undefined' && GoogleIntegration.autoSave) {
+                await GoogleIntegration.autoSave('DailyObservations', AppState.appData.dailyObservations);
+            }
+        } catch (e) {
+            Utils.safeWarn('DailyObservations: مزامنة:', e);
+            Notification.warning('تم الحفظ محلياً؛ تعذرت المزامنة الفورية مع السحابة');
+        }
+        this.loadObservationsList();
+        this.renderStatsCards();
+        this.renderObservationsWorkflowAlerts();
+    },
+
+    async workflowSpecialistForward(observationId) {
+        const raw = AppState.appData.dailyObservations.find((o) => o.id === observationId);
+        if (!raw) return;
+        const obs = this.normalizeRecord(raw);
+        if (!this.canDoSpecialistAction(obs)) {
+            Notification.error('ليس لديك صلاحية هذه المرحلة');
+            return;
+        }
+        const ta = document.getElementById(`workflow-spec-comments-${observationId}`);
+        const comments = (ta && ta.value) ? ta.value.trim() : '';
+        const timeLog = this.appendTimeLog(raw, `أخصائي السلامة: تمرير لمدير السلامة${comments ? ' — ' + comments : ''}`);
+        const now = new Date().toISOString();
+        const updated = {
+            ...raw,
+            workflowStage: 'pending_manager',
+            status: 'مفتوح',
+            specialistReviewedAt: now,
+            specialistReviewedBy: AppState.currentUser?.name || '',
+            specialistComments: comments,
+            timeLog,
+            updatedAt: now
+        };
+        await this.persistObservationRecord(updated);
+        this.notifyWorkflowStage(this.normalizeRecord(updated), 'pending_manager');
+        Notification.success('تم تمرير الملاحظة لمدير السلامة');
+    },
+
+    async workflowManagerApprove(observationId) {
+        const raw = AppState.appData.dailyObservations.find((o) => o.id === observationId);
+        if (!raw) return;
+        const obs = this.normalizeRecord(raw);
+        if (!this.canDoManagerAction(obs)) {
+            Notification.error('ليس لديك صلاحية هذه المرحلة');
+            return;
+        }
+        const ta = document.getElementById(`workflow-mgr-comments-${observationId}`);
+        const comments = (ta && ta.value) ? ta.value.trim() : '';
+        const timeLog = this.appendTimeLog(raw, `مدير السلامة: اعتماد وإرسال للإدارة${comments ? ' — ' + comments : ''}`);
+        const now = new Date().toISOString();
+        const updated = {
+            ...raw,
+            workflowStage: 'pending_department',
+            status: 'جاري',
+            managerApprovedAt: now,
+            managerApprovedBy: AppState.currentUser?.name || '',
+            managerComments: comments,
+            timeLog,
+            updatedAt: now
+        };
+        await this.persistObservationRecord(updated);
+        this.notifyWorkflowStage(this.normalizeRecord(updated), 'pending_department');
+        Notification.success('تم اعتماد الملاحظة وإرسالها لمدير الإدارة المعنية');
+    },
+
+    async workflowDepartmentSave(observationId) {
+        const raw = AppState.appData.dailyObservations.find((o) => o.id === observationId);
+        if (!raw) return;
+        const obs = this.normalizeRecord(raw);
+        if (!this.canDoDepartmentAction(obs)) {
+            Notification.error('ليس لديك صلاحية تعديل إجراء الإدارة');
+            return;
+        }
+        const corr = (document.getElementById(`workflow-dept-corrective-${observationId}`)?.value || '').trim();
+        const dueStr = document.getElementById(`workflow-dept-due-${observationId}`)?.value || '';
+        if (!corr) {
+            Notification.warning('يرجى إدخال الإجراء التصحيحي');
+            return;
+        }
+        if (!dueStr) {
+            Notification.warning('يرجى تحديد تاريخ الإغلاق المتوقع');
+            return;
+        }
+        const dueIso = new Date(dueStr).toISOString();
+        const now = new Date().toISOString();
+        const timeLog = this.appendTimeLog(raw, 'مدير الإدارة: حفظ الإجراء التصحيحي وموعد الإغلاق');
+        const updated = {
+            ...raw,
+            correctiveAction: corr,
+            expectedCompletionDate: dueIso,
+            workflowStage: 'in_progress',
+            status: 'جاري',
+            departmentResponseAt: now,
+            departmentResponseBy: AppState.currentUser?.name || '',
+            timeLog,
+            updatedAt: now
+        };
+        await this.persistObservationRecord(updated);
+        Notification.success('تم حفظ بيانات الإدارة');
+    },
+
+    async workflowClose(observationId) {
+        const raw = AppState.appData.dailyObservations.find((o) => o.id === observationId);
+        if (!raw) return;
+        const obs = this.normalizeRecord(raw);
+        const ws = this.normalizeWorkflowStage(obs);
+        const u = this.resolveCurrentUserProfile();
+        const deptOk = this.isDepartmentManagerRole() && this.departmentsMatch(obs.responsibleDepartment, u?.department);
+        const safetyOk = this.hasFullObservationVisibility() || this.isCurrentUserAdmin();
+        if (!deptOk && !safetyOk) {
+            Notification.error('ليس لديك صلاحية إغلاق هذه الملاحظة');
+            return;
+        }
+        if (ws !== 'in_progress' && ws !== 'pending_department' && !this.isCurrentUserAdmin() && !safetyOk) {
+            Notification.warning('يُفضّل إكمال الإجراء التصحيحي وتاريخ الإغلاق قبل الإغلاق');
+        }
+        const timeLog = this.appendTimeLog(raw, 'إغلاق الملاحظة');
+        const now = new Date().toISOString();
+        const updated = {
+            ...raw,
+            workflowStage: 'closed',
+            status: 'مغلق',
+            timeLog,
+            updatedAt: now
+        };
+        await this.persistObservationRecord(updated);
+        Notification.success('تم إغلاق الملاحظة');
+    },
+
+    async workflowReopen(observationId, reason) {
+        const raw = AppState.appData.dailyObservations.find((o) => o.id === observationId);
+        if (!raw) return;
+        const obs = this.normalizeRecord(raw);
+        if (!this.canReopenObservation(obs) && !this.isCurrentUserAdmin()) {
+            Notification.error('ليس لديك صلاحية إعادة فتح الملاحظة');
+            return;
+        }
+        const r = (reason || '').trim() || 'إعادة فتح';
+        const now = new Date().toISOString();
+        const timeLog = this.appendTimeLog(raw, `إعادة فتح الملاحظة: ${r}`);
+        const updated = {
+            ...raw,
+            workflowStage: 'pending_specialist',
+            status: 'مفتوح',
+            reopenedAt: now,
+            reopenedBy: AppState.currentUser?.name || '',
+            reopenReason: r,
+            timeLog,
+            updatedAt: now
+        };
+        await this.persistObservationRecord(updated);
+        const emails = this.getWorkflowNotifyEmailsForRoles(['safety_specialist', 'safety_officer', 'admin']);
+        this.pushInAppWorkflowNotification(
+            emails,
+            'تمت إعادة فتح ملاحظة',
+            `${obs.isoCode || observationId}: ${r}`,
+            observationId
+        );
+        Notification.success('تمت إعادة فتح الملاحظة وإرسالها لمسار أخصائي السلامة');
+    },
+
+    promptReopenObservation(observationId) {
+        const reason = window.prompt('سبب إعادة فتح الملاحظة:', '');
+        if (reason === null) return;
+        this.workflowReopen(observationId, reason);
+    },
+
+    renderObservationsWorkflowAlerts() {
+        const el = document.getElementById('observations-workflow-alerts');
+        if (!el) return;
+        const email = (AppState.currentUser?.email || '').toLowerCase().trim();
+        let all = {};
+        try {
+            all = JSON.parse(localStorage.getItem(this.OBS_NOTIFICATIONS_KEY) || '{}');
+        } catch (e) {
+            all = {};
+        }
+        const list = Array.isArray(all[email]) ? all[email].filter((n) => !n.read).slice(0, 8) : [];
+        if (list.length === 0) {
+            el.innerHTML = '';
+            return;
+        }
+        el.innerHTML = `
+            <div class="content-card" style="border-right: 4px solid #6366f1; margin-bottom: 1rem;">
+                <div class="card-body" style="padding: 14px 18px;">
+                    <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
+                        <h3 class="text-base font-semibold text-gray-800"><i class="fas fa-bell ml-2 text-indigo-600"></i>تنبيهات الملاحظات</h3>
+                        <button type="button" class="text-sm text-indigo-600 hover:underline" id="obs-notifs-mark-read">تعليم كمقروء</button>
+                    </div>
+                    <ul class="space-y-2" style="list-style: none; padding: 0; margin: 0;">
+                        ${list.map((n) => `
+                            <li class="text-sm text-gray-700 flex items-start gap-2">
+                                <i class="fas fa-chevron-left text-indigo-500 mt-1"></i>
+                                <div>
+                                    <strong>${Utils.escapeHTML(n.title || '')}</strong>
+                                    <div>${Utils.escapeHTML(n.body || '')}</div>
+                                    ${n.observationId ? `<button type="button" class="text-xs text-blue-600 mt-1 obs-open-from-notif" data-oid="${Utils.escapeHTML(n.observationId)}">فتح الملاحظة</button>` : ''}
+                                </div>
+                            </li>
+                        `).join('')}
+                    </ul>
+                </div>
+            </div>
+        `;
+        const markBtn = el.querySelector('#obs-notifs-mark-read');
+        if (markBtn) {
+            markBtn.addEventListener('click', () => {
+                (all[email] || []).forEach((n) => { n.read = true; });
+                try {
+                    localStorage.setItem(this.OBS_NOTIFICATIONS_KEY, JSON.stringify(all));
+                } catch (e) { /* ignore */ }
+                this.renderObservationsWorkflowAlerts();
+            });
+        }
+        el.querySelectorAll('.obs-open-from-notif').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const oid = btn.getAttribute('data-oid');
+                if (oid) this.viewObservation(oid);
+            });
+        });
+    },
+
+    runObservationDueReminders() {
+        const rawList = Array.isArray(AppState.appData?.dailyObservations) ? AppState.appData.dailyObservations : [];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        rawList.forEach((raw) => {
+            const o = this.normalizeRecord(raw);
+            if (o.workflowStage === 'closed' || !o.expectedCompletionDate) return;
+            if (!['pending_department', 'in_progress'].includes(o.workflowStage)) return;
+            const due = new Date(o.expectedCompletionDate);
+            if (Number.isNaN(due.getTime())) return;
+            const days = Math.ceil((due.getTime() - today.getTime()) / (86400000));
+            if (days > 3) return;
+            const key = `hse_obs_due_${o.id}_${due.toISOString().slice(0, 10)}`;
+            if (localStorage.getItem(key)) return;
+            localStorage.setItem(key, '1');
+            const targets = new Set();
+            (AppState.appData.users || []).forEach((u) => {
+                if (u.active === false || !u.email) return;
+                const r = (u.role || '').toString().trim().toLowerCase();
+                if (['safety_officer', 'safety_manager', 'safety_specialist', 'admin'].includes(r)) targets.add(u.email.toLowerCase().trim());
+                if (r === 'department_manager' && this.departmentsMatch(u.department, o.responsibleDepartment)) targets.add(u.email.toLowerCase().trim());
+            });
+            const msg = days < 0
+                ? `تجاوز موعد الإغلاق المتوقع للملاحظة ${o.isoCode || o.id} (${Math.abs(days)} يوم)`
+                : `اقترب موعد الإغلاق للملاحظة ${o.isoCode || o.id} (${days} يوم متبقي)`;
+            this.pushInAppWorkflowNotification(Array.from(targets), 'تذكير موعد تنفيذ ملاحظة', msg, o.id);
+        });
+    },
+
+    showFormFromId(observationId) {
+        const raw = AppState.appData.dailyObservations.find((o) => o.id === observationId);
+        if (!raw) {
+            Notification.error('الملاحظة غير موجودة');
+            return;
+        }
+        const obs = this.normalizeRecord(raw);
+        if (!this.canEditObservationFullForm(obs)) {
+            Notification.warning('تعديل الحقول الكامل غير متاح لدورك. استخدم مسار الاعتماد من نافذة العرض.');
+            return;
+        }
+        this.showForm(raw);
     },
 
     /**
@@ -2383,8 +2899,10 @@ const DailyObservations = {
             return;
         }
 
-        // تحويل وتصنيف الملاحظات
-        const observations = observationsRaw.map(item => this.normalizeRecord(item));
+        // تحويل وتصنيف الملاحظات (ضمن صلاحيات المستخدم)
+        const observations = this.filterObservationsForCurrentUser(
+            observationsRaw.map((item) => this.normalizeRecord(item))
+        );
 
         // حساب نقاط لكل ملاحظة بناءً على معايير متعددة
         const scoredObservations = observations.map(obs => {
@@ -3349,15 +3867,12 @@ const DailyObservations = {
             ? AppState.appData.dailyObservations
             : [];
 
-        // تحديث قيم الفلاتر أولاً
-        this.updateFilterOptions();
-
-        // تحديث الكروت الإحصائية
-        this.renderStatsCards();
-
         if (observationsRaw.length === 0) {
             const { t, isRTL } = this.getTranslations();
             container.innerHTML = `<div class="empty-state" style="direction: ${isRTL ? 'rtl' : 'ltr'}; text-align: ${isRTL ? 'right' : 'left'};"><p class="text-gray-500">${t('empty.noObservations')}</p></div>`;
+            this.updateFilterOptions();
+            this.renderStatsCards([]);
+            this.renderObservationsWorkflowAlerts();
             return;
         }
 
@@ -3368,14 +3883,26 @@ const DailyObservations = {
             return match ? parseInt(match[1], 10) : 0;
         };
 
-        const observations = observationsRaw
+        const observationsFull = observationsRaw
             .map((item) => this.normalizeRecord(item))
             .sort((a, b) => {
-                // الترتيب حسب رقم الملاحظة من الأقدم للأحدث
                 const numA = extractObservationNumber(a.isoCode);
                 const numB = extractObservationNumber(b.isoCode);
                 return numA - numB;
             });
+
+        const observations = this.filterObservationsForCurrentUser(observationsFull);
+
+        // تحديث قيم الفلاتر والكروت حسب الملاحظات المرئية للمستخدم
+        this.updateFilterOptions();
+        this.renderStatsCards(observations);
+
+        if (observations.length === 0) {
+            const { isRTL } = this.getTranslations();
+            container.innerHTML = `<div class="empty-state" style="direction: ${isRTL ? 'rtl' : 'ltr'}; text-align: ${isRTL ? 'right' : 'left'};"><p class="text-gray-500">لا توجد ملاحظات ضمن صلاحية حسابك الحالي.</p></div>`;
+            this.renderObservationsWorkflowAlerts();
+            return;
+        }
 
         // تطبيق الفلاتر
         const filters = this.getFilters();
@@ -3393,12 +3920,13 @@ const DailyObservations = {
             if (filteredObservations.length === 0) {
                 tableBody.innerHTML = `
                     <tr>
-                        <td colspan="11" style="text-align: center; padding: 40px;">
+                        <td colspan="12" style="text-align: center; padding: 40px;">
                             <i class="fas fa-search text-4xl text-gray-300 mb-4"></i>
                             <p class="text-gray-500">لا توجد نتائج للبحث</p>
                         </td>
                     </tr>
                 `;
+                this.renderObservationsWorkflowAlerts();
                 return;
             }
 
@@ -3418,6 +3946,7 @@ const DailyObservations = {
                     <td>
                         <span class="badge badge-${this.getStatusBadgeClass(obs.status)}">${Utils.escapeHTML(obs.status || '-')}</span>
                     </td>
+                    <td><span class="text-xs text-gray-700" title="مسار الاعتماد">${Utils.escapeHTML(this.getWorkflowStageLabel(this.normalizeWorkflowStage(obs)))}</span></td>
                     <td>${Utils.escapeHTML(obs.observerName || '-')}</td>
                     <td>${Utils.escapeHTML(obs.responsibleDepartment || '-')}</td>
                     <td>${obs.attachments && obs.attachments.length > 0 ? `<i class="fas fa-paperclip text-blue-500" title="${obs.attachments.length} ملف"></i>` : '-'}</td>
@@ -3428,6 +3957,7 @@ const DailyObservations = {
                     </td>
                 </tr>
             `).join('');
+            this.renderObservationsWorkflowAlerts();
             return;
         }
 
@@ -3444,6 +3974,7 @@ const DailyObservations = {
                             <th>الوردية</th>
                             <th>معدل الخطورة</th>
                             <th>الحالة</th>
+                            <th>مسار الاعتماد</th>
                             <th>صاحب الملاحظة</th>
                             <th>المسؤول</th>
                             <th>المرفقات</th>
@@ -3453,7 +3984,7 @@ const DailyObservations = {
                     <tbody>
                         ${filteredObservations.length === 0 ? `
                             <tr>
-                                <td colspan="11" style="text-align: center; padding: 40px;">
+                                <td colspan="12" style="text-align: center; padding: 40px;">
                                     <i class="fas fa-search text-4xl text-gray-300 mb-4"></i>
                                     <p class="text-gray-500">لا توجد نتائج للبحث</p>
                                 </td>
@@ -3474,6 +4005,7 @@ const DailyObservations = {
                                 <td>
                                     <span class="badge badge-${this.getStatusBadgeClass(obs.status)}">${Utils.escapeHTML(obs.status || '-')}</span>
                                 </td>
+                                <td><span class="text-xs text-gray-700">${Utils.escapeHTML(this.getWorkflowStageLabel(this.normalizeWorkflowStage(obs)))}</span></td>
                                 <td>${Utils.escapeHTML(obs.observerName || '-')}</td>
                                 <td>${Utils.escapeHTML(obs.responsibleDepartment || '-')}</td>
                                 <td>${obs.attachments && obs.attachments.length > 0 ? `<i class="fas fa-paperclip text-blue-500" title="${obs.attachments.length} ملف"></i>` : '-'}</td>
@@ -3495,6 +4027,7 @@ const DailyObservations = {
             if (wrapper) {
                 this.setupTableScrollListeners(wrapper);
             }
+            this.renderObservationsWorkflowAlerts();
         }, 100);
     },
 
@@ -3621,7 +4154,9 @@ const DailyObservations = {
             ? AppState.appData.dailyObservations
             : [];
         
-        const observations = observationsRaw.map(item => this.normalizeRecord(item));
+        const observations = this.filterObservationsForCurrentUser(
+            observationsRaw.map((item) => this.normalizeRecord(item))
+        );
         
         // جمع القيم الفريدة
         const sites = [...new Set(observations.map(o => o.siteName).filter(Boolean))].sort();
@@ -4621,6 +5156,11 @@ const DailyObservations = {
             if (value) set.add(value);
         });
 
+        (AppState.appData.users || []).forEach((user) => {
+            const value = (user.department || '').trim();
+            if (value) set.add(value);
+        });
+
         return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ar'));
     },
 
@@ -4646,7 +5186,8 @@ const DailyObservations = {
 
         (AppState.appData.users || []).forEach((user) => {
             const role = (user.role || '').toLowerCase();
-            const isSafety = role.includes('safety') || role.includes('hse') || role.includes('سلامة');
+            const isSafety = role.includes('safety') || role.includes('hse') || role.includes('سلامة')
+                || role === 'safety_specialist' || role === 'safety_manager' || role === 'safety_officer';
             if (isSafety) {
                 const name = user.name || user.fullName || user.email || '';
                 if (name) {
@@ -4830,6 +5371,53 @@ const DailyObservations = {
         `;
     },
 
+    /** تحويل timeLog / updates / comments من سلسلة JSON أو مصفوفة إلى مصفوفة (توافق Supabase + حفظ قديم) */
+    coerceStoredArray(value) {
+        if (value == null) return [];
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') {
+            const t = value.trim();
+            if (!t) return [];
+            try {
+                const p = JSON.parse(t);
+                return Array.isArray(p) ? p : [];
+            } catch (e) {
+                return [];
+            }
+        }
+        return [];
+    },
+
+    /**
+     * دمج قوائم (تحديثات/تعليقات) من عدة أسماء حقول محتملة في jsonb — استيراد، Sheets قديم، أو حرف كبير Updates
+     */
+    mergeCoercedListFromKeys(record, keys) {
+        if (!record || typeof record !== 'object') return [];
+        const seen = new Set();
+        const out = [];
+        for (let ki = 0; ki < keys.length; ki += 1) {
+            const arr = this.coerceStoredArray(record[keys[ki]]);
+            for (let i = 0; i < arr.length; i += 1) {
+                const item = arr[i];
+                let sig;
+                if (item && typeof item === 'object' && item.id != null && String(item.id).trim() !== '') {
+                    sig = `id:${String(item.id)}`;
+                } else {
+                    sig = `h:${out.length}:${JSON.stringify(item).slice(0, 280)}`;
+                }
+                if (seen.has(sig)) continue;
+                seen.add(sig);
+                out.push(item);
+            }
+        }
+        out.sort((a, b) => {
+            const ta = a && typeof a === 'object' && a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const tb = b && typeof b === 'object' && b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return ta - tb;
+        });
+        return out;
+    },
+
     normalizeRecord(record = {}) {
         if (!record || typeof record !== 'object') return {
             id: '',
@@ -4854,7 +5442,23 @@ const DailyObservations = {
             remarks: '',
             attachments: [],
             createdAt: '',
-            updatedAt: ''
+            updatedAt: '',
+            workflowStage: 'pending_specialist',
+            createdByEmail: '',
+            specialistReviewedAt: '',
+            specialistReviewedBy: '',
+            specialistComments: '',
+            managerApprovedAt: '',
+            managerApprovedBy: '',
+            managerComments: '',
+            departmentResponseAt: '',
+            departmentResponseBy: '',
+            reopenedAt: '',
+            reopenedBy: '',
+            reopenReason: '',
+            timeLog: [],
+            updates: [],
+            comments: []
         };
 
         const siteId = record.siteId || record.site || record.locationSiteId || '';
@@ -4899,6 +5503,12 @@ const DailyObservations = {
         const recordId = record.id || record.observationId || '';
         // isoCode: إما المحفوظ أو اشتقاق من أرقام id فقط (بدون تغيير أي أرقام)
         const isoCodeValue = record.isoCode || record.code || (recordId ? getObservationIsoCodeFromId(recordId) : '');
+        const responsibleDept = record.responsibleDepartment || record.responsible || record.department || '';
+        const workflowStage = this.normalizeWorkflowStage({
+            ...record,
+            status: statusValue,
+            responsibleDepartment: responsibleDept
+        });
         return {
             id: recordId,
             isoCode: isoCodeValue,
@@ -4911,7 +5521,7 @@ const DailyObservations = {
             shift: shiftValue,
             details,
             correctiveAction: record.correctiveAction || record.preventiveAction || '',
-            responsibleDepartment: record.responsibleDepartment || record.responsible || record.department || '',
+            responsibleDepartment: responsibleDept,
             riskLevel,
             observerName: record.observerName || record.owner || record.supervisor || '',
             expectedCompletionDate: expectedIso,
@@ -4922,7 +5532,23 @@ const DailyObservations = {
             remarks: record.remarks || '',
             attachments: this.normalizeAttachments(attachments),
             createdAt: createdAtIso || timestampIso || new Date().toISOString(),
-            updatedAt: updatedAtIso || createdAtIso || timestampIso || new Date().toISOString()
+            updatedAt: updatedAtIso || createdAtIso || timestampIso || new Date().toISOString(),
+            workflowStage,
+            createdByEmail: record.createdByEmail || '',
+            specialistReviewedAt: record.specialistReviewedAt || '',
+            specialistReviewedBy: record.specialistReviewedBy || '',
+            specialistComments: record.specialistComments || '',
+            managerApprovedAt: record.managerApprovedAt || '',
+            managerApprovedBy: record.managerApprovedBy || '',
+            managerComments: record.managerComments || '',
+            departmentResponseAt: record.departmentResponseAt || '',
+            departmentResponseBy: record.departmentResponseBy || '',
+            reopenedAt: record.reopenedAt || '',
+            reopenedBy: record.reopenedBy || '',
+            reopenReason: record.reopenReason || '',
+            timeLog: this.mergeCoercedListFromKeys(record, ['timeLog', 'TimeLog', 'timelog']),
+            updates: this.mergeCoercedListFromKeys(record, ['updates', 'Updates', 'observationUpdates', 'progressUpdates', 'progress_updates']),
+            comments: this.mergeCoercedListFromKeys(record, ['comments', 'Comments', 'observationComments'])
         };
     },
 
@@ -5111,6 +5737,10 @@ const DailyObservations = {
 
     async showForm(data = null) {
         const normalizedData = data ? this.normalizeRecord(data) : null;
+        if (normalizedData && !this.canEditObservationFullForm(normalizedData)) {
+            Notification.warning('تعديل الحقول الكامل غير متاح لدورك. افتح الملاحظة واستخدم مسار الاعتماد من نافذة العرض.');
+            return;
+        }
         this.resetFormState();
         if (normalizedData) {
             this.state.editingId = normalizedData.id;
@@ -5168,6 +5798,15 @@ const DailyObservations = {
                                 <p class="step-description">أدخل تفاصيل الملاحظة، الإجراءات التصحيحية والمعلومات المرتبطة.</p>
                             </div>
 
+                            ${!normalizedData ? `
+                            <div class="form-group" style="background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%); padding: 14px 16px; border-radius: 12px; border: 1px solid #c7d2fe;">
+                                <p class="text-sm text-indigo-950" style="margin:0;line-height:1.6;">
+                                    <i class="fas fa-route ml-2 text-indigo-600"></i>
+                                    بعد الحفظ تمرّ الملاحظة تلقائياً بمسار الاعتماد: <strong>أخصائي السلامة</strong> ← <strong>مدير السلامة</strong> ← <strong>مدير الإدارة المسؤولة عن التنفيذ</strong> (حسب الأدوار المعينة من مدير النظام).
+                                </p>
+                            </div>
+                            ` : ''}
+
                             <div class="form-grid form-grid-2">
                                 <div class="form-group">
                                     <label for="observation-type" class="form-label required">نوع الملاحظة</label>
@@ -5215,9 +5854,9 @@ const DailyObservations = {
                                         `).join('')}
                                     </select>
                                 </div>
-                                <div class="form-group">
+                                <div class="form-group ${this.isCurrentUserAdmin() ? '' : 'hidden'}" id="observation-status-admin-only" aria-hidden="${this.isCurrentUserAdmin() ? 'false' : 'true'}">
                                     <label class="form-label required">الحالة</label>
-                                    <select id="observation-status" class="form-input form-select" required>
+                                    <select id="observation-status" class="form-input form-select" ${this.isCurrentUserAdmin() ? 'required' : ''}>
                                         <option value="">اختر الحالة</option>
                                         ${this.STATUS_OPTIONS.map((status) => `
                                             <option value="${Utils.escapeHTML(status)}">${Utils.escapeHTML(status)}</option>
@@ -5647,8 +6286,18 @@ const DailyObservations = {
             return;
         }
 
-        const status = statusSelect?.value || '';
-        if (!status) {
+        const existingRecordEarly = editId
+            ? AppState.appData.dailyObservations.find((observation) => observation.id === editId)
+            : null;
+
+        let status = statusSelect?.value || '';
+        if (!this.isCurrentUserAdmin()) {
+            if (!editId) {
+                status = 'مفتوح';
+            } else {
+                status = this.normalizeStatus(existingRecordEarly?.status) || 'مفتوح';
+            }
+        } else if (!status) {
             Notification.warning('يرجى اختيار الحالة.');
             return;
         }
@@ -5679,9 +6328,7 @@ const DailyObservations = {
         }
 
         const now = new Date().toISOString();
-        const existingRecord = editId
-            ? AppState.appData.dailyObservations.find((observation) => observation.id === editId)
-            : null;
+        const existingRecord = existingRecordEarly;
 
         // تعديل: نحتفظ بنفس id دون تغيير. جديد: نولّد id ثم نشتق isoCode من أرقامه فقط
         const recordId = editId || generateDailyObservationId(AppState.appData.dailyObservations || []);
@@ -5733,6 +6380,16 @@ const DailyObservations = {
             createdAt: existingRecord?.createdAt || now,
             updatedAt: now
         };
+
+        const wfKeep = ['workflowStage', 'createdByEmail', 'specialistReviewedAt', 'specialistReviewedBy', 'specialistComments', 'managerApprovedAt', 'managerApprovedBy', 'managerComments', 'departmentResponseAt', 'departmentResponseBy', 'reopenedAt', 'reopenedBy', 'reopenReason', 'timeLog', 'updates', 'comments'];
+        if (editId && existingRecord) {
+            wfKeep.forEach((k) => {
+                if (existingRecord[k] !== undefined) payload[k] = existingRecord[k];
+            });
+        } else {
+            payload.workflowStage = 'pending_specialist';
+            payload.createdByEmail = (AppState.currentUser?.email || '').toLowerCase().trim();
+        }
 
         // تعطيل زر الحفظ لمنع الضغط المتكرر
         const saveBtn = modal.querySelector('#save-observation-btn');
@@ -5884,6 +6541,21 @@ const DailyObservations = {
                 }
             }
 
+            if (!editId) {
+                try {
+                    const emails = this.getWorkflowNotifyEmailsForRoles(['safety_specialist', 'safety_officer', 'admin']);
+                    this.pushInAppWorkflowNotification(
+                        emails,
+                        'ملاحظة جديدة للمراجعة',
+                        `الملاحظة ${normalizedRecord.isoCode || normalizedRecord.id} بانتظار أخصائي السلامة.`,
+                        normalizedRecord.id
+                    );
+                    this.renderObservationsWorkflowAlerts();
+                } catch (notifyErr) {
+                    Utils.safeWarn('DailyObservations: إشعار مسار العمل:', notifyErr);
+                }
+            }
+
         } catch (error) {
             Utils.safeError('خطأ في العمليات الخلفية:', error);
             throw error;
@@ -5899,6 +6571,11 @@ const DailyObservations = {
         }
 
         const observation = this.normalizeRecord(observationRaw);
+
+        if (!this.canUserViewObservation(observation)) {
+            Notification.error('ليس لديك صلاحية عرض هذه الملاحظة');
+            return;
+        }
         
         // ✅ فتح النموذج أولاً (فوري) باستخدام البيانات المحلية
         const modal = this.createObservationModal(observation);
@@ -5943,6 +6620,23 @@ const DailyObservations = {
             comments = [];
         }
 
+        const wsModal = this.normalizeWorkflowStage(observation);
+        const wfOrder = ['pending_specialist', 'pending_manager', 'pending_department', 'in_progress', 'closed'];
+        const wfLabels = {
+            pending_specialist: 'أخصائي السلامة',
+            pending_manager: 'مدير السلامة',
+            pending_department: 'إدارة التنفيذ',
+            in_progress: 'جاري التنفيذ',
+            closed: 'مغلقة'
+        };
+        const curWfIdx = wfOrder.indexOf(wsModal);
+        const stepsHtml = wfOrder.map((key, i) => {
+            const done = i < curWfIdx || (key === 'closed' && wsModal === 'closed');
+            const active = i === curWfIdx;
+            const cls = done ? 'background:#d1fae5;color:#065f46;' : active ? 'background:#4f46e5;color:#fff;' : 'background:#f3f4f6;color:#6b7280;';
+            return `<span style="padding:6px 10px;border-radius:10px;font-size:11px;font-weight:600;${cls}">${i + 1}. ${wfLabels[key]}</span>`;
+        }).join('');
+
         const modal = document.createElement('div');
         modal.className = 'modal-overlay';
         modal.setAttribute('data-observation-id', observation.id);
@@ -5959,6 +6653,61 @@ const DailyObservations = {
                 </div>
                 <div class="modal-body" style="padding: 30px; background: #f8f9fa; max-height: calc(90vh - 200px); overflow-y: auto;">
                     <div class="space-y-5">
+                        <div class="bg-white p-4 rounded-xl border border-indigo-100 shadow-sm">
+                            <strong class="text-indigo-900 block mb-2"><i class="fas fa-route ml-2"></i>مسار الاعتماد</strong>
+                            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">${stepsHtml}</div>
+                            <p class="text-sm text-gray-600 mt-2 mb-0">المرحلة الحالية: <strong>${Utils.escapeHTML(this.getWorkflowStageLabel(wsModal))}</strong></p>
+                        </div>
+
+                        ${this.canDoSpecialistAction(observation) ? `
+                        <div class="bg-white p-4 rounded-xl border border-amber-200 shadow-sm">
+                            <strong class="text-amber-900 block mb-2"><i class="fas fa-user-check ml-2"></i>إجراء أخصائي السلامة</strong>
+                            <textarea id="workflow-spec-comments-${observation.id}" class="form-input form-textarea w-full mb-2" rows="2" placeholder="ملاحظات المراجعة (اختياري)">${Utils.escapeHTML(observation.specialistComments || '')}</textarea>
+                            <button type="button" class="btn-primary btn-sm" onclick="DailyObservations.workflowSpecialistForward('${observation.id}')">
+                                <i class="fas fa-arrow-left ml-1"></i>تمرير لمدير السلامة
+                            </button>
+                        </div>` : ''}
+
+                        ${this.canDoManagerAction(observation) ? `
+                        <div class="bg-white p-4 rounded-xl border border-violet-200 shadow-sm">
+                            <strong class="text-violet-900 block mb-2"><i class="fas fa-stamp ml-2"></i>إجراء مدير السلامة</strong>
+                            <textarea id="workflow-mgr-comments-${observation.id}" class="form-input form-textarea w-full mb-2" rows="2" placeholder="ملاحظات الاعتماد (اختياري)">${Utils.escapeHTML(observation.managerComments || '')}</textarea>
+                            <button type="button" class="btn-primary btn-sm" onclick="DailyObservations.workflowManagerApprove('${observation.id}')">
+                                <i class="fas fa-check ml-1"></i>اعتماد وإرسال لمدير الإدارة
+                            </button>
+                        </div>` : ''}
+
+                        ${this.canDoDepartmentAction(observation) ? `
+                        <div class="bg-white p-4 rounded-xl border border-teal-200 shadow-sm">
+                            <strong class="text-teal-900 block mb-2"><i class="fas fa-building ml-2"></i>إجراء مدير الإدارة المعنية</strong>
+                            <label class="text-sm text-gray-700 block mb-1">الإجراء التصحيحي</label>
+                            <textarea id="workflow-dept-corrective-${observation.id}" class="form-input form-textarea w-full mb-2" rows="3" placeholder="صف الإجراء التصحيحي">${Utils.escapeHTML(observation.correctiveAction || '')}</textarea>
+                            <label class="text-sm text-gray-700 block mb-1">تاريخ الإغلاق المتوقع</label>
+                            <input type="date" id="workflow-dept-due-${observation.id}" class="form-input mb-2" value="${observation.expectedCompletionDate ? Utils.escapeHTML(String(observation.expectedCompletionDate).slice(0, 10)) : ''}">
+                            <div class="flex flex-wrap gap-2">
+                                <button type="button" class="btn-primary btn-sm" onclick="DailyObservations.workflowDepartmentSave('${observation.id}')">
+                                    <i class="fas fa-save ml-1"></i>حفظ إجراء الإدارة
+                                </button>
+                                <button type="button" class="btn-secondary btn-sm" onclick="DailyObservations.workflowClose('${observation.id}')">
+                                    <i class="fas fa-lock ml-1"></i>إغلاق الملاحظة
+                                </button>
+                            </div>
+                        </div>` : ''}
+
+                        ${(this.hasFullObservationVisibility() || this.isCurrentUserAdmin()) && wsModal !== 'closed' && !this.canDoDepartmentAction(observation) ? `
+                        <div class="bg-white p-3 rounded-lg border border-gray-200">
+                            <button type="button" class="btn-secondary btn-sm" onclick="DailyObservations.workflowClose('${observation.id}')">
+                                <i class="fas fa-lock ml-1"></i>إغلاق الملاحظة (سلامة / مدير)
+                            </button>
+                        </div>` : ''}
+
+                        ${this.canReopenObservation(observation) || (this.isCurrentUserAdmin() && wsModal === 'closed') ? `
+                        <div class="bg-white p-3 rounded-lg border border-orange-200">
+                            <button type="button" class="btn-secondary btn-sm" style="border-color:#ea580c;color:#c2410c;" onclick="DailyObservations.promptReopenObservation('${observation.id}')">
+                                <i class="fas fa-unlock ml-1"></i>إعادة فتح الملاحظة
+                            </button>
+                        </div>` : ''}
+
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
                                 <strong class="text-gray-700 block mb-1">رقم الملاحظة:</strong>
@@ -5991,9 +6740,10 @@ const DailyObservations = {
                             <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
                                 <strong class="text-gray-700 block mb-1">الحالة:</strong>
                                 <div class="flex items-center gap-2 mt-2">
+                                    ${this.canChangeStatusInViewModal() ? `
                                     <select id="observation-status-select" class="form-input" style="flex: 1; min-width: 150px;" onchange="DailyObservations.handleStatusChange('${observation.id}', this.value)">
                                         ${this.STATUS_OPTIONS.map(s => `<option value="${s}" ${observation.status === s ? 'selected' : ''}>${s}</option>`).join('')}
-                                    </select>
+                                    </select>` : ''}
                                 <span class="badge badge-${this.getStatusBadgeClass(observation.status)}">${Utils.escapeHTML(observation.status || '-')}</span>
                                 </div>
                             </div>
@@ -6069,14 +6819,20 @@ const DailyObservations = {
                         </div>
                         ` : ''}
 
-                        <!-- التحديثات -->
+                        <!-- التحديثات: سجل تقدم يدوي — وليس الإجراء التصحيحي الرسمي (يظهر أعلاه) ولا خطوات مسار الاعتماد -->
                         <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
-                            <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center justify-between mb-2">
                                 <h3 class="text-lg font-semibold"><i class="fas fa-sync-alt ml-2"></i>التحديثات (${updates.length})</h3>
                                 <button class="btn-primary btn-sm" onclick="DailyObservations.showAddUpdateModal('${observation.id}')">
                                     <i class="fas fa-plus ml-1"></i>إضافة تحديث
                                 </button>
                             </div>
+                            <p class="text-xs text-gray-500 mb-3 leading-relaxed daily-obs-updates-help">
+                                هنا يُسجَّل <strong>متابعة التنفيذ</strong> ونسبة التقدم عند الضغط على «إضافة تحديث».
+                                الإجراء التصحيحي المعتمد و<strong>مسار الاعتماد</strong> يظهران في الأقسام أعلاه، والأحداث التلقائية في <strong>السجل الزمني</strong> بالأسفل.
+                                إذا كان العدد صفراً فلا توجد تحديثات تقدم مُدخَلة بعد (وليس خطأ في العرض).
+                            </p>
+                            <div id="daily-obs-updates-body-${observation.id}" class="daily-obs-updates-body">
                             ${updates.length > 0 ? `
                                 <div class="space-y-3">
                                     ${updates.map(update => `
@@ -6086,21 +6842,22 @@ const DailyObservations = {
                                                 <span class="text-xs text-gray-500">${update.timestamp ? Utils.formatDate(update.timestamp) : ''}</span>
                                             </div>
                                             <p class="text-sm text-gray-700 mt-1">${Utils.escapeHTML(update.update || '')}</p>
-                                            ${update.progress !== undefined ? `
+                                            ${update.progress !== undefined && update.progress !== '' ? `
                                                 <div class="mt-2">
                                                     <div class="flex items-center justify-between text-xs mb-1">
                                                         <span>التقدم</span>
-                                                        <span>${update.progress}%</span>
+                                                        <span>${Math.min(100, Math.max(0, Number(update.progress) || 0))}%</span>
                                                     </div>
                                                     <div class="w-full bg-gray-200 rounded-full h-2">
-                                                        <div class="bg-blue-500 h-2 rounded-full" style="width: ${update.progress}%"></div>
+                                                        <div class="bg-blue-500 h-2 rounded-full" style="width: ${Math.min(100, Math.max(0, Number(update.progress) || 0))}%"></div>
                                                     </div>
                                                 </div>
                                             ` : ''}
                                         </div>
                                     `).join('')}
                                 </div>
-                            ` : '<p class="text-gray-500 text-sm">لا توجد تحديثات</p>'}
+                            ` : '<p class="text-gray-500 text-sm">لا توجد تحديثات تقدم مسجّلة. استخدم «إضافة تحديث» لتسجيل المتابعة.</p>'}
+                            </div>
                         </div>
                         
                         <!-- التعليقات -->
@@ -6161,12 +6918,14 @@ const DailyObservations = {
                     <button type="button" onclick="DailyObservations.exportPDF('${observation.id}');" class="btn-secondary" style="margin: 0 5px;">
                         <i class="fas fa-file-pdf ml-2"></i>تصدير PDF
                     </button>
-                    <button type="button" onclick="DailyObservations.showForm(${JSON.stringify(observation).replace(/"/g, '&quot;')}); this.closest('.modal-overlay').remove();" class="btn-primary" style="margin: 0 5px;">
-                        <i class="fas fa-edit ml-2"></i>تعديل
-                    </button>
+                    ${this.canEditObservationFullForm(observation) ? `
+                    <button type="button" onclick="DailyObservations.showFormFromId('${observation.id}'); this.closest('.modal-overlay').remove();" class="btn-primary" style="margin: 0 5px;">
+                        <i class="fas fa-edit ml-2"></i>تعديل كامل
+                    </button>` : ''}
+                    ${this.isCurrentUserAdmin() ? `
                     <button type="button" onclick="DailyObservations.deleteObservation('${observation.id}'); this.closest('.modal-overlay').remove();" class="btn-secondary" style="background-color: #dc3545; color: white; border-color: #dc3545; margin: 0 5px;">
                         <i class="fas fa-trash ml-2"></i>حذف
-                    </button>
+                    </button>` : ''}
                 </div>
             </div>
         `;
@@ -6186,18 +6945,23 @@ const DailyObservations = {
     async updateObservationDataFromBackend(observationId, modal) {
         try {
             const response = await GoogleIntegration.callBackend('getObservation', { observationId: observationId });
-            if (response.success && response.data) {
+            if (response && response.success && response.data) {
+                const normalized = this.normalizeRecord(response.data);
                 const index = AppState.appData.dailyObservations.findIndex(o => o.id === observationId);
                 if (index !== -1) {
-                    AppState.appData.dailyObservations[index] = response.data;
+                    AppState.appData.dailyObservations[index] = normalized;
                 } else {
-                    AppState.appData.dailyObservations.push(response.data);
+                    AppState.appData.dailyObservations.push(normalized);
                 }
+                try {
+                    if (typeof window.DataManager !== 'undefined' && window.DataManager.save) {
+                        window.DataManager.save();
+                    }
+                } catch (e) { /* ignore */ }
 
                 // تحديث النموذج إذا كان مفتوحاً
                 if (modal && modal.getAttribute('data-observation-id') === observationId) {
-                    const updatedObservation = this.normalizeRecord(response.data);
-                    const newModal = this.createObservationModal(updatedObservation);
+                    const newModal = this.createObservationModal(normalized);
                     modal.replaceWith(newModal);
                 }
             }
@@ -6207,6 +6971,10 @@ const DailyObservations = {
     },
 
     async handleStatusChange(observationId, newStatus) {
+        if (!this.canChangeStatusInViewModal()) {
+            Notification.error('ليس لديك صلاحية تغيير الحالة يدوياً');
+            return;
+        }
         Loading.show();
         try {
             const result = await GoogleIntegration.callBackend('updateObservationStatus', {
@@ -6270,16 +7038,7 @@ const DailyObservations = {
             const observation = AppState.appData.dailyObservations.find(o => o.id === observationId);
             if (!observation) return;
 
-            // تحليل التحديثات
-            let updates = [];
-            try {
-                if (observation.updates) {
-                    updates = Array.isArray(observation.updates) ? observation.updates : 
-                             (typeof observation.updates === 'string' ? JSON.parse(observation.updates) : []);
-                }
-            } catch (e) {
-                updates = [];
-            }
+            const updates = this.normalizeRecord(observation).updates;
 
             // تحديث العنوان
             const heading = updatesSection.querySelector('h3');
@@ -6287,11 +7046,8 @@ const DailyObservations = {
                 heading.innerHTML = `<i class="fas fa-sync-alt ml-2"></i>التحديثات (${updates.length})`;
             }
 
-            // البحث عن container التحديثات
-            let updatesContainer = updatesSection.querySelector('.space-y-3');
-            if (!updatesContainer) {
-                updatesContainer = updatesSection.querySelector('p.text-gray-500');
-            }
+            const bodyEl = updatesSection.querySelector(`#daily-obs-updates-body-${observationId}`) ||
+                updatesSection.querySelector('.daily-obs-updates-body');
 
             if (updates.length > 0) {
                 const updatesHTML = `
@@ -6303,14 +7059,14 @@ const DailyObservations = {
                                     <span class="text-xs text-gray-500">${update.timestamp ? Utils.formatDate(update.timestamp) : ''}</span>
                                 </div>
                                 <p class="text-sm text-gray-700 mt-1">${Utils.escapeHTML(update.update || '')}</p>
-                                ${update.progress !== undefined ? `
+                                ${update.progress !== undefined && update.progress !== '' ? `
                                     <div class="mt-2">
                                         <div class="flex items-center justify-between text-xs mb-1">
                                             <span>التقدم</span>
-                                            <span>${update.progress}%</span>
+                                            <span>${Math.min(100, Math.max(0, Number(update.progress) || 0))}%</span>
                                         </div>
                                         <div class="w-full bg-gray-200 rounded-full h-2">
-                                            <div class="bg-blue-500 h-2 rounded-full" style="width: ${update.progress}%"></div>
+                                            <div class="bg-blue-500 h-2 rounded-full" style="width: ${Math.min(100, Math.max(0, Number(update.progress) || 0))}%"></div>
                                         </div>
                                     </div>
                                 ` : ''}
@@ -6318,40 +7074,11 @@ const DailyObservations = {
                         `).join('')}
                     </div>
                 `;
-
-                if (updatesContainer) {
-                    if (updatesContainer.tagName === 'P') {
-                        updatesContainer.outerHTML = updatesHTML;
-                    } else {
-                        updatesContainer.innerHTML = updatesHTML;
-                    }
-                } else {
-                    // إضافة container جديد بعد العنوان
-                    const headingDiv = heading?.closest('.flex.items-center.justify-between') || heading?.parentElement;
-                    if (headingDiv) {
-                        const container = document.createElement('div');
-                        container.innerHTML = updatesHTML;
-                        headingDiv.insertAdjacentElement('afterend', container);
-                    }
+                if (bodyEl) {
+                    bodyEl.innerHTML = updatesHTML;
                 }
-            } else {
-                if (updatesContainer) {
-                    if (updatesContainer.tagName === 'P') {
-                        updatesContainer.textContent = 'لا توجد تحديثات';
-                        updatesContainer.className = 'text-gray-500 text-sm';
-                    } else {
-                        updatesContainer.innerHTML = '<p class="text-gray-500 text-sm">لا توجد تحديثات</p>';
-                    }
-                } else {
-                    // إضافة رسالة "لا توجد تحديثات"
-                    const headingDiv = heading?.closest('.flex.items-center.justify-between') || heading?.parentElement;
-                    if (headingDiv) {
-                        const emptyMsg = document.createElement('p');
-                        emptyMsg.className = 'text-gray-500 text-sm';
-                        emptyMsg.textContent = 'لا توجد تحديثات';
-                        headingDiv.insertAdjacentElement('afterend', emptyMsg);
-                    }
-                }
+            } else if (bodyEl) {
+                bodyEl.innerHTML = '<p class="text-gray-500 text-sm">لا توجد تحديثات تقدم مسجّلة. استخدم «إضافة تحديث» لتسجيل المتابعة.</p>';
             }
         } catch (error) {
             Utils.safeError('خطأ في تحديث قسم التحديثات:', error);
@@ -6665,19 +7392,12 @@ const DailyObservations = {
                 updates = [];
             }
 
-            // إضافة التحديث الجديد
+            // إضافة التحديث الجديد (مصفوفة في الذاكرة — يتوافق مع saveToSheet/jsonb ومع hse-api)
             updates.push(newUpdate);
-            observation.updates = JSON.stringify(updates); // Ensure it's stored as a JSON string
+            observation.updates = updates;
 
             // تحديث السجل الزمني
-            let timeLog = [];
-            try {
-                if (observation.timeLog) {
-                    timeLog = typeof observation.timeLog === 'string' ? JSON.parse(observation.timeLog) : observation.timeLog;
-                }
-            } catch (e) {
-                timeLog = [];
-            }
+            const timeLog = [...this.coerceStoredArray(observation.timeLog)];
             timeLog.push({
                 action: 'update_added',
                 user: AppState.currentUser?.name || 'System',
@@ -6785,24 +7505,17 @@ const DailyObservations = {
 
             // إضافة التعليق الجديد
             comments.push(newComment);
-            observation.comments = JSON.stringify(comments); // Ensure it's stored as a JSON string
+            observation.comments = comments;
 
             // تحديث السجل الزمني
-            let timeLog = [];
-            try {
-                if (observation.timeLog) {
-                    timeLog = typeof observation.timeLog === 'string' ? JSON.parse(observation.timeLog) : observation.timeLog;
-                }
-            } catch (e) {
-                timeLog = [];
-            }
-            timeLog.push({
+            const timeLogC = [...this.coerceStoredArray(observation.timeLog)];
+            timeLogC.push({
                 action: 'comment_added',
                 user: AppState.currentUser?.name || 'System',
                 timestamp: new Date().toISOString(),
                 note: 'تم إضافة تعليق'
             });
-            observation.timeLog = timeLog;
+            observation.timeLog = timeLogC;
             observation.updatedAt = new Date().toISOString();
 
             // تحديث الواجهة فوراً
@@ -6835,6 +7548,11 @@ const DailyObservations = {
     async deleteObservation(id) {
         if (!id) {
             Notification.error('معرف الملاحظة غير موجود');
+            return;
+        }
+
+        if (!this.isCurrentUserAdmin()) {
+            Notification.error('حذف الملاحظات متاح لمدير النظام فقط');
             return;
         }
 
@@ -7622,6 +8340,9 @@ const DailyObservations = {
         const iso = isoCode || getObservationIsoCodeFromId(recordId);
         const now = new Date().toISOString();
 
+        const importerEmail = (typeof AppState !== 'undefined' && AppState.currentUser && AppState.currentUser.email)
+            ? String(AppState.currentUser.email).trim().toLowerCase() : '';
+
         const payload = {
             id: recordId,
             isoCode: iso,
@@ -7641,7 +8362,9 @@ const DailyObservations = {
             status,
             attachments: importedAttachments,
             createdAt: now,
-            updatedAt: now
+            updatedAt: now,
+            // يضمن ظهور السجلات المستوردة لمستخدمي «user» بعد التحديث (فلتر الصلاحيات يعتمد على البريد)
+            createdByEmail: importerEmail
         };
 
         return this.normalizeRecord(payload);

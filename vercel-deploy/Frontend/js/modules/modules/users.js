@@ -307,7 +307,10 @@ const Users = {
                                 <select id="user-role" name="role" required class="form-input">
                                     <option value="">اختر الدور</option>
                                     <option value="admin" ${userData?.role === 'admin' ? 'selected' : ''}>مدير النظام</option>
-                                    <option value="safety_officer" ${userData?.role === 'safety_officer' ? 'selected' : ''}>مسؤول السلامة</option>
+                                    <option value="safety_officer" ${userData?.role === 'safety_officer' ? 'selected' : ''}>مسؤول السلامة (صلاحية كاملة على مسار الملاحظات)</option>
+                                    <option value="safety_specialist" ${userData?.role === 'safety_specialist' ? 'selected' : ''}>أخصائي السلامة (مراجعة أولية للملاحظات)</option>
+                                    <option value="safety_manager" ${userData?.role === 'safety_manager' ? 'selected' : ''}>مدير السلامة (اعتماد وإرسال للإدارة)</option>
+                                    <option value="department_manager" ${userData?.role === 'department_manager' ? 'selected' : ''}>مدير إدارة (الرد على ملاحظات إدارته)</option>
                                     <option value="user" ${userData?.role === 'user' ? 'selected' : ''}>مستخدم</option>
                                 </select>
                             </div>
@@ -1920,7 +1923,10 @@ const Users = {
 
     mapRole(roleText) {
         const text = String(roleText || '').toLowerCase().trim();
-        if (text.includes('مدير') || text.includes('admin')) return 'admin';
+        if (text.includes('مدير النظام') || text === 'admin' || (text.includes('مدير') && text.includes('نظام'))) return 'admin';
+        if (text.includes('أخصائي') && text.includes('سلامة')) return 'safety_specialist';
+        if ((text.includes('مدير') && text.includes('سلامة')) && !text.includes('نظام')) return 'safety_manager';
+        if (text.includes('مدير إدارة') || text.includes('department')) return 'department_manager';
         if (text.includes('سلامة') || text.includes('safety')) return 'safety_officer';
         return 'user';
     },

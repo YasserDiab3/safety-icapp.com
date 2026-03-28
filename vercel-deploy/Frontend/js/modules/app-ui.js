@@ -2931,6 +2931,22 @@ window.UI = {
                     }
                 }
 
+                // ✅ Supabase: بعد إعادة تحميل الصفحة تُستعاد الجلسة دون مرور بمسار تسجيل الدخول،
+                // لذلك لا يُستدعى loadModulesDataSequentially من auth.js — ويبقى AppState بدون سحب من الخادم
+                // (الملاحظات اليومية وغيرها تظهر فارغة رغم وجودها في قاعدة البيانات).
+                if (AppState.isPageRefresh === true &&
+                    AppState.useSupabaseBackend === true &&
+                    AppState.currentUser &&
+                    typeof window.Auth !== 'undefined' &&
+                    typeof window.Auth.loadModulesDataSequentially === 'function') {
+                    try {
+                        Utils.safeLog('🔄 استعادة الجلسة: جاري تحميل بيانات الموديولات من Supabase...');
+                        await window.Auth.loadModulesDataSequentially();
+                    } catch (supaModErr) {
+                        Utils.safeWarn('⚠️ فشل تحميل الموديولات من Supabase بعد إعادة التحميل:', supaModErr);
+                    }
+                }
+
                 // ✅ إضافة: تحميل البيانات تلقائياً من Google Sheets بعد تسجيل الدخول
                 if (AppState.currentUser && 
                     AppState.googleConfig?.appsScript?.enabled && 

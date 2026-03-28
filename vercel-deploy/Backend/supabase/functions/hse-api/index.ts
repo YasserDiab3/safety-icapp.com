@@ -63,6 +63,52 @@ function isTableMissingError(err: { message?: string; code?: string }): boolean 
   );
 }
 
+/** تحويل updates/comments/timeLog من سلسلة JSON (يخزنها العميل أحياناً) أو مصفوفة إلى مصفوفة */
+function coerceJsonArray(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return [...raw];
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+    try {
+      const p: unknown = JSON.parse(s);
+      return Array.isArray(p) ? p : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/** دمج تحديثات التقدم من مفاتيح متعددة (قديم / Excel / أدوات خارجية) مع إزالة التكرار */
+function mergeDailyObservationListFromRow(
+  row: Record<string, unknown>,
+  keys: string[],
+): Record<string, unknown>[] {
+  const seen = new Set<string>();
+  const out: Record<string, unknown>[] = [];
+  for (const k of keys) {
+    for (const item of coerceJsonArray(row[k])) {
+      if (!item || typeof item !== "object") continue;
+      const o = item as Record<string, unknown>;
+      const sig = o.id != null && String(o.id).trim() !== ""
+        ? "id:" + String(o.id)
+        : "h:" + out.length + ":" + JSON.stringify(o).slice(0, 280);
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      out.push(o);
+    }
+  }
+  out.sort((a, b) => {
+    const ta = Date.parse(String(a.timestamp ?? ""));
+    const tb = Date.parse(String(b.timestamp ?? ""));
+    return (Number.isNaN(ta) ? 0 : ta) - (Number.isNaN(tb) ? 0 : tb);
+  });
+  return out;
+}
+
+const DAILY_OBS_UPDATE_KEYS = ["updates", "Updates", "observationUpdates", "progressUpdates", "progress_updates"];
+const DAILY_OBS_COMMENT_KEYS = ["comments", "Comments", "observationComments"];
+
 // خريطة action -> اسم الورقة (للعمليات غير readFromSheet/saveToSheet/appendToSheet)
 const ACTION_SHEET_MAP: Record<string, string> = {
   getIncident: "Incidents", getAllIncidents: "Incidents", addIncident: "Incidents", updateIncident: "Incidents", deleteIncident: "Incidents",
@@ -296,7 +342,17 @@ Deno.serve(async (req) => {
       const { data: row, error } = await supabase.from(dailyObsTable).select("id, data").eq("id", String(observationId)).maybeSingle();
       if (error) return json({ success: false, message: error.message }, 400);
       if (!row) return json({ success: false, message: "الملاحظة غير موجودة" }, 404);
-      const out = { id: row.id, ...(row as { data?: Record<string, unknown> }).data };
+      const d = (row as { data?: Record<string, unknown> }).data ?? {};
+      const out: Record<string, unknown> = { id: row.id, ...d };
+      out.updates = mergeDailyObservationListFromRow(out, DAILY_OBS_UPDATE_KEYS);
+      out.comments = mergeDailyObservationListFromRow(out, DAILY_OBS_COMMENT_KEYS);
+      out.timeLog = coerceJsonArray(out.timeLog);
+      delete out.Updates;
+      delete out.observationUpdates;
+      delete out.progressUpdates;
+      delete out.progress_updates;
+      delete out.Comments;
+      delete out.observationComments;
       return json({ success: true, data: out });
     }
     if (action === "updateObservationStatus") {
@@ -319,9 +375,13 @@ Deno.serve(async (req) => {
       const { data: existing, error: fetchErr } = await supabase.from(dailyObsTable).select("data").eq("id", String(observationId)).maybeSingle();
       if (fetchErr || !existing) return json({ success: false, message: "الملاحظة غير موجودة" }, 400);
       const data = (existing as { data?: Record<string, unknown> }).data ?? {};
-      const updates = Array.isArray(data.updates) ? [...data.updates] : [];
+      const updates = mergeDailyObservationListFromRow(data, DAILY_OBS_UPDATE_KEYS);
       updates.push({ id: "upd-" + Date.now(), user, update, progress: progress ?? "", timestamp: new Date().toISOString() });
-      const merged = { ...data, updates, updatedAt: new Date().toISOString() };
+      const merged: Record<string, unknown> = { ...data, updates, updatedAt: new Date().toISOString() };
+      delete merged.Updates;
+      delete merged.observationUpdates;
+      delete merged.progressUpdates;
+      delete merged.progress_updates;
       const { error } = await supabase.from(dailyObsTable).upsert({ id: String(observationId), data: merged, updated_at: new Date().toISOString() }, { onConflict: "id" });
       if (error) return json({ success: false, message: error.message }, 400);
       return json({ success: true });
@@ -334,9 +394,11 @@ Deno.serve(async (req) => {
       const { data: existing, error: fetchErr } = await supabase.from(dailyObsTable).select("data").eq("id", String(observationId)).maybeSingle();
       if (fetchErr || !existing) return json({ success: false, message: "الملاحظة غير موجودة" }, 400);
       const data = (existing as { data?: Record<string, unknown> }).data ?? {};
-      const comments = Array.isArray(data.comments) ? [...data.comments] : [];
+      const comments = mergeDailyObservationListFromRow(data, DAILY_OBS_COMMENT_KEYS);
       comments.push({ id: "CMT-" + Date.now(), user, comment, timestamp: new Date().toISOString() });
-      const merged = { ...data, comments, updatedAt: new Date().toISOString() };
+      const merged: Record<string, unknown> = { ...data, comments, updatedAt: new Date().toISOString() };
+      delete merged.Comments;
+      delete merged.observationComments;
       const { error } = await supabase.from(dailyObsTable).upsert({ id: String(observationId), data: merged, updated_at: new Date().toISOString() }, { onConflict: "id" });
       if (error) return json({ success: false, message: error.message }, 400);
       return json({ success: true });

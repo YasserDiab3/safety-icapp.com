@@ -242,6 +242,12 @@ const DEFAULT_ROLE_PERMISSIONS = {
     // مسئول السلامة - لا توجد صلاحيات افتراضية، يجب منحها من قبل مدير النظام
     safety_officer: buildRoleDefaults([]),
 
+    safety_specialist: buildRoleDefaults([]),
+
+    safety_manager: buildRoleDefaults([]),
+
+    department_manager: buildRoleDefaults([]),
+
     // المستخدم العادي - لا توجد صلاحيات افتراضية، يجب منحها من قبل مدير النظام
     user: buildRoleDefaults([])
 };
