@@ -5750,33 +5750,8 @@ window.UI = {
                 backIcon.setAttribute('aria-label', hasHistory ? 'العودة للقائمة السابقة' : 'العودة للقائمة الرئيسية');
                 backIcon.setAttribute('title', hasHistory ? 'العودة للقائمة السابقة' : 'العودة للقائمة الرئيسية');
             }
-            if (!existingIcons.querySelector('.module-excel-global-btn')) {
-                const excelIcon = document.createElement('button');
-                excelIcon.className = 'module-excel-global-btn';
-                excelIcon.setAttribute('aria-label', 'استيراد Excel');
-                excelIcon.setAttribute('title', 'استيراد Excel');
-                excelIcon.innerHTML = '<i class="fas fa-file-excel"></i>';
-                excelIcon.style.cssText = 'width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: #1d6f42; color: white; border-radius: 12px; cursor: pointer; transition: all 0.3s ease; box-shadow: var(--shadow-md); border: none; font-size: 1.25rem; flex-shrink: 0;';
-                excelIcon.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (typeof ModuleExcelImport !== 'undefined' && ModuleExcelImport.open) {
-                        ModuleExcelImport.open(sectionName);
-                    }
-                });
-                excelIcon.addEventListener('mouseenter', function () {
-                    this.style.transform = 'translateY(-2px)';
-                    this.style.boxShadow = 'var(--shadow-lg)';
-                });
-                excelIcon.addEventListener('mouseleave', function () {
-                    this.style.transform = 'translateY(0)';
-                    this.style.boxShadow = 'var(--shadow-md)';
-                });
-                if (backIcon) existingIcons.insertBefore(excelIcon, backIcon);
-                else existingIcons.appendChild(excelIcon);
-                const pr = parseInt(window.getComputedStyle(sectionHeader).paddingRight, 10) || 0;
-                if (pr < 200) sectionHeader.style.paddingRight = '200px';
-            }
+            const staleExcelBtn = existingIcons.querySelector('.module-excel-global-btn');
+            if (staleExcelBtn) staleExcelBtn.remove();
             if (typeof ModuleExcelImport !== 'undefined' && ModuleExcelImport.refreshForCurrentSection) {
                 ModuleExcelImport.refreshForCurrentSection();
             }
@@ -5841,31 +5816,8 @@ window.UI = {
             this.style.background = 'var(--bg-tertiary)';
         });
 
-        const excelIcon = document.createElement('button');
-        excelIcon.className = 'module-excel-global-btn';
-        excelIcon.setAttribute('aria-label', 'استيراد Excel');
-        excelIcon.setAttribute('title', 'استيراد Excel');
-        excelIcon.innerHTML = '<i class="fas fa-file-excel"></i>';
-        excelIcon.style.cssText = 'width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: #1d6f42; color: white; border-radius: 12px; cursor: pointer; transition: all 0.3s ease; box-shadow: var(--shadow-md); border: none; font-size: 1.25rem; flex-shrink: 0;';
-        excelIcon.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (typeof ModuleExcelImport !== 'undefined' && ModuleExcelImport.open) {
-                ModuleExcelImport.open(sectionName);
-            }
-        });
-        excelIcon.addEventListener('mouseenter', function () {
-            this.style.transform = 'translateY(-2px)';
-            this.style.boxShadow = 'var(--shadow-lg)';
-        });
-        excelIcon.addEventListener('mouseleave', function () {
-            this.style.transform = 'translateY(0)';
-            this.style.boxShadow = 'var(--shadow-md)';
-        });
-
         // إضافة الأيقونات إلى الحاوية
         iconsContainer.appendChild(homeIcon);
-        iconsContainer.appendChild(excelIcon);
         iconsContainer.appendChild(backIcon);
 
         // إضافة الحاوية إلى section-header
