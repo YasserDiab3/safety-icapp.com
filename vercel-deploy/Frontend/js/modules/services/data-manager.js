@@ -457,6 +457,7 @@ const DataManager = {
 
     /**
      * إظهار تحذير امتلاء التخزين مرة واحدة كل 5 دقائق لتجنب إزعاج المستخدم
+     * النص يميّز بين «امتلاء مساحة المتصفح» و«المزامنة مع الخادم» (قد تعمل مع الاتصال الحالي)
      */
     _showQuotaWarningOnce() {
         const now = Date.now();
@@ -464,9 +465,27 @@ const DataManager = {
             return;
         }
         this._quotaWarningLastShown = now;
-        if (typeof Notification !== 'undefined') {
-            Notification.warning('التخزين المحلي ممتلئ. سيتم المزامنة مع قاعدة البيانات عند الاتصال.', { duration: 8000 });
+        if (typeof Notification === 'undefined') return;
+
+        let online = true;
+        try {
+            online = typeof navigator !== 'undefined' && navigator.onLine !== false;
+        } catch (e) {
+            online = true;
         }
+
+        const title = 'تخزين المتصفح ممتلئ';
+        const message = 'لا يمكن حفظ نسخة كاملة من البيانات في التخزين المحلي لهذا الموقع.';
+        const description = online
+            ? 'مع بقاء الاتصال بالإنترنت، تُحاول التطبيقات إرسال التغييرات إلى الخادم عند الحفظ والمزامنة. إذا استمر التحذير، قلّل حجم البيانات أو راجع مساحة القرص/إعدادات المتصفح.'
+            : 'أنت غير متصل حالياً. بعد عودة الاتصال ستُجرى المزامنة مع قاعدة البيانات عند الإمكان. تجنّب إغلاق التبويب قبل ذلك لتقليل خطر فقدان التحديثات غير المحفوظة على الخادم.';
+
+        Notification.warning(message, {
+            title,
+            description,
+            duration: 10000,
+            priority: 'high'
+        });
     },
 
     async loadCompanySettings(forceReload = false) {
