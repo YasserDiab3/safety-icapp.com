@@ -3612,6 +3612,29 @@ window.UI = {
                 sidebar.dataset.navDelegationBound = 'true';
             }
 
+            // جرس الإشعارات في الشريط الجانبي: تفويض في مرحلة الالتقاط حتى لا يُلتقط النقر من طبقات أخرى أو يُفقد قبل وصوله للزر
+            if (sidebar && !sidebar.dataset.notificationsSidebarDelegation) {
+                const uiForNotif = this;
+                sidebar.addEventListener('click', (e) => {
+                    const t = e.target;
+                    if (!t || !t.closest) return;
+                    const bell = t.closest('#notifications-btn');
+                    if (!bell || !sidebar.contains(bell)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (uiForNotif && typeof uiForNotif.toggleNotificationsDropdown === 'function') {
+                        uiForNotif.toggleNotificationsDropdown(
+                            'notifications-dropdown',
+                            'notifications-list',
+                            'notifications-empty',
+                            'close-notifications-dropdown',
+                            bell
+                        );
+                    }
+                }, true);
+                sidebar.dataset.notificationsSidebarDelegation = 'true';
+            }
+
             this.sidebarNavItemsBound = true;
         }
 
@@ -6469,8 +6492,8 @@ window.UI = {
             if (mobileNotificationsBtn) Utils.safeLog('  - mobile-notifications-btn');
             if (headerNotificationsBtn) Utils.safeLog('  - header-notifications-btn');
 
-            // ربط جميع الأزرار
-            notificationButtons.forEach((btn, index) => {
+            // ربط أزرار الإشعارات (عدا جرس الشريط الجانبي — يُدار عبر تفويض capture في bindSidebarEvents)
+            notificationButtons.filter((btn) => btn && btn.id !== 'notifications-btn').forEach((btn) => {
                 if (!btn) return;
 
                 try {
@@ -6646,10 +6669,8 @@ window.UI = {
                     try {
                         const dropdown = document.getElementById(dropdownId);
                         if (dropdown) {
-                            const computedStyle = window.getComputedStyle(dropdown);
-                            const isVisible = dropdown.style.display === 'flex' ||
-                                (computedStyle.display === 'flex' && computedStyle.visibility !== 'hidden' && computedStyle.opacity !== '0');
-                            
+                            const isVisible = dropdown.getAttribute('data-notifications-panel-open') === '1';
+
                             if (isVisible && e && e.target) {
                                 // ✅ إصلاح: استخدام selector يشمل جميع أزرار الإشعارات
                                 const button = e.target.closest('#notifications-btn, #mobile-notifications-btn, #header-notifications-btn, [id$="-notifications-btn"]');
@@ -6848,24 +6869,8 @@ window.UI = {
                 }
             });
 
-            // التبديل بين الفتح والإغلاق - تحقق محسّن وسريع من حالة العرض
-            let isCurrentlyVisible = false;
-            try {
-                // ✅ فحص سريع أولاً (inline style)
-                if (dropdown.style.display === 'flex' && dropdown.style.visibility !== 'hidden' && dropdown.style.opacity !== '0') {
-                    isCurrentlyVisible = true;
-                } else if (dropdown.style.display !== 'none') {
-                    // فحص computed style فقط إذا لزم الأمر (أبطأ)
-                    const computedStyle = window.getComputedStyle(dropdown);
-                    isCurrentlyVisible = computedStyle.display === 'flex' && 
-                        computedStyle.visibility !== 'hidden' && 
-                        computedStyle.opacity !== '0' &&
-                        dropdown.offsetParent !== null;
-                }
-            } catch (err) {
-                // في حالة الخطأ، نعتبر أن الـ dropdown مخفي
-                isCurrentlyVisible = false;
-            }
+            // التبديل بين الفتح والإغلاق — علامة data تتفادى تعارض display مع !important من CSS/JS
+            const isCurrentlyVisible = dropdown.getAttribute('data-notifications-panel-open') === '1';
 
             if (!isCurrentlyVisible) {
                 // تحديث الإشعارات قبل العرض
@@ -6941,6 +6946,7 @@ window.UI = {
 
             // إظهار التبويب فوراً بدون انتظار
             // ✅ إصلاح: استخدام setProperty مع important لتجاوز أي CSS conflicts
+            dropdown.setAttribute('data-notifications-panel-open', '1');
             dropdown.style.setProperty('display', 'flex', 'important');
             dropdown.style.setProperty('visibility', 'visible', 'important');
             dropdown.style.setProperty('opacity', '1', 'important');
@@ -7061,7 +7067,7 @@ window.UI = {
             const selfRef = this;
             const updateNotificationsList = () => {
                 try {
-                    if (!dropdown || dropdown.style.display !== 'flex') return;
+                    if (!dropdown || dropdown.getAttribute('data-notifications-panel-open') !== '1') return;
                     const updatedNotifications = typeof selfRef.getNotificationsList === 'function' ? selfRef.getNotificationsList() : [];
                     if (!list || typeof selfRef.renderNotificationItem !== 'function') return;
                     
@@ -7155,9 +7161,10 @@ window.UI = {
             try {
                 const dropdown = document.getElementById(dropdownId);
                 if (dropdown) {
-                    dropdown.style.display = 'flex';
-                    dropdown.style.visibility = 'visible';
-                    dropdown.style.opacity = '1';
+                    dropdown.setAttribute('data-notifications-panel-open', '1');
+                    dropdown.style.setProperty('display', 'flex', 'important');
+                    dropdown.style.setProperty('visibility', 'visible', 'important');
+                    dropdown.style.setProperty('opacity', '1', 'important');
                 }
             } catch (fallbackError) {
                 Utils.safeError('⚠️ فشل إظهار dropdown:', fallbackError);
@@ -7287,9 +7294,10 @@ window.UI = {
         try {
             const dropdown = document.getElementById(dropdownId);
             if (dropdown) {
-                dropdown.style.display = 'none';
-                dropdown.style.visibility = 'hidden';
-                dropdown.style.opacity = '0';
+                dropdown.removeAttribute('data-notifications-panel-open');
+                dropdown.style.setProperty('display', 'none', 'important');
+                dropdown.style.setProperty('visibility', 'hidden', 'important');
+                dropdown.style.setProperty('opacity', '0', 'important');
             }
         } catch (error) {
             Utils.safeWarn('⚠️ خطأ في إخفاء dropdown:', dropdownId, error);
@@ -9175,66 +9183,10 @@ if (typeof window !== 'undefined') {
     };
 }
 
-// ✅ إصلاح: تهيئة أزرار الإشعارات عند تحميل الصفحة (DOMContentLoaded)
-// هذا يضمن عمل أزرار الإشعارات حتى قبل تسجيل الدخول
+// تهيئة مستمعات الإشعارات (هيدر/موبايل + إغلاق عند النقر خارجها). جرس الشريط الجانبي يُدار عبر تفويض capture في bindSidebarEvents.
 if (typeof document !== 'undefined') {
-    
-    // ✅ دالة مباشرة لربط زر الإشعارات في القائمة الجانبية
-    const bindSidebarNotificationBtn = () => {
-        const sidebarBtn = document.getElementById('notifications-btn');
-        if (sidebarBtn && !sidebarBtn._directClickBound) {
-            console.log('🔔 ربط زر الإشعارات في القائمة الجانبية مباشرة');
-            
-            sidebarBtn._directClickBound = true;
-            sidebarBtn.addEventListener('click', function(e) {
-                console.log('🔔 تم النقر على زر الإشعارات في القائمة الجانبية!');
-                e.preventDefault();
-                e.stopPropagation();
-                
-                // استدعاء دالة عرض الإشعارات
-                if (window.UI && typeof window.UI.toggleNotificationsDropdown === 'function') {
-                    window.UI.toggleNotificationsDropdown(
-                        'notifications-dropdown',
-                        'notifications-list',
-                        'notifications-empty',
-                        'close-notifications-dropdown',
-                        sidebarBtn
-                    );
-                } else {
-                    console.log('⚠️ UI.toggleNotificationsDropdown غير متاح');
-                    // محاولة فتح الـ dropdown مباشرة
-                    const dropdown = document.getElementById('notifications-dropdown');
-                    if (dropdown) {
-                        const isVisible = dropdown.style.display === 'flex';
-                        if (isVisible) {
-                            dropdown.style.display = 'none';
-                        } else {
-                            dropdown.style.setProperty('display', 'flex', 'important');
-                            dropdown.style.setProperty('visibility', 'visible', 'important');
-                            dropdown.style.setProperty('opacity', '1', 'important');
-                            dropdown.style.setProperty('position', 'fixed', 'important');
-                            dropdown.style.setProperty('z-index', '10001', 'important');
-                            dropdown.style.setProperty('top', '100px', 'important');
-                            dropdown.style.setProperty('left', '50%', 'important');
-                            dropdown.style.setProperty('transform', 'translateX(-50%)', 'important');
-                        }
-                    }
-                }
-            }, { capture: true });
-            
-            console.log('✅ تم ربط زر الإشعارات في القائمة الجانبية بنجاح');
-        }
-    };
-    
     const initNotificationsEarly = () => {
-        // ربط الزر مباشرة أولاً
-        bindSidebarNotificationBtn();
-        
-        // انتظار قليل للتأكد من تحميل كل العناصر
         setTimeout(() => {
-            // ربط مرة أخرى للتأكد
-            bindSidebarNotificationBtn();
-            
             if (typeof window.UI !== 'undefined' && typeof window.UI.initNotificationsButton === 'function') {
                 try {
                     window.UI.initNotificationsButton();
@@ -9253,11 +9205,6 @@ if (typeof document !== 'undefined') {
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initNotificationsEarly);
     } else {
-        // DOM already loaded
         initNotificationsEarly();
     }
-    
-    // ✅ محاولة إضافية بعد 1 ثانية
-    setTimeout(bindSidebarNotificationBtn, 1000);
-    setTimeout(bindSidebarNotificationBtn, 2000);
 }
