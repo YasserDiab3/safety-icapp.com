@@ -5287,15 +5287,21 @@ const DailyObservations = {
             const imageRow = form.querySelector('#observation-image-row');
             const imageDisplay = form.querySelector('#observation-image-display');
             if (imageRow && imageDisplay) {
-                const images = this.state.currentAttachments.filter(att => (att.type || '').startsWith('image/'));
+                const images = this.state.currentAttachments.filter(att => {
+                    const n = (att.name || '').toLowerCase();
+                    return (att.type || '').startsWith('image/') || /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(n);
+                });
                 if (images.length > 0) {
                     imageRow.classList.remove('hidden');
-                    imageDisplay.innerHTML = images.map(img => `
+                    imageDisplay.innerHTML = images.map(img => {
+                        const src = img.shareableLink || img.directLink || (img.cloudLink && img.cloudLink.url) || img.data || '';
+                        return `
                         <div style="display: inline-block; margin: 0.5rem; text-align: center;">
-                            <img src="${img.data}" alt="${Utils.escapeHTML(img.name || '')}" style="max-width: 250px; max-height: 200px; border-radius: 12px; border: 2px solid var(--border-color); cursor: pointer; transition: transform 0.3s ease;" onclick="window.open('${img.data}', '_blank')" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+                            <img src="${src}" alt="${Utils.escapeHTML(img.name || '')}" style="max-width: 250px; max-height: 200px; border-radius: 12px; border: 2px solid var(--border-color); cursor: pointer; transition: transform 0.3s ease;" onclick="window.open('${src}', '_blank')" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'" onerror="this.style.display='none'">
                             <p style="font-size: 0.8125rem; color: var(--text-secondary); margin-top: 0.5rem; text-align: center;">${Utils.escapeHTML(img.name || '')}</p>
                         </div>
-                    `).join('');
+                    `;
+                    }).join('');
                 } else {
                     imageRow.classList.add('hidden');
                 }
@@ -5314,22 +5320,25 @@ const DailyObservations = {
             button.addEventListener('click', () => {
                 const attachmentId = button.getAttribute('data-open-attachment');
                 const attachment = this.state.currentAttachments.find((item) => item.id === attachmentId);
-                if (attachment && attachment.data) {
-                    window.open(attachment.data, '_blank');
+                if (attachment) {
+                    const url = attachment.shareableLink || attachment.directLink || (attachment.cloudLink && attachment.cloudLink.url) || attachment.data || '';
+                    if (url) window.open(url, '_blank');
                 }
             });
         });
     },
 
     buildAttachmentPreviewCard(attachment) {
-        const isImage = (attachment.type || '').startsWith('image/');
+        const attNameLower = (attachment.name || '').toLowerCase();
+        const isImage = (attachment.type || '').startsWith('image/') || /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(attNameLower);
+        const attSrc = attachment.shareableLink || attachment.directLink || (attachment.cloudLink && attachment.cloudLink.url) || attachment.data || '';
         const sizeLabel = attachment.size ? `${(attachment.size / (1024 * 1024)).toFixed(1)} MB` : '';
         const name = Utils.escapeHTML(attachment.name || 'مرفق بدون اسم');
 
         if (isImage) {
             return `
                 <div class="attachment-item">
-                    <img src="${attachment.data}" alt="${name}" class="attachment-image">
+                    <img src="${attSrc}" alt="${name}" class="attachment-image" onerror="this.style.opacity='0.3'">
                     <button type="button" data-remove-attachment="${attachment.id}" class="attachment-remove" aria-label="حذف المرفق">
                         <i class="fas fa-times"></i>
                     </button>
@@ -5568,6 +5577,9 @@ const DailyObservations = {
         let type = '';
         let size = 0;
         let id = '';
+        let directLink = '';
+        let shareableLink = '';
+        let cloudLink = null;
 
         if (typeof entry === 'string') {
             data = entry;
@@ -5575,22 +5587,23 @@ const DailyObservations = {
             name = `مرفق-${index + 1}${type === 'application/pdf' ? '.pdf' : '.jpg'}`;
             id = Utils.generateId('ATT');
         } else if (typeof entry === 'object') {
-            data = entry.data || entry.base64 || entry.url || '';
+            directLink = entry.directLink || '';
+            shareableLink = entry.shareableLink || '';
+            cloudLink = entry.cloudLink || null;
+            data = entry.data || entry.base64 || entry.url || directLink || shareableLink || (cloudLink && cloudLink.url) || '';
             name = entry.name || entry.fileName || `مرفق-${index + 1}`;
             type = entry.type || entry.mimeType || this.detectMimeType(name, data);
             size = entry.size || entry.fileSize || (data ? this.calculateBase64Size(data) : 0);
             id = entry.id || Utils.generateId('ATT');
         }
 
-        if (!data) return null;
+        if (!data && !directLink && !shareableLink && !(cloudLink && cloudLink.url)) return null;
 
-        return {
-            id,
-            name,
-            type,
-            size,
-            data
-        };
+        const normalized = { id, name, type, size, data };
+        if (directLink) normalized.directLink = directLink;
+        if (shareableLink) normalized.shareableLink = shareableLink;
+        if (cloudLink) normalized.cloudLink = cloudLink;
+        return normalized;
     },
 
     detectMimeType(name = '', data = '') {
@@ -5598,6 +5611,9 @@ const DailyObservations = {
         if (lowerName.endsWith('.pdf')) return 'application/pdf';
         if (lowerName.endsWith('.png')) return 'image/png';
         if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) return 'image/jpeg';
+        if (lowerName.endsWith('.gif')) return 'image/gif';
+        if (lowerName.endsWith('.webp')) return 'image/webp';
+        if (lowerName.endsWith('.bmp')) return 'image/bmp';
 
         if (this.isDataUrl(data)) {
             const match = data.match(/^data:([^;]+);/);
@@ -5605,6 +5621,15 @@ const DailyObservations = {
                 return match[1];
             }
         }
+
+        // فحص امتداد الرابط (بعد حذف query string)
+        const lowerData = (data || '').toLowerCase().split('?')[0];
+        if (lowerData.endsWith('.jpg') || lowerData.endsWith('.jpeg')) return 'image/jpeg';
+        if (lowerData.endsWith('.png')) return 'image/png';
+        if (lowerData.endsWith('.gif')) return 'image/gif';
+        if (lowerData.endsWith('.webp')) return 'image/webp';
+        if (lowerData.endsWith('.bmp')) return 'image/bmp';
+        if (lowerData.endsWith('.pdf')) return 'application/pdf';
 
         return 'application/octet-stream';
     },
@@ -5685,7 +5710,7 @@ const DailyObservations = {
             }
         } catch (error) {
             Utils.safeError('Failed to load places:', error);
-            Notification.error('تعذر تحميل الأماكن المرتبطة بالموقع');
+            Notification.error('تعذر تحميل الأماكن');
             selectEl.innerHTML = '<option value="__custom__">حدث خطأ - استخدم الإدخال اليدوي</option>';
             selectEl.disabled = false;
             selectEl.value = '__custom__';
@@ -6049,14 +6074,20 @@ const DailyObservations = {
                 const imageRow = form.querySelector('#observation-image-row');
                 const imageDisplay = form.querySelector('#observation-image-display');
                 if (imageRow && imageDisplay) {
-                    const images = normalizedData.attachments.filter(att => (att.type || '').startsWith('image/'));
+                    const images = normalizedData.attachments.filter(att => {
+                        const n = (att.name || '').toLowerCase();
+                        return (att.type || '').startsWith('image/') || /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(n);
+                    });
                     if (images.length > 0) {
                         imageRow.classList.remove('hidden');
-                        imageDisplay.innerHTML = images.map(img => `
+                        imageDisplay.innerHTML = images.map(img => {
+                            const src = img.shareableLink || img.directLink || (img.cloudLink && img.cloudLink.url) || img.data || '';
+                            return `
                             <div class="inline-block m-2">
-                                <img src="${img.data}" alt="${Utils.escapeHTML(img.name || '')}" class="max-w-xs max-h-48 rounded border cursor-pointer" onclick="window.open('${img.data}', '_blank')">
+                                <img src="${src}" alt="${Utils.escapeHTML(img.name || '')}" class="max-w-xs max-h-48 rounded border cursor-pointer" onclick="window.open('${src}', '_blank')" onerror="this.style.display='none'">
                             </div>
-                        `).join('');
+                        `;
+                        }).join('');
                     }
                 }
             } else {
@@ -6500,7 +6531,7 @@ const DailyObservations = {
                 } else if (typeof DataManager !== 'undefined' && typeof DataManager.save === 'function') {
                     DataManager.save();
                 } else {
-                    Utils.safeWarn('⚠️ DataManager غير متاح - لم يتم حفظ البيانات محلياً');
+                    Utils.safeWarn('DataManager غير متاح - لم يتم حفظ البيانات محلياً');
                 }
             } catch (saveError) {
                 Utils.safeError('خطأ في حفظ البيانات محلياً:', saveError);
@@ -6789,28 +6820,37 @@ const DailyObservations = {
                             <strong class="text-gray-700 block mb-3 text-lg">المرفقات:</strong>
                             <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 ${observation.attachments.map((attachment) => {
-            const isImage = (attachment.type || '').startsWith('image/');
+            const attNameLower = (attachment.name || '').toLowerCase();
+            const isImage = (attachment.type || '').startsWith('image/') ||
+                            /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(attNameLower);
+            const imgSrc = attachment.shareableLink || attachment.directLink ||
+                           (attachment.cloudLink && attachment.cloudLink.url) || attachment.data || '';
             const name = Utils.escapeHTML(attachment.name || 'مرفق');
-            if (isImage) {
+            if (isImage && imgSrc) {
                 return `
                                             <div class="border rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                                                <img src="${attachment.data}" alt="${name}" class="w-full h-48 object-cover cursor-pointer" onclick="window.open('${attachment.data}', '_blank')">
+                                                <img src="${imgSrc}" alt="${name}" class="w-full h-48 object-cover cursor-pointer" onclick="window.open('${imgSrc}', '_blank')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                                                <div style="display:none;align-items:center;justify-content:center;min-height:8rem;background:#f3f4f6;flex-direction:column;gap:0.5rem;padding:1rem;">
+                                                    <i class="fas fa-image" style="font-size:2rem;color:#9ca3af;"></i>
+                                                    <a href="${imgSrc}" target="_blank" rel="noopener noreferrer" style="color:#3b82f6;font-size:0.875rem;text-decoration:underline;">فتح الصورة في نافذة جديدة</a>
+                                                </div>
                                                 <div class="px-3 py-2 bg-gray-50 text-xs text-gray-700">${name}</div>
                                             </div>
                                         `;
             }
+            const fileSrc = imgSrc;
             return `
                                         <div class="border rounded-lg p-3 bg-gray-50 flex items-start gap-3 shadow-sm hover:shadow-md transition-shadow">
                                             <i class="fas fa-file-pdf text-2xl text-red-500"></i>
                                             <div class="flex-1">
                                                 <p class="text-sm font-semibold text-gray-800">${name}</p>
-                                                <button type="button" class="btn-secondary btn-xs mt-2" onclick="window.open('${attachment.data}', '_blank')">
+                                                <button type="button" class="btn-secondary btn-xs mt-2" onclick="window.open('${fileSrc}', '_blank')">
                                                     <i class="fas fa-eye ml-1"></i>عرض
                                                 </button>
                                             </div>
                                         </div>
                                     `;
-        }).join('')}
+        }).join('')}`
                             </div>
                         </div>
                         ` : ''}
@@ -8393,8 +8433,10 @@ const DailyObservations = {
                 observation.attachments.forEach((attachment) => {
                     const isImage = (attachment.type || '').startsWith('image/') || 
                                    (attachment.name || '').match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i);
-                    // استخدام shareableLink أولاً للحصول على رابط بصيغة view?usp=drive_link
-                    const imgSrc = attachment.shareableLink || attachment.directLink || attachment.cloudLink?.url || attachment.data || '';
+                    // تفضيل base64 أولاً (يعمل بدون CORS)، ثم directLink (قابل للتضمين)، ثم shareableLink
+                    const isBase64Data = typeof attachment.data === 'string' && attachment.data.startsWith('data:');
+                    const imgSrc = isBase64Data ? attachment.data
+                        : (attachment.directLink || (attachment.cloudLink && attachment.cloudLink.url) || attachment.data || attachment.shareableLink || '');
                     
                     if (isImage && imgSrc) {
                         images.push({
@@ -8489,10 +8531,16 @@ const DailyObservations = {
                 printWindow.document.write(htmlContent);
                 printWindow.document.close();
                 printWindow.onload = () => {
-                    setTimeout(() => {
-                        printWindow.print();
-                        Loading.hide();
-                    }, 500);
+                    const allImgs = Array.from(printWindow.document.images);
+                    if (allImgs.length === 0) {
+                        setTimeout(() => { printWindow.print(); Loading.hide(); }, 300);
+                        return;
+                    }
+                    let pending = allImgs.length;
+                    const tryPrint = () => { pending--; if (pending <= 0) { setTimeout(() => { printWindow.print(); Loading.hide(); }, 300); } };
+                    allImgs.forEach((img) => { if (img.complete) { tryPrint(); } else { img.addEventListener('load', tryPrint, { once: true }); img.addEventListener('error', tryPrint, { once: true }); } });
+                    // حد أقصى 8 ثوانٍ في حالة عدم تحميل الصور الخارجية
+                    setTimeout(() => { printWindow.print(); Loading.hide(); }, 8000);
                 };
             } else {
                 Loading.hide();
